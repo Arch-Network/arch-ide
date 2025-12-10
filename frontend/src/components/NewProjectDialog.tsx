@@ -18,11 +18,17 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+    // Prevent submission if name is blank
+    if (!name.trim()) {
+      return;
+    }
     onCreateProject(name, description, framework);
     setName('');
     setDescription('');
     setFramework('native');
   };
+
+  const isNameValid = name.trim().length > 0;
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -124,7 +130,11 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
               className="border-gray-300 bg-white text-gray-900 hover:bg-gray-50">
               Cancel
             </Button>
-            <Button type="submit" className="bg-[#E05A1A] hover:bg-[#d14e12] text-white">
+            <Button 
+              type="submit" 
+              className="bg-[#E05A1A] hover:bg-[#d14e12] text-white"
+              disabled={!isNameValid}
+            >
               Create Project
             </Button>
           </DialogFooter>
