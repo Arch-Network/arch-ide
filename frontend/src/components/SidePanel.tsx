@@ -60,11 +60,12 @@ interface SidePanelProps {
   connected: boolean;
   expandedFolders: Set<string>;
   onExpandedFoldersChange: (folders: Set<string>) => void;
+  isMobile?: boolean;
 }
 
 type View = 'explorer' | 'build';
 
-const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onBuild, onDeploy, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, onProgramIdChange, programIdl, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onSaveToHistory, onRestoreFromHistory, onDeleteFromHistory, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange }: SidePanelProps) => {
+const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onBuild, onDeploy, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, onProgramIdChange, programIdl, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onSaveToHistory, onRestoreFromHistory, onDeleteFromHistory, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange, isMobile = false }: SidePanelProps) => {
   const MIN_WIDTH = 420;
   const MAX_WIDTH = 800;
   const [width, setWidth] = useState(MIN_WIDTH);
@@ -93,8 +94,8 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
 
     return (
         <div
-          className="bg-gray-800 border-r border-gray-700 flex flex-col relative"
-          style={{ width: `${width}px` }}
+          className="bg-gray-800 border-r border-gray-700 flex flex-col relative h-full min-h-0"
+          style={isMobile ? { width: '100%' } : { width: `${width}px` }}
         >
           <div className="flex border-b border-gray-700">
         <Button
@@ -178,7 +179,7 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
           />
         )}
       </div>
-      <VerticalResizeHandle onMouseDown={handleResizeStart} />
+      {!isMobile && <VerticalResizeHandle onMouseDown={handleResizeStart} />}
     </div>
   );
 };

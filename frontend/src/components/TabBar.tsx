@@ -1,5 +1,5 @@
 import React from 'react';
-import { X } from 'lucide-react';
+import { WrapText, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FileNode, Project } from '../types';
 import {
@@ -16,9 +16,11 @@ interface TabBarProps {
   onSelectFile: (file: FileNode) => void;
   onCloseFile: (file: FileNode) => void;
   currentProject: Project | null;
+  isWordWrapEnabled?: boolean;
+  onToggleWordWrap?: () => void;
 }
 
-const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProject }: TabBarProps) => {
+const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProject, isWordWrapEnabled = true, onToggleWordWrap }: TabBarProps) => {
   const handleTabSelect = (file: FileNode) => {
     console.group('TabBar handleTabSelect');
     console.log('Tab selected:', {
@@ -52,7 +54,7 @@ const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProj
 
   return (
     <div className="flex items-center bg-gray-800 border-b border-gray-700">
-      <div className="flex overflow-x-auto">
+      <div className="flex overflow-x-auto flex-1 min-w-0">
         {openFiles.map((file) => (
           <div
             key={file.path || file.name}
@@ -86,6 +88,31 @@ const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProj
           </div>
         ))}
       </div>
+
+      {onToggleWordWrap && (
+        <div className="flex items-center px-2 border-l border-gray-700">
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={onToggleWordWrap}
+                  className={cn(
+                    "h-8 w-8 rounded-md flex items-center justify-center hover:bg-gray-700 transition-colors",
+                    isWordWrapEnabled ? "text-white" : "text-gray-400"
+                  )}
+                  aria-label={isWordWrapEnabled ? "Disable word wrap" : "Enable word wrap"}
+                >
+                  <WrapText className="h-4 w-4" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>{isWordWrapEnabled ? "Word wrap: On" : "Word wrap: Off"}</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+      )}
     </div>
   );
 };

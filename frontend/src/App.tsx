@@ -13,7 +13,7 @@ import NewItemDialog from './components/NewItemDialog';
 import { OutputMessage } from './components/Output';
 import { ConfigPanel } from './components/ConfigPanel';
 import { Button } from './components/ui/button';
-import { Settings } from 'lucide-react';
+import { Menu, Settings } from 'lucide-react';
 import SidePanel from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
 import type { ArchIdl } from './types';
@@ -275,6 +275,8 @@ const AppContent = () => {
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [openFiles, setOpenFiles] = useState<FileNode[]>([]);
   const [terminalHeight, setTerminalHeight] = useState(192);
+  const [isMobile, setIsMobile] = useState(false);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isNewFileDialogOpen, setIsNewFileDialogOpen] = useState(false);
   const [newItemPath, setNewItemPath] = useState<string[]>([]);
   const [newItemType, setNewItemType] = useState<'file' | 'directory'>();
@@ -287,6 +289,10 @@ const AppContent = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, FileChange>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
+  const [isWordWrapEnabled, setIsWordWrapEnabled] = useState(() => {
+    const v = localStorage.getItem('editor-word-wrap');
+    return v === null ? true : v === 'true';
+  });
   const [currentAccount, setCurrentAccount] = useState<{
     privkey: string;
     pubkey: string;
@@ -887,7 +893,20 @@ const AppContent = () => {
       // Save to localStorage immediately with the new file
       // (can't use saveTabState because state hasn't updated yet)
       localStorage.setItem('currentEditorFile', fileToUse.path || fileToUse.name);
+
+      // On mobile, close the sidebar drawer after selecting a file
+      if (isMobile) {
+        setIsMobileSidebarOpen(false);
+      }
     }
+  };
+
+  const handleToggleWordWrap = () => {
+    setIsWordWrapEnabled((prev) => {
+      const next = !prev;
+      localStorage.setItem('editor-word-wrap', String(next));
+      return next;
+    });
   };
 
   const handleCloseFile = useCallback((file: FileNode) => {
@@ -1857,83 +1876,169 @@ const AppContent = () => {
     }
   }, []);
 
+  // Mobile breakpoint handling
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    const onChange = (e: MediaQueryListEvent) => {
+      setIsMobile(e.matches);
+      if (!e.matches) setIsMobileSidebarOpen(false);
+    };
+    // init
+    setIsMobile(mq.matches);
+    if (!mq.matches) setIsMobileSidebarOpen(false);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
   return (
-    <div className="h-screen flex flex-col" style={{
+    <div className="h-[100dvh] min-h-0 flex flex-col" style={{
       backgroundColor: theme.colors.default.bgPrimary,
       color: theme.colors.default.textPrimary
     }}>
-      <nav className="flex items-center justify-between px-6 py-4" style={{
+      <nav className="flex flex-wrap items-center gap-2 px-3 py-2 md:px-6 md:py-4" style={{
         borderBottom: `1px solid ${theme.colors.default.border}`,
         backgroundColor: theme.colors.default.bgSecondary
       }}>
-        <div className="flex items-center gap-6">
-          <img src="/images/logo.svg" alt="Logo" className="h-12 w-21" />
-          <h1 className="text-3xl font-bold text-white">Playground</h1>
+        <div className="order-1 flex items-center gap-3 md:gap-6">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="md:hidden"
+            onClick={() => setIsMobileSidebarOpen(true)}
+            aria-label="Open sidebar"
+          >
+            <Menu className="h-6 w-6" />
+          </Button>
+          <img src="/images/logo.svg" alt="Logo" className="h-8 w-auto md:h-12 md:w-21" />
+          <h1 className="hidden md:block text-3xl font-bold text-white">Playground</h1>
         </div>
-        <ProjectList
-          projects={projects}
-          currentProject={fullCurrentProject || undefined}
-          onSelectProject={handleProjectSelect}
-          onNewProject={handleNewProject}
-          onDeleteProject={handleDeleteProject}
-          onProjectsChange={setProjects}
-          onDeleteAllProjects={handleDeleteAllProjects}
-        />
-        <Button variant="ghost" size="icon" onClick={() => setIsConfigOpen(true)}>
+
+        <Button className="order-2 md:order-3" variant="ghost" size="icon" onClick={() => setIsConfigOpen(true)} aria-label="Open settings">
           <Settings className="h-6 w-6" />
         </Button>
+
+        <div className="order-3 w-full md:order-2 md:w-auto">
+          <ProjectList
+            projects={projects}
+            currentProject={fullCurrentProject || undefined}
+            onSelectProject={handleProjectSelect}
+            onNewProject={handleNewProject}
+            onDeleteProject={handleDeleteProject}
+            onProjectsChange={setProjects}
+            onDeleteAllProjects={handleDeleteAllProjects}
+          />
+        </div>
       </nav>
 
-      <div className="flex flex-1 overflow-hidden">
-        <SidePanel
-              connected={isConnected}
-              hasProjects={projects.length > 0}
-              currentView={currentView}
-              onViewChange={setCurrentView}
-              currentFile={currentFile}
-              files={fullCurrentProject?.files || []}
-              onFileSelect={handleFileSelect}
-              onUpdateTree={handleUpdateTreeAdapter}
-              onNewItem={handleNewItem}
-              onBuild={handleBuild}
-              onDeploy={handleDeploy}
-              isBuilding={isCompiling}
-              isDeploying={isDeploying}
-              programId={programId}
-              programBinary={programBinary}
-              onProgramBinaryChange={setProgramBinary}
-              programIdl={programIdl}
-              config={config}
-              onConfigChange={setConfig}
-              onConnectionStatusChange={setIsConnected}
-              onProgramIdChange={handleProgramIdChange}
-              currentAccount={currentAccount}
-              onAccountChange={setCurrentAccount}
-              project={fullCurrentProject}
-              onProjectAccountChange={handleProjectAccountChange}
-              onAuthorityAccountChange={handleAuthorityAccountChange}
-              onSaveToHistory={handleSaveToHistory}
-              onRestoreFromHistory={handleRestoreFromHistory}
-              onDeleteFromHistory={handleDeleteFromHistory}
-              onProjectUpdate={handleProjectUpdate}
-              onNewProject={handleNewProject}
-              onOpenHomeTab={handleOpenHomeTab}
-              binaryFileName={binaryFileName}
-              setBinaryFileName={setBinaryFileName}
-              addOutputMessage={addOutputMessage}
-              expandedFolders={expandedFolders}
-              onExpandedFoldersChange={setExpandedFolders}
-            />
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Desktop sidebar */}
+        <div className="hidden md:block">
+          <SidePanel
+            connected={isConnected}
+            hasProjects={projects.length > 0}
+            currentView={currentView}
+            onViewChange={setCurrentView}
+            currentFile={currentFile}
+            files={fullCurrentProject?.files || []}
+            onFileSelect={handleFileSelect}
+            onUpdateTree={handleUpdateTreeAdapter}
+            onNewItem={handleNewItem}
+            onBuild={handleBuild}
+            onDeploy={handleDeploy}
+            isBuilding={isCompiling}
+            isDeploying={isDeploying}
+            programId={programId}
+            programBinary={programBinary}
+            onProgramBinaryChange={setProgramBinary}
+            programIdl={programIdl}
+            config={config}
+            onConfigChange={setConfig}
+            onConnectionStatusChange={setIsConnected}
+            onProgramIdChange={handleProgramIdChange}
+            currentAccount={currentAccount}
+            onAccountChange={setCurrentAccount}
+            project={fullCurrentProject}
+            onProjectAccountChange={handleProjectAccountChange}
+            onAuthorityAccountChange={handleAuthorityAccountChange}
+            onSaveToHistory={handleSaveToHistory}
+            onRestoreFromHistory={handleRestoreFromHistory}
+            onDeleteFromHistory={handleDeleteFromHistory}
+            onProjectUpdate={handleProjectUpdate}
+            onNewProject={handleNewProject}
+            onOpenHomeTab={handleOpenHomeTab}
+            binaryFileName={binaryFileName}
+            setBinaryFileName={setBinaryFileName}
+            addOutputMessage={addOutputMessage}
+            expandedFolders={expandedFolders}
+            onExpandedFoldersChange={setExpandedFolders}
+            isMobile={false}
+          />
+        </div>
 
-            <div className="flex flex-col flex-1 overflow-hidden">
+        {/* Mobile sidebar drawer */}
+        {isMobile && isMobileSidebarOpen && (
+          <div className="fixed inset-0 z-40 md:hidden">
+            <div
+              className="absolute inset-0 bg-black/50"
+              onClick={() => setIsMobileSidebarOpen(false)}
+              aria-hidden="true"
+            />
+            <div className="absolute inset-y-0 left-0 w-[min(92vw,420px)] max-w-full shadow-xl flex flex-col">
+              <SidePanel
+                connected={isConnected}
+                hasProjects={projects.length > 0}
+                currentView={currentView}
+                onViewChange={setCurrentView}
+                currentFile={currentFile}
+                files={fullCurrentProject?.files || []}
+                onFileSelect={handleFileSelect}
+                onUpdateTree={handleUpdateTreeAdapter}
+                onNewItem={handleNewItem}
+                onBuild={handleBuild}
+                onDeploy={handleDeploy}
+                isBuilding={isCompiling}
+                isDeploying={isDeploying}
+                programId={programId}
+                programBinary={programBinary}
+                onProgramBinaryChange={setProgramBinary}
+                programIdl={programIdl}
+                config={config}
+                onConfigChange={setConfig}
+                onConnectionStatusChange={setIsConnected}
+                onProgramIdChange={handleProgramIdChange}
+                currentAccount={currentAccount}
+                onAccountChange={setCurrentAccount}
+                project={fullCurrentProject}
+                onProjectAccountChange={handleProjectAccountChange}
+                onAuthorityAccountChange={handleAuthorityAccountChange}
+                onSaveToHistory={handleSaveToHistory}
+                onRestoreFromHistory={handleRestoreFromHistory}
+                onDeleteFromHistory={handleDeleteFromHistory}
+                onProjectUpdate={handleProjectUpdate}
+                onNewProject={handleNewProject}
+                onOpenHomeTab={handleOpenHomeTab}
+                binaryFileName={binaryFileName}
+                setBinaryFileName={setBinaryFileName}
+                addOutputMessage={addOutputMessage}
+                expandedFolders={expandedFolders}
+                onExpandedFoldersChange={setExpandedFolders}
+                isMobile={true}
+              />
+            </div>
+          </div>
+        )}
+
+            <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
               <TabBar
                 openFiles={openFiles}
                 currentFile={currentFile}
                 onSelectFile={handleFileSelect}
                 onCloseFile={handleCloseFile}
                 currentProject={fullCurrentProject}
+                isWordWrapEnabled={isWordWrapEnabled}
+                onToggleWordWrap={handleToggleWordWrap}
               />
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 min-h-0 overflow-hidden">
               <Editor
                 code={currentFile?.content ?? '// Select a file to edit'}
                 onChange={handleFileChange}
@@ -1945,15 +2050,19 @@ const AppContent = () => {
                 onNewProject={handleNewProject}
                 onSelectProject={handleProjectSelect}
                 onLoadExample={handleLoadExampleProject}
+                isWordWrapEnabled={isWordWrapEnabled}
               />
               </div>
 
-              <div style={{ height: terminalHeight }} className="flex flex-col border-t border-gray-700">
-                <ResizeHandle onMouseDown={handleResizeStart} />
-                <div className="flex-1 min-h-0">
-                  <Output messages={outputMessages} onClear={clearOutputMessages} />
+              {/* Desktop-only terminal/output pane (mobile uses the bottom status sheet instead) */}
+              {!isMobile && (
+                <div style={{ height: terminalHeight }} className="flex flex-col flex-shrink-0 border-t border-gray-700">
+                  <ResizeHandle onMouseDown={handleResizeStart} />
+                  <div className="flex-1 min-h-0">
+                    <Output messages={outputMessages} onClear={clearOutputMessages} />
+                  </div>
                 </div>
-              </div>
+              )}
             </div>
       </div>
 

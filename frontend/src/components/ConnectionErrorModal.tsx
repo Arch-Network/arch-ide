@@ -1,13 +1,6 @@
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-  } from "./ui/dialog";
   import { Button } from "./ui/button";
-  import { Copy } from "lucide-react";
+  import { Copy, X } from "lucide-react";
   import { useEffect, useState } from "react";
-  import { X } from "lucide-react";
 
   const MODAL_PREFERENCE_KEY = 'connection-modal-dismissed';
 
@@ -92,44 +85,54 @@ import {
       onClose();
     };
 
-    // Check if modal was previously dismissed
-    const shouldShow = () => {
-      return isOpen && !isConnected; // Only show if not connected
-    };
-
-    if (!shouldShow()) return null;
+    const wasDismissed = persistDismissal && localStorage.getItem(MODAL_PREFERENCE_KEY) === 'true';
+    if (!isOpen || isConnected || wasDismissed) return null;
 
     return (
-      <Dialog open={true} onOpenChange={handleClose}>
-        <DialogContent className="sm:max-w-[600px] bg-[#1C1E26] border-gray-800" showCloseButton={false}>
-          <DialogHeader className="flex flex-row items-center justify-between">
-            <DialogTitle className="text-xl font-mono text-white">
-              Connect to {network}
-            </DialogTitle>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onClose}
-              className="h-8 w-8 hover:bg-gray-700 text-gray-400 hover:text-white absolute right-4 top-4"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </DialogHeader>
+      <div className="fixed inset-0 z-50">
+        {/* Layer 2: dimmed overlay */}
+        <div
+          className="absolute inset-0 bg-black/50"
+          aria-hidden="true"
+          onClick={handleClose}
+        />
 
-          <div className="bg-[#15171E] text-red-400 p-4 rounded-md flex items-center gap-2 mt-4">
-            <span className="text-2xl">☹</span>
-            <span>
-              Unable to connect to {network} using {actualUrl || rpcUrl}
-              {actualUrl && actualUrl !== rpcUrl && (
-                <span className="block text-xs mt-1">
-                  (Attempted connection via {actualUrl})
-                </span>
-              )}
-            </span>
-          </div>
+        {/* Layer 3: centered modal */}
+        <div className="absolute inset-0 flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl bg-[#1C1E26] border border-gray-800 rounded-lg p-6 shadow-lg animate-in fade-in">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h1 className="text-xl font-semibold text-white">
+                  Connect to {network}
+                </h1>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={handleClose}
+                className="h-9 w-9 rounded-md hover:bg-gray-700/50 text-gray-300 hover:text-white"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+
+            <div className="bg-[#15171E] text-red-300 p-4 rounded-md flex items-start gap-3 mt-5">
+              <span className="text-2xl leading-none">☹</span>
+              <div className="text-sm">
+                <div>
+                  Unable to connect to {network} using <span className="font-mono">{actualUrl || rpcUrl}</span>
+                </div>
+                {actualUrl && actualUrl !== rpcUrl && (
+                  <div className="text-xs mt-1 text-red-200/80">
+                    (Attempted connection via {actualUrl})
+                  </div>
+                )}
+              </div>
+            </div>
 
           <div className="mt-6">
-            <h2 className="text-lg font-mono text-white mb-2">
+            <h2 className="text-lg font-semibold text-white mb-2">
               {isLocalnet ? 'How to connect' : 'Connection Issues'}
             </h2>
             <p className="text-gray-400 mb-6">
@@ -142,7 +145,7 @@ import {
               {isLocalnet ? (
                 <>
                   <div>
-                    <h3 className="text-white font-mono mb-2">
+                    <h3 className="text-white font-medium mb-2">
                       1. {instructions.title}
                     </h3>
                     <p className="text-gray-400 mb-2">
@@ -179,7 +182,7 @@ import {
                   </div>
 
                   <div>
-                    <h3 className="text-white font-mono mb-2">
+                    <h3 className="text-white font-medium mb-2">
                       2. Start the local validator
                     </h3>
                     <div className="bg-[#15171E] p-4 rounded-md font-mono text-sm relative group">
@@ -218,7 +221,7 @@ import {
 
             <div className="mt-6 text-gray-400 text-sm">
               {isLocalnet ? (
-                <a href="https://docs.arch.network/book/" target="_blank" rel="noopener noreferrer" className="text-white font-mono flex items-center gap-2">
+                <a href="https://docs.arch.network/book/" target="_blank" rel="noopener noreferrer" className="text-white font-medium flex items-center gap-2">
                   <span>❯</span> Having issues?
                 </a>
               ) : (
@@ -226,7 +229,8 @@ import {
               )}
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      </div>
     );
   };

@@ -21,6 +21,7 @@ interface EditorProps {
   onNewProject?: () => void;
   onSelectProject?: (project: any) => void;
   onLoadExample?: (exampleName: string) => Promise<void>;
+  isWordWrapEnabled?: boolean;
 }
 
 
@@ -162,7 +163,8 @@ const Editor = ({
   recentProjects = [],
   onNewProject,
   onSelectProject,
-  onLoadExample
+  onLoadExample,
+  isWordWrapEnabled = true
 }: EditorProps) => {
   const [editorContent, setEditorContent] = useState<string>(code || '');
   const isWelcomeScreen = !currentFile;
@@ -366,7 +368,9 @@ const Editor = ({
         options={{
           // Current options
           minimap: { enabled: false },
-          fontSize: 12,
+          // iOS Safari auto-zooms focused editable areas when font-size < 16px.
+          // Use a larger editor font on small screens to prevent viewport zoom getting "stuck".
+          fontSize: typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches ? 16 : 12,
           scrollBeyondLastLine: false,
           lineNumbers: 'on',
           renderWhitespace: 'selection',
@@ -376,7 +380,7 @@ const Editor = ({
           // New options
           automaticLayout: true,
           bracketPairColorization: { enabled: true },
-          wordWrap: 'on',
+          wordWrap: isWordWrapEnabled ? 'on' : 'off',
           formatOnPaste: true,
           hover: {
             enabled: true,

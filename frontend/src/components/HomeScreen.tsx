@@ -151,7 +151,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   return (
     <div className="h-full overflow-auto bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
-      <div className="max-w-7xl mx-auto p-8 space-y-12">
+      <div className="max-w-7xl mx-auto p-4 sm:p-8 space-y-12">
         {/* Hero Section */}
         <div className="text-center space-y-6 py-12">
           <div className="flex items-center justify-center gap-4">
@@ -163,11 +163,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <p className="text-xl text-gray-400 max-w-2xl mx-auto">
             Build Bitcoin-native programs with Rust + eBPF. Learn. Explore. Create.
           </p>
-          <div className="flex items-center justify-center gap-4 pt-4">
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4 pt-4 px-2 sm:px-0">
             <Button
               size="lg"
               onClick={onNewProject}
-              className="bg-[#F7931A] hover:bg-[#E8870E] text-gray-900 font-bold shadow-lg hover:shadow-xl transition-all"
+              className="w-full sm:w-auto bg-[#F7931A] hover:bg-[#E8870E] text-gray-900 font-bold shadow-lg hover:shadow-xl transition-all"
             >
               <Plus className="mr-2 h-5 w-5" />
               Create New Project
@@ -176,7 +176,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               size="lg"
               variant="outline"
               onClick={() => window.open('https://docs.arch.network', '_blank')}
-              className="border-gray-400 text-black hover:text-white hover:bg-gray-800 hover:border-[#F7931A] font-semibold"
+              className="w-full sm:w-auto bg-gray-900/30 border-gray-600 text-white hover:text-white hover:bg-gray-800/60 hover:border-[#F7931A] font-semibold"
             >
               <BookOpen className="mr-2 h-5 w-5" />
               Documentation

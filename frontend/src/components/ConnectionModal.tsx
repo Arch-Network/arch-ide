@@ -1,9 +1,3 @@
-import {
-    Dialog,
-    DialogContent,
-    DialogHeader,
-    DialogTitle,
-  } from "./ui/dialog";
   import { X } from "lucide-react";
   import { Button } from "./ui/button";
   
@@ -13,24 +7,30 @@ import {
   }
   
   export const ConnectionModal = ({ isOpen, onClose }: ConnectionModalProps) => {
+    if (!isOpen) return null;
     return (
-      <Dialog open={isOpen} onOpenChange={onClose}>
-        <DialogContent className="sm:max-w-[500px] bg-[#1C1E26] border-gray-800">
-          <DialogHeader>
-            <div className="flex items-center justify-between">
-              <DialogTitle className="text-xl font-mono text-white">
+      <div className="fixed inset-0 z-50">
+        <div
+          className="absolute inset-0 bg-black/50"
+          aria-hidden="true"
+          onClick={onClose}
+        />
+        <div className="absolute inset-0 flex items-center justify-center p-4">
+          <div className="w-full max-w-xl bg-[#1C1E26] border border-gray-800 rounded-lg p-6 shadow-lg animate-in fade-in">
+            <div className="flex items-start justify-between gap-4">
+              <h1 className="text-xl font-semibold text-white">
                 Connect to localnet
-              </DialogTitle>
+              </h1>
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-6 w-6"
+                className="h-9 w-9 rounded-md hover:bg-gray-700/50 text-gray-300 hover:text-white"
                 onClick={onClose}
+                aria-label="Close"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </Button>
             </div>
-          </DialogHeader>
   
           <div className="bg-[#15171E] text-red-400 p-4 rounded-md flex items-center gap-2 mt-4">
             <span className="text-2xl">☹</span>
@@ -78,12 +78,13 @@ import {
             </div>
   
             <div className="mt-6">
-              <button className="text-white font-mono flex items-center gap-2">
+              <button className="text-white font-medium flex items-center gap-2">
                 <span>❯</span> Having issues?
               </button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+          </div>
+        </div>
+      </div>
     );
   };

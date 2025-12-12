@@ -139,12 +139,12 @@ const ProjectList = ({
   };
 
   return (
-    <div className="flex items-center gap-2 px-4 py-2 border-b border-gray-800">
+    <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
       <Select
         value={selectedId}
         onValueChange={handleProjectSelect}
       >
-        <SelectTrigger className="w-[200px] bg-background text-foreground border-input">
+        <SelectTrigger className="w-full md:w-[260px] bg-background text-foreground border-input">
           <SelectValue placeholder="Select a project" />
         </SelectTrigger>
         <SelectContent className="bg-background border-input">

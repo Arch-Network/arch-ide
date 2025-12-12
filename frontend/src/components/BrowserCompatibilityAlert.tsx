@@ -1,12 +1,20 @@
 import { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 
+const BROWSER_COMPAT_DISMISSED_KEY = 'browser-compatibility-alert-dismissed';
+
 export const BrowserCompatibilityAlert = () => {
   const [browser, setBrowser] = useState<string>('');
   const [dismissed, setDismissed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
+    // Respect persisted dismissal
+    if (localStorage.getItem(BROWSER_COMPAT_DISMISSED_KEY) === 'true') {
+      setDismissed(true);
+      return;
+    }
+
     // Detect browser
     if (navigator.userAgent.includes("Safari") && !navigator.userAgent.includes("Chrome")) {
       setBrowser('safari');
@@ -17,13 +25,18 @@ export const BrowserCompatibilityAlert = () => {
 
   if (browser !== 'safari' || dismissed) return null;
 
+  const dismissForever = () => {
+    localStorage.setItem(BROWSER_COMPAT_DISMISSED_KEY, 'true');
+    setDismissed(true);
+  };
+
   return (
     <div className="fixed inset-0 z-50">
       {/* Layer 2: dimmed overlay above the app */}
       <div
         className="absolute inset-0 bg-black/50"
         aria-hidden="true"
-        onClick={() => setDismissed(true)}
+        onClick={dismissForever}
       />
 
       {/* Layer 3: centered modal above the overlay */}
@@ -49,7 +62,7 @@ export const BrowserCompatibilityAlert = () => {
               </p>
               <div className="mt-3 flex gap-3">
                 <button
-                  onClick={() => setDismissed(true)}
+                  onClick={dismissForever}
                   className="text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-3 py-1.5 rounded-md transition-colors"
                 >
                   Dismiss

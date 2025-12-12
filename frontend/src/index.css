@@ -154,3 +154,13 @@ body {
   overflow-y: auto !important;
   padding: 4px 8px !important;
 }
+
+/* iOS Safari zoom prevention: keep editable font-size >= 16px on small screens */
+@media (max-width: 767px) {
+  .monaco-editor,
+  .monaco-editor .view-lines,
+  .monaco-editor textarea,
+  .monaco-editor [contenteditable="true"] {
+    font-size: 16px !important;
+  }
+}
