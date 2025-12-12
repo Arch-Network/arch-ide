@@ -1441,6 +1441,36 @@ const AppContent = () => {
     setFullCurrentProject(updatedProject);
   };
 
+  const handleSaveToHistory = async (account: ProjectAccount) => {
+    if (!fullCurrentProject) return;
+    await projectService.addHistoricalAuthorityAccount(fullCurrentProject.id, account, 'regenerated');
+    // Refresh project to get updated history
+    const updatedProject = await projectService.getProject(fullCurrentProject.id);
+    if (updatedProject) {
+      setFullCurrentProject(updatedProject);
+    }
+  };
+
+  const handleRestoreFromHistory = async (index: number) => {
+    if (!fullCurrentProject) return;
+    await projectService.restoreHistoricalAuthorityAccount(fullCurrentProject.id, index);
+    // Refresh project to get updated authority account
+    const updatedProject = await projectService.getProject(fullCurrentProject.id);
+    if (updatedProject) {
+      setFullCurrentProject(updatedProject);
+    }
+  };
+
+  const handleDeleteFromHistory = async (index: number) => {
+    if (!fullCurrentProject) return;
+    await projectService.removeHistoricalAuthorityAccount(fullCurrentProject.id, index);
+    // Refresh project to get updated history
+    const updatedProject = await projectService.getProject(fullCurrentProject.id);
+    if (updatedProject) {
+      setFullCurrentProject(updatedProject);
+    }
+  };
+
   const handleProjectUpdate = async (updatedProject: Project) => {
     console.log('🔄 handleProjectUpdate called:', {
       id: updatedProject.id,
@@ -1882,6 +1912,9 @@ const AppContent = () => {
               project={fullCurrentProject}
               onProjectAccountChange={handleProjectAccountChange}
               onAuthorityAccountChange={handleAuthorityAccountChange}
+              onSaveToHistory={handleSaveToHistory}
+              onRestoreFromHistory={handleRestoreFromHistory}
+              onDeleteFromHistory={handleDeleteFromHistory}
               onProjectUpdate={handleProjectUpdate}
               onNewProject={handleNewProject}
               onOpenHomeTab={handleOpenHomeTab}

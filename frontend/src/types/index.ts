@@ -15,6 +15,13 @@ export interface ProjectAccount {
   address: string;
 }
 
+export interface HistoricalAuthorityAccount {
+  account: ProjectAccount;
+  savedAt: Date;
+  reason: 'regenerated' | 'project_deleted' | 'manual';
+  note?: string; // Optional user note
+}
+
 export type ProjectFramework = 'native' | 'satellite';
 
 export interface Project {
@@ -28,6 +35,7 @@ export interface Project {
   lastAccessed?: Date;
   account?: ProjectAccount; // Program keypair (the deployed program's identity)
   authorityAccount?: ProjectAccount; // Authority keypair (used to deploy and manage programs)
+  historicalAuthorityAccounts?: HistoricalAuthorityAccount[]; // Historical authority keypairs
 }
 
 export interface ArchInstruction {

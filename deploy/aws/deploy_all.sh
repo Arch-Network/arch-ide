@@ -179,10 +179,10 @@ if [ "$SKIP_FRONTEND" = false ]; then
 
     log_info "S3 Bucket: $FRONTEND_BUCKET"
 
-    # Build frontend with API URL pointing to CloudFront (which proxies /api/* to ALB)
-    log_info "Building frontend with VITE_API_URL=https://ide.test.arch.network..."
+    # Build frontend with API URL pointing to production domain (CloudFront -> ALB)
+    log_info "Building frontend with VITE_API_URL=https://ide.arch.network..."
     cd frontend
-    VITE_API_URL=https://ide.test.arch.network npm run build
+    VITE_API_URL=https://ide.arch.network npm run build
     cd ..
 
     log_info "✓ Frontend build complete"
@@ -247,7 +247,7 @@ if [ "$SKIP_FRONTEND" = false ]; then
     log_info "Frontend:"
     log_info "  • S3 Bucket: $FRONTEND_BUCKET"
     log_info "  • CloudFront: $CLOUDFRONT_DIST_ID"
-    log_info "  • URL: https://ide.test.arch.network"
+    log_info "  • URL: https://ide.arch.network"
 fi
 
 log_info ""

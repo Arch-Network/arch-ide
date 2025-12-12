@@ -5,12 +5,12 @@ variable "region" {
 
 variable "domain_name" {
   type        = string
-  description = "ide.test.arch.network"
+  description = "ide.arch.network"
 }
 
 variable "zone_name" {
   type        = string
-  description = "test.arch.network."
+  description = "arch.network."
 }
 
 variable "acm_certificate_arn" {

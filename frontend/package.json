@@ -5,6 +5,8 @@
   "main": "index.js",
   "scripts": {
     "dev": "vite",
+    "build:wasm": "cd wasm/rust-analyzer && wasm-pack build --target web --out-dir pkg",
+    "prebuild": "npm run build:wasm",
     "build": "vite build --mode production --emptyOutDir",
     "preview": "vite preview"
   },

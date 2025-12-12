@@ -48,6 +48,9 @@ interface SidePanelProps {
   project: Project | null;
   onProjectAccountChange: (account: ProjectAccount | null) => void;
   onAuthorityAccountChange: (account: ProjectAccount | null) => void;
+  onSaveToHistory?: (account: ProjectAccount) => Promise<void>;
+  onRestoreFromHistory?: (index: number) => Promise<void>;
+  onDeleteFromHistory?: (index: number) => Promise<void>;
   onProjectUpdate?: (project: Project) => void;
   onNewProject: () => void;
   onOpenHomeTab?: () => void;
@@ -61,7 +64,7 @@ interface SidePanelProps {
 
 type View = 'explorer' | 'build';
 
-const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onBuild, onDeploy, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, onProgramIdChange, programIdl, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange }: SidePanelProps) => {
+const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onBuild, onDeploy, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, onProgramIdChange, programIdl, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onSaveToHistory, onRestoreFromHistory, onDeleteFromHistory, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange }: SidePanelProps) => {
   const MIN_WIDTH = 420;
   const MAX_WIDTH = 800;
   const [width, setWidth] = useState(MIN_WIDTH);
@@ -166,6 +169,9 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
             project={project}
             onProjectAccountChange={onProjectAccountChange}
             onAuthorityAccountChange={onAuthorityAccountChange}
+            onSaveToHistory={onSaveToHistory}
+            onRestoreFromHistory={onRestoreFromHistory}
+            onDeleteFromHistory={onDeleteFromHistory}
             binaryFileName={binaryFileName}
             setBinaryFileName={setBinaryFileName}
             connected={connected}

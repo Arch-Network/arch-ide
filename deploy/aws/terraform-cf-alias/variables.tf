@@ -10,12 +10,12 @@ variable "dns_profile" {
 
 variable "zone_name" {
   type        = string
-  description = "test.arch.network."
+  description = "arch.network."
 }
 
 variable "hostname" {
   type        = string
-  description = "ide.test.arch.network"
+  description = "ide.arch.network"
 }
 
 variable "distribution_domain" {

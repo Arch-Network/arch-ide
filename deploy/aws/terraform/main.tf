@@ -163,7 +163,7 @@ resource "aws_ecs_task_definition" "server" {
       portMappings = [{ containerPort = var.port, hostPort = var.port, protocol = "tcp" }]
       environment = [
         { name = "PORT", value = tostring(var.port) },
-        { name = "CLIENT_URL", value = "https://ide.test.arch.network" },
+        { name = "CLIENT_URL", value = "https://ide.arch.network" },
         { name = "VERBOSE", value = "1" }
       ]
       logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.server.name, awslogs-region = var.region, awslogs-stream-prefix = "ecs" } }

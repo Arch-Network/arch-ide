@@ -43,6 +43,9 @@ import Identicon from './Identicon';
     project: Project | null;
     onProjectAccountChange: (account: ProjectAccount) => void;
     onAuthorityAccountChange: (account: ProjectAccount | null) => void;
+    onSaveToHistory?: (account: ProjectAccount) => Promise<void>;
+    onRestoreFromHistory?: (index: number) => Promise<void>;
+    onDeleteFromHistory?: (index: number) => Promise<void>;
     binaryFileName: string | null;
     setBinaryFileName: (name: string | null) => void;
     connected: boolean;
@@ -65,6 +68,9 @@ import Identicon from './Identicon';
     project,
     onProjectAccountChange,
     onAuthorityAccountChange,
+    onSaveToHistory,
+    onRestoreFromHistory,
+    onDeleteFromHistory,
     binaryFileName,
     setBinaryFileName,
     connected
@@ -366,6 +372,9 @@ import Identicon from './Identicon';
             <AuthorityAccountPanel
               project={project}
               onAuthorityAccountChange={onAuthorityAccountChange}
+              onSaveToHistory={onSaveToHistory}
+              onRestoreFromHistory={onRestoreFromHistory}
+              onDeleteFromHistory={onDeleteFromHistory}
               config={config}
               isConnected={isRpcConnected}
             />

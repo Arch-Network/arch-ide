@@ -1144,6 +1144,62 @@ export class ProjectService {
     }
   }
 
+  async addHistoricalAuthorityAccount(
+    projectId: string,
+    account: ProjectAccount,
+    reason: 'regenerated' | 'project_deleted' | 'manual'
+  ): Promise<void> {
+    await this.ensureInitialized();
+    const project = await this.storage.getProject(projectId);
+    if (project) {
+      if (!project.historicalAuthorityAccounts) {
+        project.historicalAuthorityAccounts = [];
+      }
+      
+      // Limit to last 10 historical keys
+      if (project.historicalAuthorityAccounts.length >= 10) {
+        project.historicalAuthorityAccounts.shift();
+      }
+      
+      project.historicalAuthorityAccounts.push({
+        account,
+        savedAt: new Date(),
+        reason,
+      });
+      
+      project.lastModified = new Date();
+      await this.storage.saveProject(project);
+    }
+  }
+
+  async restoreHistoricalAuthorityAccount(projectId: string, historicalIndex: number): Promise<void> {
+    await this.ensureInitialized();
+    const project = await this.storage.getProject(projectId);
+    if (project && project.historicalAuthorityAccounts && project.historicalAuthorityAccounts[historicalIndex]) {
+      const historicalKey = project.historicalAuthorityAccounts[historicalIndex];
+      
+      // Save current authority account to history if it exists
+      if (project.authorityAccount) {
+        await this.addHistoricalAuthorityAccount(projectId, project.authorityAccount, 'regenerated');
+      }
+      
+      // Restore the historical key
+      project.authorityAccount = historicalKey.account;
+      project.lastModified = new Date();
+      await this.storage.saveProject(project);
+    }
+  }
+
+  async removeHistoricalAuthorityAccount(projectId: string, historicalIndex: number): Promise<void> {
+    await this.ensureInitialized();
+    const project = await this.storage.getProject(projectId);
+    if (project && project.historicalAuthorityAccounts && project.historicalAuthorityAccounts[historicalIndex]) {
+      project.historicalAuthorityAccounts.splice(historicalIndex, 1);
+      project.lastModified = new Date();
+      await this.storage.saveProject(project);
+    }
+  }
+
   async saveProject(project: Project): Promise<void> {
     await this.ensureInitialized();
     // Prevent auto-saving during development hot reload
@@ -1166,6 +1222,11 @@ export class ProjectService {
 
   async deleteProject(id: string): Promise<void> {
     await this.ensureInitialized();
+    // Save authority account to history before deleting project
+    const project = await this.storage.getProject(id);
+    if (project && project.authorityAccount) {
+      await this.addHistoricalAuthorityAccount(id, project.authorityAccount, 'project_deleted');
+    }
     await this.storage.deleteProject(id);
   }
 

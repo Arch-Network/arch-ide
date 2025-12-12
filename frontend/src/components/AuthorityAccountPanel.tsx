@@ -1,6 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from './ui/button';
-import { Copy, Download, Key, RefreshCw, AlertCircle, CheckCircle2, Wallet, RotateCcw, ExternalLink, Droplets } from 'lucide-react';
+import { Copy, Download, Key, RefreshCw, AlertCircle, CheckCircle2, Wallet, RotateCcw, ExternalLink, Droplets, MoreVertical, History } from 'lucide-react';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from './ui/dropdown-menu';
 import { ProjectAccount, Project } from '../types';
 import { generateArchKeypair, downloadKeypairJSON, formatAddress, formatPubkey } from '../utils/keypairGenerator';
 import { RpcConnection } from '@saturnbtcio/arch-sdk';
@@ -10,10 +16,14 @@ import { hexToBase58 } from '../utils/base58';
 // Identicon removed per design update
 import { requestFaucetFunds, isFaucetAvailable } from '../utils/faucet';
 import { useToast } from './ui/use-toast';
+import HistoricalKeysModal from './HistoricalKeysModal';
 
 interface AuthorityAccountPanelProps {
   project: Project | null;
   onAuthorityAccountChange: (account: ProjectAccount | null) => void;
+  onSaveToHistory?: (account: ProjectAccount) => Promise<void>;
+  onRestoreFromHistory?: (index: number) => Promise<void>;
+  onDeleteFromHistory?: (index: number) => Promise<void>;
   config: {
     network: 'mainnet-beta' | 'devnet' | 'testnet';
     rpcUrl: string;
@@ -24,6 +34,9 @@ interface AuthorityAccountPanelProps {
 export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   project,
   onAuthorityAccountChange,
+  onSaveToHistory,
+  onRestoreFromHistory,
+  onDeleteFromHistory,
   config,
   isConnected
 }) => {
@@ -32,6 +45,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isRequestingFunds, setIsRequestingFunds] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
   const { toast } = useToast();
   const authority = project?.authorityAccount;
@@ -85,7 +99,17 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
     }
   };
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
+    // Save current authority account to history before generating new one
+    if (authority && onSaveToHistory) {
+      try {
+        await onSaveToHistory(authority);
+      } catch (error) {
+        console.error('Failed to save to history:', error);
+        // Continue with generation even if history save fails
+      }
+    }
+    
     const networkType = config.network === 'mainnet-beta' ? 'mainnet' :
                        config.network === 'testnet' ? 'testnet' : 'devnet';
     const newAuthority = generateArchKeypair(networkType);
@@ -189,165 +213,216 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   }
 
   return (
-    <div className="space-y-2">
-            <div className="flex items-center justify-between">
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-gray-200 tracking-wide uppercase">Authority Account</h3>
-
         {authority && (
-          <div className="flex gap-1">
-            {isFaucetNetwork && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={handleRequestFunds}
-                disabled={!isConnected || isRequestingFunds}
-                className="h-6 px-1.5"
-                title="Request testnet funds"
+                className="h-6 w-6 p-0 text-gray-400 hover:text-gray-300"
               >
-                <Droplets className={`h-3 w-3 ${isRequestingFunds ? 'animate-pulse' : ''} text-blue-500`} />
+                <MoreVertical className="h-4 w-4" />
               </Button>
-            )}
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={fetchBalance}
-              disabled={!isConnected || isLoadingBalance}
-              className="h-6 px-1.5"
-              title="Refresh balance"
-            >
-              <RefreshCw className={`h-3 w-3 ${isLoadingBalance ? 'animate-spin' : ''}`} />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleExport}
-              className="h-6 px-1.5"
-              title="Export keypair"
-            >
-              <Download className="h-3 w-3" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={handleGenerate}
-              className="h-6 px-1.5"
-              title="Regenerate keypair"
-            >
-              <RotateCcw className="h-3 w-3" />
-            </Button>
-          </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700">
+              <DropdownMenuItem
+                onClick={() => setIsHistoryModalOpen(true)}
+                className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
+              >
+                <History className="h-3.5 w-3.5 mr-2" />
+                View History
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleExport}
+                className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
+              >
+                <Download className="h-3.5 w-3.5 mr-2" />
+                Export Keypair
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={handleGenerate}
+                className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
+              >
+                <RotateCcw className="h-3.5 w-3.5 mr-2" />
+                Regenerate Keypair
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         )}
       </div>
 
       {!authority ? (
-        <div className="bg-gray-800/40 border border-gray-700 rounded-md p-3">
-          <div className="flex items-start gap-2 mb-2">
-            <AlertCircle className="h-3 w-3 text-orange-500 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-gray-700">
+        <div className="bg-gray-800/40 border border-gray-700 rounded-md p-4">
+          <div className="flex items-start gap-2.5 mb-3">
+            <AlertCircle className="h-4 w-4 text-orange-500 mt-0.5 flex-shrink-0" />
+            <p className="text-xs text-gray-300 leading-relaxed">
               Required for deployment. Pays transaction fees.
             </p>
           </div>
           <Button
             onClick={handleGenerate}
             size="sm"
-            className="w-full h-7"
+            className="w-full h-8 bg-[#E05A1A] hover:bg-[#d14e12] text-white"
           >
-            <Key className="h-3 w-3 mr-2" />
+            <Key className="h-3.5 w-3.5 mr-2" />
             Generate Keypair
           </Button>
         </div>
       ) : (
-        <div className="bg-gray-800/40 border border-gray-700 rounded-md p-4 space-y-3">
-          {/* Balance & Network Display */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <span className="text-xs text-gray-300">Balance:</span>
-              {isLoadingBalance ? (
-                <span className="text-xs text-gray-500">Loading...</span>
-              ) : balance !== null ? (
-                <div className="flex items-center gap-1">
-                  <span className="text-xs font-mono font-semibold text-gray-100">
-                    {(() => {
-                      const arch = formatBalance(balance);
-                      // Show fewer decimals on very narrow sidebars
-                      if (window && window.innerWidth < 360) {
-                        const short = (balance / 100_000_000).toFixed(2);
-                        return `${short} ARCH`;
-                      }
-                      return `${arch} ARCH`;
-                    })()}
-                  </span>
-                  {hasSufficientFunds ? (
-                    <CheckCircle2 className="h-3 w-3 text-green-500" />
-                  ) : needsFunding && (
-                    <AlertCircle className="h-3 w-3 text-orange-500" />
-                  )}
-                </div>
-              ) : (
-                <span className="text-xs text-gray-400">-</span>
-              )}
+        <div className="bg-gray-800/40 border border-gray-700 rounded-md p-4 space-y-4">
+          {/* Status Bar - Balance & Network */}
+          <div className="bg-gray-900/50 border border-gray-700/50 rounded-md px-3 py-2.5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400">Balance:</span>
+                {isLoadingBalance ? (
+                  <span className="text-xs text-gray-500">Loading...</span>
+                ) : balance !== null ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm font-mono font-semibold text-gray-100">
+                      {(() => {
+                        const arch = formatBalance(balance);
+                        // Show fewer decimals on very narrow sidebars
+                        if (window && window.innerWidth < 360) {
+                          const short = (balance / 100_000_000).toFixed(2);
+                          return `${short} ARCH`;
+                        }
+                        return `${arch} ARCH`;
+                      })()}
+                    </span>
+                    {hasSufficientFunds ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                    ) : needsFunding && (
+                      <AlertCircle className="h-3.5 w-3.5 text-orange-500" />
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-xs text-gray-400">-</span>
+                )}
+                {isConnected && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={fetchBalance}
+                    disabled={isLoadingBalance}
+                    className="h-5 w-5 p-0 ml-1"
+                    title="Refresh balance"
+                  >
+                    <RefreshCw className={`h-3 w-3 text-gray-400 ${isLoadingBalance ? 'animate-spin' : ''}`} />
+                  </Button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {isFaucetNetwork && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRequestFunds}
+                    disabled={!isConnected || isRequestingFunds}
+                    className="h-6 px-2 text-[10px] border-blue-600 text-blue-400 hover:bg-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title={!isConnected ? "Connect to network to request airdrop" : "Request testnet funds"}
+                  >
+                    <Droplets className={`h-3 w-3 mr-1 ${isRequestingFunds ? 'animate-pulse' : ''}`} />
+                    {isRequestingFunds ? 'Requesting...' : 'Airdrop'}
+                  </Button>
+                )}
+                <span className={`text-[10px] font-medium px-2 py-1 rounded border border-current ${
+                  config.network === 'mainnet-beta'
+                    ? 'bg-red-900/40 text-red-300'
+                    : config.network === 'testnet'
+                      ? 'bg-yellow-900/30 text-yellow-300'
+                      : 'bg-blue-900/40 text-blue-300'
+                }`}>
+                  {networkDisplay.toUpperCase()}
+                </span>
+              </div>
             </div>
-            <span className={`text-[10px] font-medium px-1 py-0.5 rounded border border-current ${
-              config.network === 'mainnet-beta'
-                ? 'bg-red-900/40 text-red-300'
-                : config.network === 'testnet'
-                  ? 'bg-yellow-900/30 text-yellow-300'
-                  : 'bg-blue-900/40 text-blue-300'
-            }`}>
-              {networkDisplay.toUpperCase()}
-            </span>
           </div>
 
-          {/* Funding Warning (compact) */}
+          {/* Funding Warning & Action */}
           {needsFunding && isFaucetNetwork && (
-            <div className="bg-orange-900/20 border border-orange-800/40 rounded px-2 py-1.5 space-y-1.5">
-              <p className="text-[10px] text-orange-300">
-                ⚠️ Account needs funding for transactions
-              </p>
+            <div className="bg-orange-900/20 border border-orange-800/50 rounded-md p-3 space-y-2.5">
+              <div className="flex items-start gap-2">
+                <AlertCircle className="h-4 w-4 text-orange-400 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-orange-300 leading-relaxed">
+                  Account needs funding for transactions
+                </p>
+              </div>
               <Button
                 onClick={handleRequestFunds}
                 disabled={!isConnected || isRequestingFunds}
                 size="sm"
-                className="w-full h-6 text-[10px]"
+                className="w-full h-8 bg-orange-600/80 hover:bg-orange-600 text-white border border-orange-500/50"
               >
-                <Droplets className="h-3 w-3 mr-1" />
+                <Droplets className="h-3.5 w-3.5 mr-1.5" />
                 {isRequestingFunds ? 'Requesting...' : 'Request Testnet Funds'}
               </Button>
             </div>
           )}
 
-          {/* Keys row */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-gray-300 w-14">Pubkey</span>
-              <div className="flex-1 min-w-0 h-6 text-[11px] font-mono bg-gray-900 border border-gray-700 rounded px-1 flex items-center">
-                <span className="truncate" title={authority.pubkey}>{authority.pubkey}</span>
+          {/* Account Details */}
+          <div className="space-y-3 pt-1">
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Pubkey</label>
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0 h-7 text-xs font-mono bg-gray-900/80 border border-gray-700 rounded px-2.5 flex items-center">
+                  <span className="truncate" title={authorityBase58 || ''}>{authorityBase58 || '-'}</span>
+                </div>
+                <Button 
+                  variant="ghost" 
+                  size="sm" 
+                  onClick={() => authorityBase58 && handleCopy(authorityBase58, 'pubkey')} 
+                  className="h-7 px-2.5 hover:bg-gray-700/50"
+                  title="Copy pubkey"
+                  disabled={!authorityBase58}
+                >
+                  {copiedField === 'pubkey' ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                  ) : (
+                    <Copy className="h-3.5 w-3.5 text-gray-400" />
+                  )}
+                </Button>
+                {explorerUrls && authorityBase58 && (
+                  <a 
+                    href={explorerUrls.account(authorityBase58)} 
+                    target="_blank" 
+                    rel="noopener noreferrer" 
+                    className="text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    <span className="hidden sm:inline">Explorer</span>
+                  </a>
+                )}
               </div>
-              <Button variant="ghost" size="sm" onClick={() => handleCopy(authority.pubkey, 'pubkey')} className="h-6 px-2">
-                {copiedField === 'pubkey' ? <CheckCircle2 className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-                <span className="text-[10px] ml-1 hidden md:inline">Copy</span>
-              </Button>
-              {explorerUrls && authorityBase58 && (
-                <a href={explorerUrls.account(authorityBase58)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-300 underline">Explorer</a>
-              )}
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-gray-300 w-14">Address</span>
-              <div className="flex-1 min-w-0 h-6 text-[11px] font-mono bg-gray-900 border border-gray-700 rounded px-1 flex items-center">
-                <span className="truncate" title={authority.address}>{authority.address}</span>
-              </div>
-              <Button variant="ghost" size="sm" onClick={() => handleCopy(authority.address, 'address')} className="h-6 px-2">
-                {copiedField === 'address' ? <CheckCircle2 className="h-3 w-3 text-green-500" /> : <Copy className="h-3 w-3" />}
-                <span className="text-[10px] ml-1 hidden md:inline">Copy</span>
-              </Button>
-              {explorerUrls && authorityBase58 && (
-                <a href={explorerUrls.account(authorityBase58)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-300 underline">Explorer</a>
-              )}
             </div>
           </div>
         </div>
       )}
+
+      <HistoricalKeysModal
+        isOpen={isHistoryModalOpen}
+        onClose={() => setIsHistoryModalOpen(false)}
+        currentAccount={authority}
+        historicalKeys={project?.historicalAuthorityAccounts || []}
+        onRestore={async (index) => {
+          if (onRestoreFromHistory) {
+            await onRestoreFromHistory(index);
+            // Refresh balance after restore
+            if (project?.authorityAccount) {
+              await fetchBalance();
+            }
+          }
+        }}
+        onDelete={async (index) => {
+          if (onDeleteFromHistory) {
+            await onDeleteFromHistory(index);
+          }
+        }}
+        projectName={project?.name}
+      />
     </div>
   );
 };
