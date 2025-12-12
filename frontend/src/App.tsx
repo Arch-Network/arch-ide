@@ -13,7 +13,7 @@ import NewItemDialog from './components/NewItemDialog';
 import { OutputMessage } from './components/Output';
 import { ConfigPanel } from './components/ConfigPanel';
 import { Button } from './components/ui/button';
-import { Menu, Settings } from 'lucide-react';
+import { PanelLeft, Settings } from 'lucide-react';
 import SidePanel from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
 import type { ArchIdl } from './types';
@@ -1895,11 +1895,11 @@ const AppContent = () => {
       backgroundColor: theme.colors.default.bgPrimary,
       color: theme.colors.default.textPrimary
     }}>
-      <nav className="flex flex-wrap items-center gap-2 px-3 py-2 md:px-6 md:py-4" style={{
+      <nav className="flex items-center justify-between gap-3 px-3 py-2 md:px-6 md:py-4" style={{
         borderBottom: `1px solid ${theme.colors.default.border}`,
         backgroundColor: theme.colors.default.bgSecondary
       }}>
-        <div className="order-1 flex items-center gap-3 md:gap-6">
+        <div className="flex items-center gap-3 md:gap-6 min-w-0">
           <Button
             variant="ghost"
             size="icon"
@@ -1907,17 +1907,13 @@ const AppContent = () => {
             onClick={() => setIsMobileSidebarOpen(true)}
             aria-label="Open sidebar"
           >
-            <Menu className="h-6 w-6" />
+            <PanelLeft className="h-6 w-6" />
           </Button>
           <img src="/images/logo.svg" alt="Logo" className="h-8 w-auto md:h-12 md:w-21" />
           <h1 className="hidden md:block text-3xl font-bold text-white">Playground</h1>
         </div>
 
-        <Button className="order-2 md:order-3" variant="ghost" size="icon" onClick={() => setIsConfigOpen(true)} aria-label="Open settings">
-          <Settings className="h-6 w-6" />
-        </Button>
-
-        <div className="order-3 w-full md:order-2 md:w-auto">
+        <div className="flex items-center gap-2 min-w-0">
           <ProjectList
             projects={projects}
             currentProject={fullCurrentProject || undefined}
@@ -1927,6 +1923,15 @@ const AppContent = () => {
             onProjectsChange={setProjects}
             onDeleteAllProjects={handleDeleteAllProjects}
           />
+
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setIsConfigOpen(true)}
+            aria-label="Open settings"
+          >
+            <Settings className="h-6 w-6" />
+          </Button>
         </div>
       </nav>
 

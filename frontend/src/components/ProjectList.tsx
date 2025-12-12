@@ -19,6 +19,7 @@ import {
 import { projectService } from '../services/projectService';
 import DeleteProjectDialog from './DeleteProjectDialog';
 import { useTutorial } from '../context/TutorialContext';
+import { MoreVertical } from 'lucide-react';
 
 interface ProjectListProps {
   projects: Project[];
@@ -30,15 +31,15 @@ interface ProjectListProps {
   onDeleteAllProjects: () => Promise<void>;
 }
 
-const ProjectList = ({
+const ProjectList: React.FC<ProjectListProps> = ({
   projects,
   currentProject,
   onSelectProject,
   onNewProject,
   onDeleteProject,
   onProjectsChange,
-  onDeleteAllProjects
-}: ProjectListProps) => {
+  onDeleteAllProjects,
+}) => {
   const [selectedId, setSelectedId] = useState(currentProject?.id || '');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const { startTutorial } = useTutorial();
@@ -139,12 +140,13 @@ const ProjectList = ({
   };
 
   return (
-    <div className="flex items-center gap-2 flex-wrap md:flex-nowrap">
+    <div className="flex items-center gap-2 flex-nowrap min-w-0">
       <Select
         value={selectedId}
         onValueChange={handleProjectSelect}
       >
-        <SelectTrigger className="w-full md:w-[260px] bg-background text-foreground border-input">
+        {/* Compact on mobile so the top bar stays single-row */}
+        <SelectTrigger className="w-[min(56vw,220px)] md:w-[260px] h-10 md:h-9 bg-background text-foreground border-input">
           <SelectValue placeholder="Select a project" />
         </SelectTrigger>
         <SelectContent className="bg-background border-input">
@@ -170,40 +172,85 @@ const ProjectList = ({
         onChange={handleImportProject}
       />
 
-      <Button variant="ghost" size="icon" onClick={() => document.getElementById('import-project')?.click()}>
-        <Upload className="h-5 w-5" />
-      </Button>
+      {/* Desktop actions */}
+      <div className="hidden md:flex items-center gap-2">
+        <Button variant="ghost" size="icon" onClick={() => document.getElementById('import-project')?.click()} title="Import project">
+          <Upload className="h-5 w-5" />
+        </Button>
 
-      <Button variant="ghost" size="icon" onClick={handleExportProject} disabled={!currentProject}>
-        <Download className="h-5 w-5" />
-      </Button>
+        <Button variant="ghost" size="icon" onClick={handleExportProject} disabled={!currentProject} title="Export project">
+          <Download className="h-5 w-5" />
+        </Button>
 
-      <Button variant="ghost" data-tutorial="create-project-button" size="icon" onClick={onNewProject}>
-        <PlusCircle className="h-5 w-5" />
-      </Button>
+        <Button variant="ghost" data-tutorial="create-project-button" size="icon" onClick={onNewProject} title="Create project">
+          <PlusCircle className="h-5 w-5" />
+        </Button>
 
-      {currentProject && (
-        <>
-          <Button variant="ghost" size="icon" onClick={() => setIsDeleteDialogOpen(true)}>
-            <Trash2 className="h-5 w-5 text-red-500" />
-          </Button>
-          <DeleteProjectDialog
-            isOpen={isDeleteDialogOpen}
-            onClose={() => setIsDeleteDialogOpen(false)}
-            onConfirm={handleDeleteConfirm}
-            projectName={currentProject.name}
-          />
-        </>
-      )}
+        {currentProject && (
+          <>
+            <Button variant="ghost" size="icon" onClick={() => setIsDeleteDialogOpen(true)} title="Delete project">
+              <Trash2 className="h-5 w-5 text-red-500" />
+            </Button>
+            <DeleteProjectDialog
+              isOpen={isDeleteDialogOpen}
+              onClose={() => setIsDeleteDialogOpen(false)}
+              onConfirm={handleDeleteConfirm}
+              projectName={currentProject.name}
+            />
+          </>
+        )}
 
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={handleShowTutorial}
-        title="Show Tutorial"
-      >
-        <HelpCircle className="h-5 w-5" />
-      </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={handleShowTutorial}
+          title="Show Tutorial"
+        >
+          <HelpCircle className="h-5 w-5" />
+        </Button>
+      </div>
+
+      {/* Mobile overflow menu */}
+      <div className="md:hidden">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" size="icon" aria-label="Project actions">
+              <MoreVertical className="h-5 w-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="bg-gray-900 border-gray-700 text-gray-200">
+            <DropdownMenuItem onClick={onNewProject} className="cursor-pointer">
+              <PlusCircle className="h-4 w-4 mr-2" />
+              New Project
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => document.getElementById('import-project')?.click()} className="cursor-pointer">
+              <Upload className="h-4 w-4 mr-2" />
+              Import
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={handleExportProject} disabled={!currentProject} className="cursor-pointer">
+              <Download className="h-4 w-4 mr-2" />
+              Export
+            </DropdownMenuItem>
+            {currentProject && (
+              <DropdownMenuItem onClick={() => setIsDeleteDialogOpen(true)} className="cursor-pointer text-red-300">
+                <Trash2 className="h-4 w-4 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={handleShowTutorial} className="cursor-pointer">
+              <HelpCircle className="h-4 w-4 mr-2" />
+              Tutorial
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        <DeleteProjectDialog
+          isOpen={isDeleteDialogOpen}
+          onClose={() => setIsDeleteDialogOpen(false)}
+          onConfirm={handleDeleteConfirm}
+          projectName={currentProject?.name || 'project'}
+        />
+      </div>
     </div>
   );
 };
