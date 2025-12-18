@@ -25,3 +25,9 @@ rust-server/target/*
 
 # Third-party repositories
 solana-playground/
+
+# Cursor local indexing
+.cursorindexingignore
+
+# SpecStory (Cursor extension) - local chat/history artifacts
+.specstory/
