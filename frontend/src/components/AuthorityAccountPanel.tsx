@@ -14,7 +14,7 @@ import { getSmartRpcUrl } from '../utils/smartRpcConnection';
 import { getExplorerUrls } from '../utils/explorerLinks';
 import { hexToBase58 } from '../utils/base58';
 // Identicon removed per design update
-import { requestFaucetFunds, isFaucetAvailable } from '../utils/faucet';
+import { requestFaucetFunds } from '../utils/faucet';
 import { useToast } from './ui/use-toast';
 import HistoricalKeysModal from './HistoricalKeysModal';
 
@@ -64,38 +64,60 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
     }
   }, [authority?.pubkey, isConnected]);
 
-  const fetchBalance = async () => {
-    if (!authority || !isConnected) return;
-
-    setIsLoadingBalance(true);
-    setBalanceError(null);
-
+  const readBalanceLamports = async (pubkeyHex: string): Promise<number | null> => {
     try {
       const smartRpcUrl = getSmartRpcUrl(config.rpcUrl);
       const connection = new RpcConnection(smartRpcUrl);
-      const pubkeyBuffer = Buffer.from(authority.pubkey, 'hex');
-
+      const pubkeyBuffer = Buffer.from(pubkeyHex, 'hex');
       const accountInfo = await connection.readAccountInfo(pubkeyBuffer);
-
-      if (accountInfo) {
-        setBalance(accountInfo.lamports);
-      } else {
-        setBalance(0);
-      }
+      return accountInfo ? accountInfo.lamports : 0;
     } catch (error: any) {
       console.log('Authority balance fetch error:', error?.message || error);
       // If account doesn't exist yet (not funded), treat as 0 balance
       if (error?.message?.includes('account is not in database') ||
           error?.message?.includes('not found')) {
-        setBalance(0);
-        setBalanceError(null);
-      } else {
-        console.error('Failed to fetch authority balance:', error);
-        setBalanceError('Failed to fetch balance');
-        setBalance(null);
+        return 0;
       }
+      throw error;
+    }
+  };
+
+  const fetchBalanceForPubkey = async (pubkeyHex: string): Promise<number | null> => {
+    if (!isConnected) return null;
+
+    setIsLoadingBalance(true);
+    setBalanceError(null);
+
+    try {
+      const lamports = await readBalanceLamports(pubkeyHex);
+      setBalance(lamports);
+      return lamports;
+    } catch (error: any) {
+      console.error('Failed to fetch authority balance:', error);
+      setBalanceError('Failed to fetch balance');
+      setBalance(null);
+      return null;
     } finally {
       setIsLoadingBalance(false);
+    }
+  };
+
+  const fetchBalance = async (): Promise<number | null> => {
+    if (!authority || !isConnected) return null;
+    return fetchBalanceForPubkey(authority.pubkey);
+  };
+
+  const pollForBalanceIncrease = async (pubkeyHex: string, startingLamports: number, timeoutMs = 20000) => {
+    const startedAt = Date.now();
+    // Poll quickly at first; most faucet txs land within a few seconds.
+    while (Date.now() - startedAt < timeoutMs) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => setTimeout(r, 1500));
+      // eslint-disable-next-line no-await-in-loop
+      const latest = await fetchBalanceForPubkey(pubkeyHex);
+      if (latest !== null && latest > startingLamports) {
+        return;
+      }
     }
   };
 
@@ -133,12 +155,15 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
     setIsRequestingFunds(true);
 
     try {
+      // Refresh immediately so the UI reflects the current state before/while funding.
+      const startingLamports = (await fetchBalance()) ?? (balance ?? 0);
+
       const smartRpcUrl = getSmartRpcUrl(config.rpcUrl);
       const network = config.network as 'testnet' | 'devnet';
 
       toast({
-        title: "Requesting Funds",
-        description: `Requesting testnet funds from faucet...`,
+        title: "Funding Account",
+        description: `Requesting ${networkDisplay} faucet funds...`,
       });
 
       const result = await requestFaucetFunds({
@@ -150,28 +175,14 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
 
       if (result.success) {
         toast({
-          title: "Funds Requested",
-          description: result.message || "Airdrop successful! Refreshing balance...",
+          title: "Faucet Request Sent",
+          description: result.message || "Faucet request submitted. Refreshing balance...",
         });
 
-        // Wait a bit for the transaction to be processed
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        // Refresh balance
-        await fetchBalance();
+        // Poll until we see the balance increase (or timeout) to cover first-time account creation too.
+        await pollForBalanceIncrease(authority.pubkey, startingLamports, 30000);
       } else {
-        // Check if it's because account already has funds
-        if (result.error?.includes('already')) {
-          toast({
-            title: "Account Already Funded",
-            description: "This account already has funds.",
-            variant: "default",
-          });
-          // Still refresh balance to show current amount
-          await fetchBalance();
-        } else {
-          throw new Error(result.error || 'Faucet request failed');
-        }
+        throw new Error(result.error || 'Faucet request failed');
       }
     } catch (error: any) {
       console.error('Faucet request error:', error);
@@ -180,6 +191,8 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
         description: error.message || "Failed to request funds from faucet",
         variant: "destructive",
       });
+      // Still refresh balance on failure; the request may have partially succeeded.
+      await fetchBalance();
     } finally {
       setIsRequestingFunds(false);
     }
@@ -187,6 +200,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
 
   const needsFunding = balance !== null && balance === 0;
   const hasSufficientFunds = balance !== null && balance > 5000; // Minimum for deployment
+  const isLowFunds = balance !== null && balance > 0 && !hasSufficientFunds;
 
   // Convert lamports to ARCH (1 ARCH = 100,000,000 lamports)
   const formatBalance = (lamports: number): string => {
@@ -223,11 +237,23 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
                 variant="ghost"
                 size="sm"
                 className="h-6 w-6 p-0 text-gray-400 hover:text-gray-300"
+                aria-label="Authority account actions"
+                title="Authority account actions"
               >
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700">
+              {isFaucetNetwork && (
+                <DropdownMenuItem
+                  onClick={handleRequestFunds}
+                  disabled={!isConnected || isRequestingFunds}
+                  className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Droplets className="h-3.5 w-3.5 mr-2" />
+                  {isRequestingFunds ? `Requesting ${networkDisplay} funds...` : `Get ${networkDisplay} faucet funds`}
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem
                 onClick={() => setIsHistoryModalOpen(true)}
                 className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
@@ -316,19 +342,6 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
                 )}
               </div>
               <div className="flex items-center gap-2">
-                {isFaucetNetwork && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleRequestFunds}
-                    disabled={!isConnected || isRequestingFunds}
-                    className="h-6 px-2 text-[10px] border-blue-600 text-blue-400 hover:bg-blue-900/20 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title={!isConnected ? "Connect to network to request airdrop" : "Request testnet funds"}
-                  >
-                    <Droplets className={`h-3 w-3 mr-1 ${isRequestingFunds ? 'animate-pulse' : ''}`} />
-                    {isRequestingFunds ? 'Requesting...' : 'Airdrop'}
-                  </Button>
-                )}
                 <span className={`text-[10px] font-medium px-2 py-1 rounded border border-current ${
                   config.network === 'mainnet-beta'
                     ? 'bg-red-900/40 text-red-300'
@@ -343,12 +356,12 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
           </div>
 
           {/* Funding Warning & Action */}
-          {needsFunding && isFaucetNetwork && (
+          {(needsFunding || isLowFunds) && isFaucetNetwork && (
             <div className="bg-orange-900/20 border border-orange-800/50 rounded-md p-3 space-y-2.5">
               <div className="flex items-start gap-2">
                 <AlertCircle className="h-4 w-4 text-orange-400 mt-0.5 flex-shrink-0" />
                 <p className="text-xs text-orange-300 leading-relaxed">
-                  Account needs funding for transactions
+                  {needsFunding ? 'Account needs funds for transactions' : 'Low balance — top up recommended'}
                 </p>
               </div>
               <Button
@@ -358,7 +371,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
                 className="w-full h-8 bg-orange-600/80 hover:bg-orange-600 text-white border border-orange-500/50"
               >
                 <Droplets className="h-3.5 w-3.5 mr-1.5" />
-                {isRequestingFunds ? 'Requesting...' : 'Request Testnet Funds'}
+                {isRequestingFunds ? 'Requesting...' : `Get ${networkDisplay} faucet funds`}
               </Button>
             </div>
           )}
@@ -410,9 +423,10 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
         onRestore={async (index) => {
           if (onRestoreFromHistory) {
             await onRestoreFromHistory(index);
-            // Refresh balance after restore
-            if (project?.authorityAccount) {
-              await fetchBalance();
+            // Refresh immediately using the selected historical key (don’t wait for parent re-render)
+            const restored = project?.historicalAuthorityAccounts?.[index]?.account;
+            if (restored?.pubkey) {
+              await fetchBalanceForPubkey(restored.pubkey);
             }
           }
         }}

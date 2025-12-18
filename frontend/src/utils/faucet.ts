@@ -8,6 +8,8 @@
  * transaction automatically.
  */
 
+import { RpcConnection } from '@saturnbtcio/arch-sdk';
+
 export interface FaucetRequestOptions {
   pubkey: string; // Hex string
   rpcUrl: string;
@@ -22,6 +24,24 @@ export interface FaucetResponse {
   message?: string;
   requiresSignature?: boolean;
   partialTransaction?: any;
+}
+
+function hexToBytes(hex: string): number[] {
+  const bytes: number[] = [];
+  for (let i = 0; i < hex.length; i += 2) {
+    bytes.push(parseInt(hex.slice(i, i + 2), 16));
+  }
+  return bytes;
+}
+
+function isAccountMissingError(errMsg: string): boolean {
+  const msg = errMsg.toLowerCase();
+  return (
+    msg.includes('account is not in database') ||
+    msg.includes('not found') ||
+    msg.includes('does not exist') ||
+    msg.includes('missing account')
+  );
 }
 
 /**
@@ -48,11 +68,38 @@ export async function requestFaucetFunds(
   }
 
   try {
-    // Convert hex pubkey to byte array
-    const pubkeyBytes = [];
-    for (let i = 0; i < pubkey.length; i += 2) {
-      pubkeyBytes.push(parseInt(pubkey.slice(i, i + 2), 16));
+    // Strategy:
+    // 1) Prefer `requestAirdrop` to top-up existing accounts (no signing required).
+    // 2) If the account doesn't exist yet, fall back to `create_account_with_faucet`
+    //    which returns a partially-signed tx that we can complete if we have a privkey.
+
+    const pubkeyBuffer = Buffer.from(pubkey, 'hex');
+    const connection = new RpcConnection(rpcUrl);
+
+    console.log('[Faucet] Attempting requestAirdrop for pubkey:', pubkey.slice(0, 16) + '...');
+    console.log('[Faucet] Using RPC URL:', rpcUrl);
+
+    try {
+      await connection.requestAirdrop(pubkeyBuffer as any);
+      return {
+        success: true,
+        message: 'Airdrop requested'
+      };
+    } catch (airdropErr: any) {
+      const airdropMsg = airdropErr?.message || String(airdropErr);
+      console.warn('[Faucet] requestAirdrop failed:', airdropMsg);
+
+      // If the account isn't initialized/known yet, attempt the "create+fund" path.
+      if (!isAccountMissingError(airdropMsg)) {
+        return {
+          success: false,
+          error: airdropMsg
+        };
+      }
     }
+
+    // Convert hex pubkey to byte array for the create_account_with_faucet RPC method
+    const pubkeyBytes = hexToBytes(pubkey);
 
     // Prepare RPC payload
     const payload = {
@@ -62,8 +109,7 @@ export async function requestFaucetFunds(
       params: pubkeyBytes,
     };
 
-    console.log('[Faucet] Requesting funds for pubkey:', pubkey.slice(0, 16) + '...');
-    console.log('[Faucet] Using RPC URL:', rpcUrl);
+    console.log('[Faucet] Account missing; calling create_account_with_faucet...');
 
     // Make the request
     const response = await fetch(rpcUrl, {
@@ -91,7 +137,7 @@ export async function requestFaucetFunds(
           errorMessage.includes('account is already initialized')) {
         return {
           success: true,
-          message: 'Account already has funds',
+          message: 'Account already initialized',
           error: errorMessage
         };
       }
@@ -117,7 +163,7 @@ export async function requestFaucetFunds(
 
         return {
           success: true,
-          message: 'Funds requested and transaction submitted',
+          message: 'Account created and funded',
           txid
         };
       } catch (signError: any) {

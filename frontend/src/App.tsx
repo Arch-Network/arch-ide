@@ -442,7 +442,7 @@ const AppContent = () => {
     const savedConfig = storage.getConfig();
     const defaultConfig = {
       network: 'testnet',
-      rpcUrl: 'https://rpc-beta.test.arch.network',
+      rpcUrl: 'https://rpc.internal.arch.network',
       showTransactionDetails: false,
       improveErrors: true,
       automaticAirdrop: true,
@@ -1438,56 +1438,43 @@ const AppContent = () => {
   const handleProjectAccountChange = async (account: ProjectAccount | null) => {
     if (!fullCurrentProject) return;
 
-    const updatedProject = {
-      ...fullCurrentProject,
-      account: account || undefined
-    };
-
-    await projectService.saveProject(updatedProject);
-    setFullCurrentProject(updatedProject);
+    const updatedProject = await projectService.updateProject(fullCurrentProject.id, (p) => ({
+      ...p,
+      account: account || undefined,
+    }));
+    if (updatedProject) setFullCurrentProject(updatedProject);
     setCurrentAccount(account);
   };
 
   const handleAuthorityAccountChange = async (account: ProjectAccount | null) => {
     if (!fullCurrentProject) return;
 
-    const updatedProject = {
-      ...fullCurrentProject,
-      authorityAccount: account || undefined
-    };
-
-    await projectService.saveProject(updatedProject);
-    setFullCurrentProject(updatedProject);
+    const updatedProject = await projectService.updateProject(fullCurrentProject.id, (p) => ({
+      ...p,
+      authorityAccount: account || undefined,
+    }));
+    if (updatedProject) setFullCurrentProject(updatedProject);
   };
 
   const handleSaveToHistory = async (account: ProjectAccount) => {
     if (!fullCurrentProject) return;
     await projectService.addHistoricalAuthorityAccount(fullCurrentProject.id, account, 'regenerated');
-    // Refresh project to get updated history
     const updatedProject = await projectService.getProject(fullCurrentProject.id);
-    if (updatedProject) {
-      setFullCurrentProject(updatedProject);
-    }
+    if (updatedProject) setFullCurrentProject(updatedProject);
   };
 
   const handleRestoreFromHistory = async (index: number) => {
     if (!fullCurrentProject) return;
     await projectService.restoreHistoricalAuthorityAccount(fullCurrentProject.id, index);
-    // Refresh project to get updated authority account
     const updatedProject = await projectService.getProject(fullCurrentProject.id);
-    if (updatedProject) {
-      setFullCurrentProject(updatedProject);
-    }
+    if (updatedProject) setFullCurrentProject(updatedProject);
   };
 
   const handleDeleteFromHistory = async (index: number) => {
     if (!fullCurrentProject) return;
     await projectService.removeHistoricalAuthorityAccount(fullCurrentProject.id, index);
-    // Refresh project to get updated history
     const updatedProject = await projectService.getProject(fullCurrentProject.id);
-    if (updatedProject) {
-      setFullCurrentProject(updatedProject);
-    }
+    if (updatedProject) setFullCurrentProject(updatedProject);
   };
 
   const handleProjectUpdate = async (updatedProject: Project) => {
@@ -1592,14 +1579,18 @@ const AppContent = () => {
           lastModified: new Date()
         };
 
-        // Save to IndexedDB
-        await projectService.saveProject(updatedProject);
+        // Save transactionally to avoid clobbering concurrent updates (e.g. authority history)
+        const saved = await projectService.updateProject(fullCurrentProject.id, (p) => ({
+          ...p,
+          files: updatedFiles,
+        }));
 
-        // Update state
-        setFullCurrentProject(updatedProject);
-        setProjects(prev => prev.map(p =>
-          p.id === updatedProject.id ? updatedProject : p
-        ));
+        if (saved) {
+          setFullCurrentProject(saved);
+          setProjects(prev => prev.map(p =>
+            p.id === saved.id ? saved : p
+          ));
+        }
 
         // Clear pending changes
         setPendingChanges(new Map());
@@ -2077,15 +2068,24 @@ const AppContent = () => {
         onConnectionStatusChange={setIsConnected}
         pendingChanges={pendingChanges}
         isSaving={isSaving}
+        mobileConsole={<Output messages={outputMessages} onClear={clearOutputMessages} />}
+        mobileConsoleBadgeCount={outputMessages.length}
       >
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-1 min-w-0">
           {isConnected ? (
-            <div className="flex items-center gap-1">
-              <span className="text-green-500">✓</span> Connected to {config.network} ({actualConnectedUrl || config.rpcUrl})
+            <div
+              className="flex items-center gap-1 min-w-0"
+              title={`Connected to ${config.network} (${actualConnectedUrl || config.rpcUrl})`}
+            >
+              <span className="text-green-500 flex-shrink-0">✓</span>
+              <span className="truncate text-gray-200">
+                Connected to {config.network} ({actualConnectedUrl || config.rpcUrl})
+              </span>
             </div>
           ) : (
-            <div className="flex items-center gap-1">
-              <span className="text-red-500">✗</span> Not connected to network
+            <div className="flex items-center gap-1 min-w-0" title="Not connected to network">
+              <span className="text-red-500 flex-shrink-0">✗</span>
+              <span className="truncate text-gray-200">Not connected to network</span>
             </div>
           )}
         </div>

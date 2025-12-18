@@ -98,7 +98,7 @@ export default defineConfig({
     port: 3000,
     proxy: {
       '/rpc': {
-        target: process.env.VITE_RPC_URL || 'https://rpc-beta.test.arch.network',
+        target: process.env.VITE_RPC_URL || 'https://rpc.internal.arch.network',
         changeOrigin: true,
         secure: false,
         proxyTimeout: 120000,

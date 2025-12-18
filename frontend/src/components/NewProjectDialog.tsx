@@ -32,10 +32,10 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-white">
+      <DialogContent className="bg-background text-foreground border-border sm:max-w-[500px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-gray-900">Create New Project</DialogTitle>
-          <DialogDescription className="text-gray-500">
+          <DialogTitle className="text-foreground">Create New Project</DialogTitle>
+          <DialogDescription className="text-muted-foreground">
             Choose a framework and create a new Arch Network project
           </DialogDescription>
         </DialogHeader>
@@ -43,56 +43,58 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <label htmlFor="name" className="text-gray-700">
+              <label htmlFor="name" className="text-sm font-medium text-foreground">
                 Project Name
               </label>
               <Input
                 id="name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                className="border-gray-300 bg-white text-gray-900 focus:border-gray-400 focus:ring-gray-400"
+                className="bg-background text-foreground border-input"
+                placeholder="my-project"
               />
             </div>
             <div className="grid gap-2">
-              <label htmlFor="description" className="text-gray-700">
+              <label htmlFor="description" className="text-sm font-medium text-foreground">
                 Description
               </label>
               <Textarea
                 id="description"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                className="border-gray-300 bg-white text-gray-900 focus:border-gray-400 focus:ring-gray-400"
+                className="bg-background text-foreground border-input min-h-[80px]"
+                placeholder="Optional project description"
               />
             </div>
 
             {/* Framework Selection */}
             <div className="grid gap-3">
-              <label className="text-gray-700 font-medium">
+              <label className="text-sm font-medium text-foreground">
                 Choose a Framework
               </label>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {/* Native Rust */}
                 <button
                   type="button"
                   onClick={() => setFramework('native')}
                   className={`relative p-4 rounded-lg border-2 transition-all text-left ${
                     framework === 'native'
-                      ? 'border-[#F7931A] bg-orange-50'
-                      : 'border-gray-300 bg-white hover:border-gray-400'
+                      ? 'border-[#F7931A] bg-[#F7931A]/10 dark:bg-[#F7931A]/20'
+                      : 'border-input bg-background hover:border-muted-foreground/50'
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="text-3xl">🦀</div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">Native (Rust)</h3>
-                      <p className="text-xs text-gray-600 mt-1">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-foreground">Native (Rust)</h3>
+                      <p className="text-xs text-muted-foreground mt-1">
                         Pure Rust program using Arch SDK
                       </p>
                     </div>
                   </div>
                   {framework === 'native' && (
                     <div className="absolute top-2 right-2">
-                      <span className="text-[#F7931A]">✓</span>
+                      <span className="text-[#F7931A] font-bold">✓</span>
                     </div>
                   )}
                 </button>
@@ -103,31 +105,30 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
                   onClick={() => setFramework('satellite')}
                   className={`relative p-4 rounded-lg border-2 transition-all text-left ${
                     framework === 'satellite'
-                      ? 'border-[#F7931A] bg-orange-50'
-                      : 'border-gray-300 bg-white hover:border-gray-400'
+                      ? 'border-[#F7931A] bg-[#F7931A]/10 dark:bg-[#F7931A]/20'
+                      : 'border-input bg-background hover:border-muted-foreground/50'
                   }`}
                 >
                   <div className="flex items-start gap-3">
                     <div className="text-3xl">🛰️</div>
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">Satellite (Rust)</h3>
-                      <p className="text-xs text-gray-600 mt-1">
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-foreground">Satellite (Rust)</h3>
+                      <p className="text-xs text-muted-foreground mt-1">
                         Framework for cleaner Arch programs
                       </p>
                     </div>
                   </div>
                   {framework === 'satellite' && (
                     <div className="absolute top-2 right-2">
-                      <span className="text-[#F7931A]">✓</span>
+                      <span className="text-[#F7931A] font-bold">✓</span>
                     </div>
                   )}
                 </button>
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={onClose}
-              className="border-gray-300 bg-white text-gray-900 hover:bg-gray-50">
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={onClose} className="text-foreground">
               Cancel
             </Button>
             <Button 

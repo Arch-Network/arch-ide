@@ -191,7 +191,7 @@ if (PROGRAM_ID_HEX === "YOUR_PROGRAM_ID_HERE") {
 
 // Connect to Arch Network
 console.log("Connecting to Arch Network...");
-const conn = new RpcConnection("https://rpc-beta.test.arch.network");
+const conn = new RpcConnection("https://rpc.internal.arch.network");
 const blockCount = await conn.getBlockCount();
 console.log("✓ Connected! Block:", blockCount);
 
@@ -555,7 +555,7 @@ let bestBlockHash;
 
 try {
   console.log("Connecting to Arch Network...");
-  conn = new RpcConnection("https://rpc-beta.test.arch.network");
+  conn = new RpcConnection("https://rpc.internal.arch.network");
 
   // Test connection with a simple call (with timeout protection)
   const timeout = new Promise((_, reject) =>
@@ -1112,6 +1112,29 @@ export class ProjectService {
     }
   }
 
+  /**
+   * Transactional project update to prevent lost updates.
+   * Always loads the latest persisted project, applies an updater, saves, and returns the saved result.
+   */
+  async updateProject(
+    projectId: string,
+    updater: (current: Project) => Project
+  ): Promise<Project | null> {
+    await this.ensureInitialized();
+    const current = await this.storage.getProject(projectId);
+    if (!current) return null;
+
+    const updated = updater(current);
+    // Ensure lastModified is always bumped for any update
+    const toSave: Project = {
+      ...updated,
+      lastModified: new Date(),
+    };
+
+    await this.storage.saveProject(toSave);
+    return toSave;
+  }
+
   async createProject(name: string, description?: string, framework: ProjectFramework = 'native'): Promise<Project> {
     await this.ensureInitialized();
     const uniqueName = await this.getUniqueProjectName(name);
@@ -1135,13 +1158,10 @@ export class ProjectService {
   }
 
   async updateProjectAccount(projectId: string, account: ProjectAccount): Promise<void> {
-    await this.ensureInitialized();
-    const project = await this.storage.getProject(projectId);
-    if (project) {
-      project.account = account;
-      project.lastModified = new Date();
-      await this.storage.saveProject(project);
-    }
+    await this.updateProject(projectId, (project) => ({
+      ...project,
+      account,
+    }));
   }
 
   async addHistoricalAuthorityAccount(
@@ -1149,55 +1169,63 @@ export class ProjectService {
     account: ProjectAccount,
     reason: 'regenerated' | 'project_deleted' | 'manual'
   ): Promise<void> {
-    await this.ensureInitialized();
-    const project = await this.storage.getProject(projectId);
-    if (project) {
-      if (!project.historicalAuthorityAccounts) {
-        project.historicalAuthorityAccounts = [];
-      }
-      
+    await this.updateProject(projectId, (project) => {
+      const nextHistory = [...(project.historicalAuthorityAccounts || [])];
+
       // Limit to last 10 historical keys
-      if (project.historicalAuthorityAccounts.length >= 10) {
-        project.historicalAuthorityAccounts.shift();
+      if (nextHistory.length >= 10) {
+        nextHistory.shift();
       }
-      
-      project.historicalAuthorityAccounts.push({
+
+      nextHistory.push({
         account,
         savedAt: new Date(),
         reason,
       });
-      
-      project.lastModified = new Date();
-      await this.storage.saveProject(project);
-    }
+
+      return {
+        ...project,
+        historicalAuthorityAccounts: nextHistory,
+      };
+    });
   }
 
   async restoreHistoricalAuthorityAccount(projectId: string, historicalIndex: number): Promise<void> {
-    await this.ensureInitialized();
-    const project = await this.storage.getProject(projectId);
-    if (project && project.historicalAuthorityAccounts && project.historicalAuthorityAccounts[historicalIndex]) {
-      const historicalKey = project.historicalAuthorityAccounts[historicalIndex];
-      
-      // Save current authority account to history if it exists
+    await this.updateProject(projectId, (project) => {
+      const history = project.historicalAuthorityAccounts || [];
+      const historicalKey = history[historicalIndex];
+      if (!historicalKey) return project;
+
+      // Save current authority account into history (bounded) before restoring.
+      const nextHistory = [...history];
       if (project.authorityAccount) {
-        await this.addHistoricalAuthorityAccount(projectId, project.authorityAccount, 'regenerated');
+        if (nextHistory.length >= 10) nextHistory.shift();
+        nextHistory.push({
+          account: project.authorityAccount,
+          savedAt: new Date(),
+          reason: 'regenerated',
+        });
       }
-      
-      // Restore the historical key
-      project.authorityAccount = historicalKey.account;
-      project.lastModified = new Date();
-      await this.storage.saveProject(project);
-    }
+
+      return {
+        ...project,
+        authorityAccount: historicalKey.account,
+        historicalAuthorityAccounts: nextHistory,
+      };
+    });
   }
 
   async removeHistoricalAuthorityAccount(projectId: string, historicalIndex: number): Promise<void> {
-    await this.ensureInitialized();
-    const project = await this.storage.getProject(projectId);
-    if (project && project.historicalAuthorityAccounts && project.historicalAuthorityAccounts[historicalIndex]) {
-      project.historicalAuthorityAccounts.splice(historicalIndex, 1);
-      project.lastModified = new Date();
-      await this.storage.saveProject(project);
-    }
+    await this.updateProject(projectId, (project) => {
+      const history = project.historicalAuthorityAccounts || [];
+      if (!history[historicalIndex]) return project;
+      const nextHistory = [...history];
+      nextHistory.splice(historicalIndex, 1);
+      return {
+        ...project,
+        historicalAuthorityAccounts: nextHistory,
+      };
+    });
   }
 
   async saveProject(project: Project): Promise<void> {

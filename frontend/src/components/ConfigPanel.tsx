@@ -44,7 +44,7 @@ const debounce = <T extends (...args: any[]) => any>(
 
 const PRESET_RPC_URLS = {
   'mainnet-beta': 'https://rpc.arch.network',
-  'testnet': 'https://rpc-beta.test.arch.network',
+  'testnet': 'https://rpc.internal.arch.network',
   'devnet': 'http://localhost:9002',
   'custom': ''
 };
