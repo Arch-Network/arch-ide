@@ -42,8 +42,7 @@ import { exampleProjectsService } from './services/exampleProjectsService';
 import { createHomeTab, isHomeTab, addHomeTabIfNotExists } from './utils/homeTab';
 
 const queryClient = new QueryClient();
-console.log('API_URL', import.meta.env.VITE_API_URL);
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 
 interface Config {
   network: 'mainnet' | 'devnet' | 'testnet';

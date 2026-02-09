@@ -1,7 +1,7 @@
 // src/utils/smartRpcConnection.ts
 import { RpcConnection } from '@saturnbtcio/arch-sdk';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 
 // Get URLs from environment or config
 export function getSmartRpcUrl(rpcUrl: string): string {

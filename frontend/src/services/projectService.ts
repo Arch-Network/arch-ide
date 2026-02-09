@@ -3,7 +3,7 @@ import type { FileNode, Project, ProjectFramework } from '../types';
 import JSZip from 'jszip';
 import { StorageService } from './storage';
 import { ProjectAccount } from '../types/types';
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 
 const CARGO_TOML_TEMPLATE = `[package]
 name = "arch-ide"
