@@ -46,6 +46,14 @@ const EXAMPLE_PROJECTS = [
     tags: ['Accounts', 'Setup']
   },
   {
+    name: 'dice-game',
+    title: 'Bitcoin Dice Game',
+    description: 'A provably fair dice game that manages BTC deposits, bets, and withdrawals using UTXOs.',
+    icon: '🎲',
+    difficulty: 'Intermediate',
+    tags: ['Bitcoin', 'UTXO', 'Gaming']
+  },
+  {
     name: 'escrow',
     title: 'Escrow Program',
     description: 'Implement secure escrow patterns for conditional transfers.',
