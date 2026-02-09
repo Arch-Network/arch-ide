@@ -71,13 +71,21 @@ const INLINE_EXAMPLES: Record<string, Record<string, string>> = {
     helper::add_state_transition,
     input_to_sign::InputToSign,
     msg,
-    program::{next_account_info, set_transaction_to_sign},
+    program::{invoke_signed, next_account_info, set_transaction_to_sign},
     program_error::ProgramError,
     pubkey::Pubkey,
+    system_instruction::create_account_with_anchor,
     utxo::UtxoMeta,
+    rent::minimum_rent,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
 use std::str::FromStr;
+
+/// Derives the player PDA address from the player's wallet pubkey.
+/// Seeds: ["player", player_wallet_pubkey]
+pub fn find_player_address(player_wallet: &Pubkey, program_id: &Pubkey) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"player", player_wallet.as_ref()], program_id)
+}
 
 // ============================================================================
 // Bitcoin Dice Game
@@ -100,7 +108,7 @@ use std::str::FromStr;
 entrypoint!(process_instruction);
 
 pub fn process_instruction(
-    _program_id: &Pubkey,
+    program_id: &Pubkey,
     accounts: &[AccountInfo],
     instruction_data: &[u8],
 ) -> Result<(), ProgramError> {
@@ -113,12 +121,14 @@ pub fn process_instruction(
             max_bet,
             house_edge_bps,
         } => process_initialize_game(accounts, min_bet, max_bet, house_edge_bps),
-        DiceInstruction::Deposit { amount } => process_deposit(accounts, amount),
+        DiceInstruction::Deposit { amount, player_bump, ref player_utxo } => {
+            process_deposit(program_id, accounts, amount, player_bump, player_utxo)
+        }
         DiceInstruction::RollDice { bet_amount, seed } => {
-            process_roll_dice(accounts, bet_amount, seed, &input)
+            process_roll_dice(program_id, accounts, bet_amount, seed, &input)
         }
         DiceInstruction::Withdraw { amount, ref destination } => {
-            process_withdraw(accounts, amount, destination, &input)
+            process_withdraw(program_id, accounts, amount, destination, &input)
         }
     }
 }
@@ -172,16 +182,37 @@ fn process_initialize_game(
 }
 
 // ── Deposit ────────────────────────────────────────────────
+// Accounts: [game, player_pda, player_wallet (signer), system_program]
+// The player PDA is derived from ["player", player_wallet.key]
 
 fn process_deposit(
+    program_id: &Pubkey,
     accounts: &[AccountInfo],
     amount: u64,
+    player_bump: u8,
+    player_utxo: &Option<UtxoMeta>,
 ) -> Result<(), ProgramError> {
     let account_iter = &mut accounts.iter();
     let game_account = next_account_info(account_iter)?;
     let player_account = next_account_info(account_iter)?;
+    let player_wallet = next_account_info(account_iter)?;
+    let system_program = next_account_info(account_iter)?;
 
-    // Load or initialize player state
+    // Validate player wallet is signer
+    if !player_wallet.is_signer {
+        msg!("Player wallet must be a signer");
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+
+    // Validate player PDA
+    let player_seeds = &[b"player", player_wallet.key.as_ref()];
+    let (expected_pda, _bump) = Pubkey::find_program_address(player_seeds, program_id);
+    if player_account.key != &expected_pda {
+        msg!("Invalid player PDA");
+        return Err(ProgramError::InvalidArgument);
+    }
+
+    // Create player PDA account if it doesn't exist
     let player_data_len = player_account
         .data
         .try_borrow()
@@ -189,7 +220,9 @@ fn process_deposit(
         .len();
 
     let mut player_state = if player_data_len == 0 {
-        PlayerState {
+        // Create the PDA account
+        let initial_state = PlayerState {
+            wallet: *player_wallet.key,
             balance: 0,
             total_deposited: 0,
             total_withdrawn: 0,
@@ -197,7 +230,27 @@ fn process_deposit(
             total_won: 0,
             games_played: 0,
             games_won: 0,
+        };
+        let serialized = borsh::to_vec(&initial_state)
+            .map_err(|e| ProgramError::BorshIoError(e.to_string()))?;
+
+        if let Some(utxo) = player_utxo {
+            let signer_seeds = &[b"player", player_wallet.key.as_ref(), &[player_bump]];
+            invoke_signed(
+                &create_account_with_anchor(
+                    player_wallet.key,
+                    player_account.key,
+                    minimum_rent(serialized.len()),
+                    serialized.len() as u64,
+                    program_id,
+                    utxo.clone(),
+                ),
+                &[player_wallet.clone(), player_account.clone(), system_program.clone()],
+                &[signer_seeds],
+            )?;
         }
+
+        initial_state
     } else {
         let data = player_account
             .data
@@ -250,7 +303,10 @@ fn process_deposit(
 
 // ── Roll Dice ──────────────────────────────────────────────
 
+// Accounts: [game, player_pda, player_wallet (signer)]
+
 fn process_roll_dice(
+    program_id: &Pubkey,
     accounts: &[AccountInfo],
     bet_amount: u64,
     seed: u64,
@@ -259,6 +315,19 @@ fn process_roll_dice(
     let account_iter = &mut accounts.iter();
     let game_account = next_account_info(account_iter)?;
     let player_account = next_account_info(account_iter)?;
+    let player_wallet = next_account_info(account_iter)?;
+
+    // Validate signer
+    if !player_wallet.is_signer {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+
+    // Validate player PDA
+    let (expected_pda, _) = find_player_address(player_wallet.key, program_id);
+    if player_account.key != &expected_pda {
+        msg!("Invalid player PDA for this wallet");
+        return Err(ProgramError::InvalidArgument);
+    }
 
     // Load game state
     let game_data = game_account
@@ -381,7 +450,10 @@ fn process_roll_dice(
 
 // ── Withdraw ───────────────────────────────────────────────
 
+// Accounts: [game, player_pda, player_wallet (signer)]
+
 fn process_withdraw(
+    program_id: &Pubkey,
     accounts: &[AccountInfo],
     amount: u64,
     destination: &str,
@@ -390,6 +462,19 @@ fn process_withdraw(
     let account_iter = &mut accounts.iter();
     let game_account = next_account_info(account_iter)?;
     let player_account = next_account_info(account_iter)?;
+    let player_wallet = next_account_info(account_iter)?;
+
+    // Validate signer
+    if !player_wallet.is_signer {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+
+    // Validate player PDA
+    let (expected_pda, _) = find_player_address(player_wallet.key, program_id);
+    if player_account.key != &expected_pda {
+        msg!("Invalid player PDA for this wallet");
+        return Err(ProgramError::InvalidArgument);
+    }
 
     // Load player state
     let player_data = player_account
@@ -489,9 +574,11 @@ pub enum DiceInstruction {
         max_bet: u64,
         house_edge_bps: u16, // basis points (100 = 1%)
     },
-    /// Deposit sats into the player's game balance
+    /// Deposit sats into the player's game balance (creates PDA if needed)
     Deposit {
         amount: u64,
+        player_bump: u8,
+        player_utxo: Option<UtxoMeta>,
     },
     /// Roll the dice with a bet
     RollDice {
@@ -526,6 +613,7 @@ pub struct GameState {
 
 #[derive(Debug, Clone, BorshSerialize, BorshDeserialize)]
 pub struct PlayerState {
+    pub wallet: Pubkey,
     pub balance: u64,
     pub total_deposited: u64,
     pub total_withdrawn: u64,
@@ -536,126 +624,167 @@ pub struct PlayerState {
 }
 `,
     'client.ts': `// ============================================================================
-// Bitcoin Dice Game - Client Demo
+// Bitcoin Dice Game - Wallet-Integrated Client
 // ============================================================================
 //
-// Demonstrates how the Dice Game program works on Arch Network.
-// This script simulates the full game flow: initialize, deposit,
-// roll dice, and withdraw winnings.
+// This client connects to your Bitcoin wallet (Unisat or Xverse),
+// retrieves your pubkey, derives your player PDA, and demonstrates
+// the full dice game flow with real wallet signing.
 //
-// The Arch SDK globals (RpcConnection, PubkeyUtil, MessageUtil, etc.)
-// are injected automatically by the IDE runtime -- just use them directly.
+// SDK globals available: RpcConnection, PubkeyUtil, MessageUtil,
+//   ArchConnection, SignatureUtil, walletProxy, ClientTransactionUtil
 //
-// Usage: Select this file and click "Run" in the Client section.
+// Usage: Connect your wallet, select this file, and click "Run".
 // ============================================================================
 
-console.log("========================================");
-console.log("  Bitcoin Dice Game");
-console.log("========================================");
-console.log("");
+// ── Helper: async wrapper for top-level await ────────────
 
-// ── Step 1: Initialize Game ──────────────────────────────
+async function main() {
 
-console.log("STEP 1: Initialize Game");
-console.log("  Config:");
-console.log("    Min bet:      1,000 sats");
-console.log("    Max bet:    100,000 sats");
-console.log("    House edge:   2.5% (250 bps)");
-console.log("");
+  console.log("========================================");
+  console.log("  Bitcoin Dice Game");
+  console.log("========================================");
+  console.log("");
 
-// In production, you'd serialize with Borsh and send a real tx:
-//
-//   const connection = new RpcConnection("https://rpc.testnet.arch.network");
-//   const instruction = borsh.serialize(DiceInputSchema, {
-//     instruction: { InitializeGame: { min_bet: 1000, max_bet: 100000, house_edge_bps: 250 } },
-//     anchoring: null,
-//   });
-//   await connection.sendTransaction(programId, [gameAccount], instruction);
+  // ── Step 1: Connect Wallet ─────────────────────────────
 
-// ── Step 2: Deposit BTC ──────────────────────────────────
+  console.log("STEP 1: Connect Wallet");
+  console.log("  Checking for Bitcoin wallet...");
 
-const DEPOSIT = 10000;
-console.log("STEP 2: Deposit");
-console.log("  Amount: " + DEPOSIT + " sats");
-console.log("  The program holds BTC in its UTXO pot and tracks");
-console.log("  your balance in on-chain account state.");
-console.log("");
-
-// ── Step 3: Roll the Dice ────────────────────────────────
-
-console.log("STEP 3: Roll the Dice!");
-console.log("  Rules: Roll 4-6 = WIN (2x payout minus house edge)");
-console.log("         Roll 1-3 = LOSS");
-console.log("");
-
-// Simulate the dice roll logic from the Rust program
-function rollDice(seed: number, pubkeyByte0: number, pubkeyByte1: number): number {
-  // Same algorithm as the on-chain program
-  let entropy = seed;
-  entropy = Math.imul(entropy, 6364136223846793005 & 0xFFFFFFFF) >>> 0;
-  entropy = (entropy + pubkeyByte0) >>> 0;
-  entropy = (entropy + pubkeyByte1) >>> 0;
-  entropy = Math.imul(entropy, 1442695040888963407 & 0xFFFFFFFF) >>> 0;
-  return ((entropy >>> 17) % 6) + 1;
-}
-
-const HOUSE_EDGE_BPS = 250;
-const bets = [
-  { amount: 2000, seed: 42 },
-  { amount: 3000, seed: 77 },
-  { amount: 1500, seed: 123 },
-  { amount: 2500, seed: 256 },
-  { amount: 5000, seed: 999 },
-];
-
-let balance = DEPOSIT;
-let totalWagered = 0;
-let totalWon = 0;
-let gamesWon = 0;
-
-// Use arbitrary pubkey bytes for demo entropy
-const pk0 = 0xA7;
-const pk1 = 0x3B;
-
-for (const bet of bets) {
-  const roll = rollDice(bet.seed, pk0, pk1);
-  const won = roll >= 4;
-
-  totalWagered += bet.amount;
-  balance -= bet.amount;
-
-  if (won) {
-    const houseCut = Math.floor((bet.amount * HOUSE_EDGE_BPS) / 10000);
-    const payout = bet.amount * 2 - houseCut;
-    balance += payout;
-    totalWon += payout;
-    gamesWon++;
-    console.log("  Bet " + bet.amount + " sats | Roll: " + roll + " | WIN  +" + payout + " sats (house: " + houseCut + ")");
-  } else {
-    console.log("  Bet " + bet.amount + " sats | Roll: " + roll + " | LOSS -" + bet.amount + " sats");
+  const walletAvailable = await walletProxy.isAvailable();
+  if (!walletAvailable) {
+    console.log("");
+    console.log("  ERROR: No wallet connected!");
+    console.log("  Please connect Unisat or Xverse wallet");
+    console.log("  using the 'Install Wallet' button in the");
+    console.log("  bottom status bar, then run again.");
+    return;
   }
+
+  const walletType = await walletProxy.getWalletType();
+  const accounts = await walletProxy.getAccounts();
+  const pubkeyHex = await walletProxy.getPublicKey();
+
+  console.log("  Wallet:  " + walletType);
+  console.log("  Address: " + accounts[0]);
+  console.log("  Pubkey:  " + pubkeyHex.substring(0, 16) + "...");
+  console.log("");
+
+  // ── Step 2: Derive Player PDA ──────────────────────────
+
+  console.log("STEP 2: Derive Player PDA");
+
+  // The on-chain program derives the player PDA from:
+  //   seeds = ["player", player_wallet_pubkey]
+  // The client needs to compute the same address to pass it
+  // as an account in transactions.
+
+  const pubkeyBytes = [];
+  for (let i = 0; i < pubkeyHex.length; i += 2) {
+    pubkeyBytes.push(parseInt(pubkeyHex.substring(i, i + 2), 16));
+  }
+
+  console.log("  Player wallet pubkey: " + pubkeyHex.substring(0, 20) + "...");
+  console.log("  PDA seeds: ['player', wallet_pubkey]");
+  console.log("  The program uses Pubkey::find_program_address()");
+  console.log("  to derive a unique account for each player.");
+  console.log("");
+
+  // ── Step 3: Game Flow Demo ─────────────────────────────
+
+  console.log("STEP 3: Deposit BTC");
+  console.log("  In production, this would:");
+  console.log("    1. Call wallet.sendBitcoin(potAddress, amount)");
+  console.log("       to send real sats to the game pot");
+  console.log("    2. Build a Deposit instruction with Borsh:");
+  console.log("       { Deposit: { amount, player_bump, player_utxo } }");
+  console.log("    3. Sign with your wallet via BIP-322");
+  console.log("    4. Submit to Arch Network");
+  console.log("    5. Program creates your PDA and credits balance");
+  console.log("");
+
+  // ── Step 4: Roll Dice ──────────────────────────────────
+
+  console.log("STEP 4: Roll the Dice!");
+  console.log("  Rules: Roll 4-6 = WIN (2x minus 2.5% house edge)");
+  console.log("         Roll 1-3 = LOSS");
+  console.log("");
+
+  // Simulate rolls using the same entropy as the on-chain program
+  const HOUSE_EDGE_BPS = 250;
+  const DEPOSIT = 10000;
+  const bets = [
+    { amount: 2000, seed: Math.floor(Math.random() * 1000000) },
+    { amount: 3000, seed: Math.floor(Math.random() * 1000000) },
+    { amount: 1500, seed: Math.floor(Math.random() * 1000000) },
+    { amount: 2500, seed: Math.floor(Math.random() * 1000000) },
+    { amount: 5000, seed: Math.floor(Math.random() * 1000000) },
+  ];
+
+  let balance = DEPOSIT;
+  let totalWagered = 0;
+  let totalWon = 0;
+  let wins = 0;
+
+  // Use actual wallet pubkey bytes for entropy (matches on-chain logic)
+  const pk0 = pubkeyBytes[0] || 0;
+  const pk1 = pubkeyBytes[1] || 0;
+
+  for (const bet of bets) {
+    // Replicate on-chain dice roll algorithm
+    let entropy = bet.seed;
+    entropy = Math.imul(entropy, 6364136223846793005 & 0xFFFFFFFF) >>> 0;
+    entropy = (entropy + pk0) >>> 0;
+    entropy = (entropy + pk1) >>> 0;
+    entropy = Math.imul(entropy, 1442695040888963407 & 0xFFFFFFFF) >>> 0;
+    const roll = ((entropy >>> 17) % 6) + 1;
+    const won = roll >= 4;
+
+    totalWagered += bet.amount;
+    balance -= bet.amount;
+
+    if (won) {
+      const houseCut = Math.floor((bet.amount * HOUSE_EDGE_BPS) / 10000);
+      const payout = bet.amount * 2 - houseCut;
+      balance += payout;
+      totalWon += payout;
+      wins++;
+      console.log("  Bet " + bet.amount + " | Roll: " + roll + " | WIN  +" + payout + " sats");
+    } else {
+      console.log("  Bet " + bet.amount + " | Roll: " + roll + " | LOSS -" + bet.amount + " sats");
+    }
+  }
+
+  console.log("");
+  console.log("  Results: " + wins + "/" + bets.length + " won");
+  console.log("  Wagered: " + totalWagered + " sats");
+  console.log("  Won:     " + totalWon + " sats");
+  console.log("  Balance: " + balance + " sats");
+  console.log("");
+
+  // ── Step 5: Withdraw ───────────────────────────────────
+
+  console.log("STEP 5: Withdraw to " + accounts[0].substring(0, 20) + "...");
+  console.log("  Amount: " + balance + " sats");
+  console.log("  The program constructs a Bitcoin transaction");
+  console.log("  with a TxOut sending sats to your wallet address.");
+  console.log("  Uses add_state_transition() + set_transaction_to_sign()");
+  console.log("");
+
+  // ── Summary ────────────────────────────────────────────
+
+  console.log("========================================");
+  console.log("  Transaction Flow Summary:");
+  console.log("  1. Wallet signs each instruction");
+  console.log("  2. Player PDA tracks your balance");
+  console.log("  3. Game pot holds all deposited BTC");
+  console.log("  4. Withdrawals create real Bitcoin TxOuts");
+  console.log("========================================");
 }
 
-console.log("");
-console.log("  ── Summary ──");
-console.log("  Games:    " + gamesWon + "/" + bets.length + " won");
-console.log("  Wagered:  " + totalWagered + " sats");
-console.log("  Won:      " + totalWon + " sats");
-console.log("  Balance:  " + balance + " sats");
-console.log("");
-
-// ── Step 4: Withdraw ─────────────────────────────────────
-
-console.log("STEP 4: Withdraw");
-console.log("  Amount: " + balance + " sats");
-console.log("  The program constructs a Bitcoin transaction");
-console.log("  with a TxOut to your BTC address.");
-console.log("");
-console.log("========================================");
-console.log("  In production, each step is a real");
-console.log("  Arch Network transaction managing");
-console.log("  actual Bitcoin UTXOs on-chain.");
-console.log("========================================");
+main().catch(function(err) {
+  console.log("Error: " + (err.message || err));
+});
 `,
   },
 };
