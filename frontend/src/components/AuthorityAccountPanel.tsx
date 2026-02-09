@@ -30,6 +30,8 @@ interface AuthorityAccountPanelProps {
     rpcUrl: string;
   };
   isConnected: boolean;
+  /** Render prop: called with action buttons for the parent StepCard header */
+  onRenderActions?: (actions: React.ReactNode) => void;
 }
 
 export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
@@ -39,7 +41,8 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   onRestoreFromHistory,
   onDeleteFromHistory,
   config,
-  isConnected
+  isConnected,
+  onRenderActions,
 }) => {
   const [balance, setBalance] = useState<number | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
@@ -54,6 +57,63 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   const isFaucetNetwork = config.network === 'mainnet' || config.network === 'testnet' || config.network === 'devnet';
   const explorerUrls = getExplorerUrls(config.network as 'testnet' | 'mainnet' | 'devnet');
   const authorityBase58 = authority ? hexToBase58(authority.pubkey) : null;
+
+  // Push header actions to parent StepCard
+  useEffect(() => {
+    if (!onRenderActions) return;
+    if (!authority) {
+      onRenderActions(null);
+      return;
+    }
+    onRenderActions(
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-gray-400 hover:text-gray-300 hover:bg-gray-700/50 rounded-lg"
+            aria-label="Authority account actions"
+            title="Authority account actions"
+          >
+            <MoreVertical className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700">
+          {isFaucetNetwork && (
+            <DropdownMenuItem
+              onClick={handleRequestFunds}
+              disabled={!isConnected || isRequestingFunds}
+              className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <Droplets className="h-3.5 w-3.5 mr-2" />
+              {isRequestingFunds ? `Requesting ${networkDisplay} funds...` : `Get ${networkDisplay} faucet funds`}
+            </DropdownMenuItem>
+          )}
+          <DropdownMenuItem
+            onClick={() => setIsHistoryModalOpen(true)}
+            className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
+          >
+            <History className="h-3.5 w-3.5 mr-2" />
+            View History
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={handleExport}
+            className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
+          >
+            <Download className="h-3.5 w-3.5 mr-2" />
+            Export Keypair
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={handleGenerate}
+            className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
+          >
+            <RotateCcw className="h-3.5 w-3.5 mr-2" />
+            Regenerate Keypair
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  }, [authority, isConnected, isRequestingFunds, onRenderActions]);
 
   // Fetch balance when authority account changes or component mounts
   useEffect(() => {
@@ -208,202 +268,124 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   // Don't render if no project is loaded
   if (!project) {
     return (
-      <div className="space-y-3">
-        <div className="flex items-center gap-2">
-          <Wallet className="h-4 w-4 text-gray-500" />
-          <h3 className="text-sm font-semibold">Authority Account</h3>
-        </div>
-        <div className="bg-gray-50 border border-gray-200 rounded-md p-4">
-          <p className="text-xs text-gray-500">No project loaded</p>
-        </div>
+      <div className="text-center py-2">
+        <p className="text-xs text-gray-500">No project loaded</p>
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-gray-200 tracking-wide uppercase">Authority Account</h3>
-        {authority && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 w-6 p-0 text-gray-400 hover:text-gray-300"
-                aria-label="Authority account actions"
-                title="Authority account actions"
-              >
-                <MoreVertical className="h-4 w-4" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700">
-              {isFaucetNetwork && (
-                <DropdownMenuItem
-                  onClick={handleRequestFunds}
-                  disabled={!isConnected || isRequestingFunds}
-                  className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <Droplets className="h-3.5 w-3.5 mr-2" />
-                  {isRequestingFunds ? `Requesting ${networkDisplay} funds...` : `Get ${networkDisplay} faucet funds`}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem
-                onClick={() => setIsHistoryModalOpen(true)}
-                className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
-              >
-                <History className="h-3.5 w-3.5 mr-2" />
-                View History
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={handleExport}
-                className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
-              >
-                <Download className="h-3.5 w-3.5 mr-2" />
-                Export Keypair
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onClick={handleGenerate}
-                className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
-              >
-                <RotateCcw className="h-3.5 w-3.5 mr-2" />
-                Regenerate Keypair
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        )}
-      </div>
-
       {!authority ? (
-        <div className="bg-gray-800/40 border border-gray-700 rounded-md p-4">
-          <div className="flex items-start gap-2.5 mb-3">
-            <AlertCircle className="h-4 w-4 text-orange-500 mt-0.5 flex-shrink-0" />
-            <p className="text-xs text-gray-300 leading-relaxed">
-              Required for deployment. Pays transaction fees.
-            </p>
+        /* Empty state — inviting prompt */
+        <div className="text-center py-2">
+          <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-[#F7931A]/10 mb-3">
+            <Key className="h-5 w-5 text-[#F7931A]" />
           </div>
+          <p className="text-xs text-gray-400 mb-3 leading-relaxed">
+            Generate a keypair to sign transactions and deploy your program.
+          </p>
           <Button
             onClick={handleGenerate}
             size="sm"
-            className="w-full h-8 bg-[#E05A1A] hover:bg-[#d14e12] text-white"
+            className="w-full h-9 bg-[#F7931A] hover:bg-[#d47b16] text-white font-medium rounded-lg transition-colors"
           >
-            <Key className="h-3.5 w-3.5 mr-2" />
             Generate Keypair
           </Button>
         </div>
       ) : (
-        <div className="bg-gray-800/40 border border-gray-700 rounded-md p-4 space-y-4">
-          {/* Status Bar - Balance & Network */}
-          <div className="bg-gray-900/50 border border-gray-700/50 rounded-md px-3 py-2.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-gray-400">Balance:</span>
-                {isLoadingBalance ? (
-                  <span className="text-xs text-gray-500">Loading...</span>
-                ) : balance !== null ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-mono font-semibold text-gray-100">
-                      {(() => {
-                        const arch = formatBalance(balance);
-                        // Show fewer decimals on very narrow sidebars
-                        if (window && window.innerWidth < 360) {
-                          const short = lamportsToArch(balance).toFixed(2);
-                          return `${short} ARCH`;
-                        }
-                        return `${arch} ARCH`;
-                      })()}
-                    </span>
-                    {hasSufficientFunds ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                    ) : needsFunding && (
-                      <AlertCircle className="h-3.5 w-3.5 text-orange-500" />
-                    )}
-                  </div>
-                ) : (
-                  <span className="text-xs text-gray-400">-</span>
-                )}
-                {isConnected && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={fetchBalance}
-                    disabled={isLoadingBalance}
-                    className="h-5 w-5 p-0 ml-1"
-                    title="Refresh balance"
-                  >
-                    <RefreshCw className={`h-3 w-3 text-gray-400 ${isLoadingBalance ? 'animate-spin' : ''}`} />
-                  </Button>
-                )}
-              </div>
-              <div className="flex items-center gap-2">
-                <span className={`text-[10px] font-medium px-2 py-1 rounded border border-current ${
-                  config.network === 'mainnet'
-                    ? 'bg-red-900/40 text-red-300'
-                    : config.network === 'testnet'
-                      ? 'bg-yellow-900/30 text-yellow-300'
-                      : 'bg-blue-900/40 text-blue-300'
-                }`}>
-                  {networkDisplay.toUpperCase()}
-                </span>
-              </div>
+        <div className="space-y-3">
+          {/* Balance display — clean single row */}
+          <div className="flex items-center justify-between rounded-lg bg-gray-900/60 px-3 py-2.5">
+            <div className="flex items-center gap-2 min-w-0">
+              {isLoadingBalance ? (
+                <span className="text-xs text-gray-500">Loading...</span>
+              ) : balance !== null ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-sm font-mono font-semibold text-gray-100">
+                    {(() => {
+                      const arch = formatBalance(balance);
+                      if (window && window.innerWidth < 360) {
+                        const short = lamportsToArch(balance).toFixed(2);
+                        return `${short} ARCH`;
+                      }
+                      return `${arch} ARCH`;
+                    })()}
+                  </span>
+                  {hasSufficientFunds ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                  ) : needsFunding ? (
+                    <AlertCircle className="h-3.5 w-3.5 text-orange-400" />
+                  ) : null}
+                </div>
+              ) : (
+                <span className="text-xs text-gray-500">--</span>
+              )}
             </div>
+            {isConnected && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={fetchBalance}
+                disabled={isLoadingBalance}
+                className="h-6 w-6 p-0 hover:bg-gray-700/50"
+                title="Refresh balance"
+              >
+                <RefreshCw className={`h-3 w-3 text-gray-400 ${isLoadingBalance ? 'animate-spin' : ''}`} />
+              </Button>
+            )}
           </div>
 
-          {/* Funding Warning & Action */}
+          {/* Funding prompt */}
           {(needsFunding || isLowFunds) && isFaucetNetwork && (
-            <div className="bg-orange-900/20 border border-orange-800/50 rounded-md p-3 space-y-2.5">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="h-4 w-4 text-orange-400 mt-0.5 flex-shrink-0" />
-                <p className="text-xs text-orange-300 leading-relaxed">
-                  {needsFunding ? 'Account needs funds for transactions' : 'Low balance — top up recommended'}
-                </p>
-              </div>
+            <div className="rounded-lg bg-orange-500/5 border border-orange-500/20 p-3 space-y-2">
+              <p className="text-xs text-orange-300/90 leading-relaxed">
+                {needsFunding ? 'Fund this account to enable transactions.' : 'Balance is low — consider topping up.'}
+              </p>
               <Button
                 onClick={handleRequestFunds}
                 disabled={!isConnected || isRequestingFunds}
                 size="sm"
-                className="w-full h-8 bg-orange-600/80 hover:bg-orange-600 text-white border border-orange-500/50"
+                className="w-full h-8 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 rounded-lg transition-colors"
               >
                 <Droplets className="h-3.5 w-3.5 mr-1.5" />
-                {isRequestingFunds ? 'Requesting...' : `Get ${networkDisplay} faucet funds`}
+                {isRequestingFunds ? 'Requesting...' : `Request ${networkDisplay} funds`}
               </Button>
             </div>
           )}
 
-          {/* Account Details */}
-          <div className="space-y-3 pt-1">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-medium text-gray-400 uppercase tracking-wide">Pubkey</label>
-              <div className="flex items-center gap-2">
-                <div className="flex-1 min-w-0 h-7 text-xs font-mono bg-gray-900/80 border border-gray-700 rounded px-2.5 flex items-center">
-                  <span className="truncate" title={authorityBase58 || ''}>{authorityBase58 || '-'}</span>
-                </div>
-                <Button 
-                  variant="ghost" 
-                  size="sm" 
-                  onClick={() => authorityBase58 && handleCopy(authorityBase58, 'pubkey')} 
-                  className="h-7 px-2.5 hover:bg-gray-700/50"
-                  title="Copy pubkey"
-                  disabled={!authorityBase58}
-                >
-                  {copiedField === 'pubkey' ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
-                  ) : (
-                    <Copy className="h-3.5 w-3.5 text-gray-400" />
-                  )}
-                </Button>
-                {explorerUrls && authorityBase58 && (
-                  <a 
-                    href={explorerUrls.account(authorityBase58)} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="text-xs text-blue-400 hover:text-blue-300 underline flex items-center gap-1"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    <span className="hidden sm:inline">Explorer</span>
-                  </a>
-                )}
+          {/* Pubkey */}
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Pubkey</label>
+            <div className="flex items-center gap-1.5">
+              <div className="flex-1 min-w-0 h-8 text-xs font-mono bg-gray-900/60 border border-gray-700/50 rounded-lg px-2.5 flex items-center">
+                <span className="truncate text-gray-300" title={authorityBase58 || ''}>{authorityBase58 || '-'}</span>
               </div>
+              <Button 
+                variant="ghost" 
+                size="sm" 
+                onClick={() => authorityBase58 && handleCopy(authorityBase58, 'pubkey')} 
+                className="h-8 w-8 p-0 hover:bg-gray-700/50 rounded-lg"
+                title="Copy pubkey"
+                disabled={!authorityBase58}
+              >
+                {copiedField === 'pubkey' ? (
+                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5 text-gray-400" />
+                )}
+              </Button>
+              {explorerUrls && authorityBase58 && (
+                <a 
+                  href={explorerUrls.account(authorityBase58)} 
+                  target="_blank" 
+                  rel="noopener noreferrer"
+                  className="h-8 w-8 p-0 inline-flex items-center justify-center hover:bg-gray-700/50 rounded-lg transition-colors"
+                  title="View on Explorer"
+                >
+                  <ExternalLink className="h-3.5 w-3.5 text-gray-400" />
+                </a>
+              )}
             </div>
           </div>
         </div>
