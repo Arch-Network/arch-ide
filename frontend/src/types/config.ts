@@ -1,9 +1,6 @@
 export interface Config {
     network: 'mainnet' | 'devnet' | 'testnet';
     rpcUrl: string;
-    showTransactionDetails: boolean;
-    improveErrors: boolean;
-    automaticAirdrop: boolean;
     regtestConfig: {
         url: string;
         username: string;
@@ -15,9 +12,6 @@ export interface Config {
 export const DEFAULT_CONFIG: Config = {
     network: 'testnet',
     rpcUrl: 'https://rpc.testnet.arch.network',
-    showTransactionDetails: false,
-    improveErrors: true,
-    automaticAirdrop: true,
     regtestConfig: {
         url: 'http://bitcoin-node.dev.aws.archnetwork.xyz:18443',
         username: 'bitcoin',

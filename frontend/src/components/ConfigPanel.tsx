@@ -1,8 +1,7 @@
 import React, { useState, Dispatch, SetStateAction, useCallback, useEffect } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
-import { Switch } from "./ui/switch";
 import { Label } from "./ui/label";
-import { X, Globe, Server, Key, Lock, Eye, AlertTriangle, Coins, Loader2, Wifi, HelpCircle } from 'lucide-react';
+import { X, Globe, Server, Key, Lock, Loader2, Wifi, HelpCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import type { Config } from '../types';
@@ -65,29 +64,6 @@ const FieldLabel: React.FC<{ icon?: React.ReactNode; children: React.ReactNode; 
       {children}
     </Label>
     {extra}
-  </div>
-);
-
-const SettingRow: React.FC<{
-  icon: React.ReactNode;
-  label: string;
-  description: string;
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-}> = ({ icon, label, description, checked, onCheckedChange }) => (
-  <div className="flex items-center justify-between py-3 px-3.5 rounded-lg bg-gray-900/40 border border-gray-800/60 hover:border-gray-700/60 transition-colors">
-    <div className="flex items-center gap-3 min-w-0">
-      <span className="text-gray-500 shrink-0">{icon}</span>
-      <div className="min-w-0">
-        <Label className="text-[13px] text-gray-200">{label}</Label>
-        <p className="text-[11px] text-gray-500 mt-0.5">{description}</p>
-      </div>
-    </div>
-    <Switch
-      checked={checked}
-      onCheckedChange={onCheckedChange}
-      className="shrink-0 ml-3"
-    />
   </div>
 );
 
@@ -396,34 +372,6 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
             </div>
           </div>
 
-          {/* ── Development Settings ─────────────────────── */}
-          <div>
-            <SectionLabel icon={<AlertTriangle className="h-3.5 w-3.5" />}>Development</SectionLabel>
-
-            <div className="space-y-2.5">
-              <SettingRow
-                icon={<Eye className="h-4 w-4" />}
-                label="Show Transaction Details"
-                description="Display detailed transaction information"
-                checked={config.showTransactionDetails}
-                onCheckedChange={(checked) => onConfigChange({ ...config, showTransactionDetails: checked })}
-              />
-              <SettingRow
-                icon={<Coins className="h-4 w-4" />}
-                label="Improve Build Errors"
-                description="Show enhanced error messages"
-                checked={config.improveErrors}
-                onCheckedChange={(checked) => onConfigChange({ ...config, improveErrors: checked })}
-              />
-              <SettingRow
-                icon={<Coins className="h-4 w-4" />}
-                label="Automatic Airdrop"
-                description="Request airdrop when balance is low"
-                checked={config.automaticAirdrop}
-                onCheckedChange={(checked) => onConfigChange({ ...config, automaticAirdrop: checked })}
-              />
-            </div>
-          </div>
         </div>
       </div>
     </div>

@@ -48,9 +48,6 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 interface Config {
   network: 'mainnet' | 'devnet' | 'testnet';
   rpcUrl: string;
-  showTransactionDetails: boolean;
-  improveErrors: boolean;
-  automaticAirdrop: boolean;
   regtestConfig: {
     url: string;
     username: string;
@@ -447,9 +444,6 @@ const AppContent = () => {
     const defaultConfig = {
       network: 'testnet',
       rpcUrl: 'https://rpc.testnet.arch.network',
-      showTransactionDetails: false,
-      improveErrors: true,
-      automaticAirdrop: true,
       regtestConfig: {
         url: 'http://localhost:8010/proxy',
         username: 'bitcoin',
@@ -2076,6 +2070,7 @@ const AppContent = () => {
         isSaving={isSaving}
         mobileConsole={<Output messages={outputMessages} onClear={clearOutputMessages} />}
         mobileConsoleBadgeCount={outputMessages.length}
+        onOpenSettings={() => setIsConfigOpen(true)}
       >
         <div className="flex items-center gap-1 min-w-0">
           {isConnected ? (

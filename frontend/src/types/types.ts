@@ -9,9 +9,6 @@ export interface ArchIdl {
   export interface Config {
     network: string;
     rpcUrl: string;
-    showTransactionDetails: boolean;
-    improveErrors: boolean;
-    automaticAirdrop: boolean;
   }
 
   export interface FileNode {

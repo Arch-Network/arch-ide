@@ -14,6 +14,7 @@ interface StatusBarProps {
   children?: React.ReactNode;
   mobileConsole?: React.ReactNode;
   mobileConsoleBadgeCount?: number;
+  onOpenSettings?: () => void;
 }
 
 // Map config network to wallet network
@@ -33,6 +34,7 @@ export const StatusBar = ({
   children,
   mobileConsole,
   mobileConsoleBadgeCount,
+  onOpenSettings,
 }: StatusBarProps) => {
   const [lastPingTime, setLastPingTime] = useState<Date | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -103,6 +105,7 @@ export const StatusBar = ({
             onConnect={() => onConnectionStatusChange(true)}
             onDisconnect={() => onConnectionStatusChange(false)}
             onPingUpdate={handlePingUpdate}
+            onOpenSettings={onOpenSettings}
           />
         </div>
       </div>
@@ -241,6 +244,7 @@ export const StatusBar = ({
                   onConnect={() => onConnectionStatusChange(true)}
                   onDisconnect={() => onConnectionStatusChange(false)}
                   onPingUpdate={handlePingUpdate}
+                  onOpenSettings={onOpenSettings}
                 />
               </div>
             )}
