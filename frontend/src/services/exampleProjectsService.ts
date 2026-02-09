@@ -117,8 +117,8 @@ pub fn process_instruction(
         DiceInstruction::RollDice { bet_amount, seed } => {
             process_roll_dice(accounts, bet_amount, seed, &input)
         }
-        DiceInstruction::Withdraw { amount, destination } => {
-            process_withdraw(accounts, amount, &destination, &input)
+        DiceInstruction::Withdraw { amount, ref destination } => {
+            process_withdraw(accounts, amount, destination, &input)
         }
     }
 }
@@ -354,7 +354,7 @@ fn process_roll_dice(
         .copy_from_slice(&game_bytes);
 
     // Anchor state to Bitcoin if requested
-    if let Some((utxo, serialized_tx)) = &input.anchoring {
+    if let Some((_utxo, serialized_tx)) = &input.anchoring {
         let fees_tx: Transaction = bitcoin::consensus::deserialize(serialized_tx)
             .map_err(|_| ProgramError::Custom(504))?;
 
@@ -438,7 +438,7 @@ fn process_withdraw(
         .copy_from_slice(&game_bytes);
 
     // Construct Bitcoin withdrawal transaction
-    if let Some((utxo, serialized_tx)) = &input.anchoring {
+    if let Some((_utxo, serialized_tx)) = &input.anchoring {
         let fees_tx: Transaction = bitcoin::consensus::deserialize(serialized_tx)
             .map_err(|_| ProgramError::Custom(504))?;
 
