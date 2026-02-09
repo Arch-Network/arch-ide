@@ -536,111 +536,127 @@ pub struct PlayerState {
 }
 `,
     'client.ts': `// ============================================================================
-// Bitcoin Dice Game - Client Script
+// Bitcoin Dice Game - Client Demo
 // ============================================================================
 //
-// Demonstrates how to interact with the Dice Game program on Arch Network.
-// This script initializes a game, deposits BTC sats, rolls the dice,
-// and withdraws winnings.
+// Demonstrates how the Dice Game program works on Arch Network.
+// This script simulates the full game flow: initialize, deposit,
+// roll dice, and withdraw winnings.
+//
+// The Arch SDK is available globally via window.archSdk
+// (RpcConnection, PubkeyUtil, MessageUtil)
 //
 // Usage: Select this file and click "Run" in the Client section.
 // ============================================================================
 
-import {
-  RpcConnection,
-  MessageUtil,
-  PubkeyUtil,
-} from "@saturnbtcio/arch-sdk";
-
-// Connect to the network
-const connection = new RpcConnection(window.location.origin);
+// Access the SDK from globals (injected by the IDE runtime)
+const { RpcConnection, PubkeyUtil, MessageUtil } = (window as any).archSdk;
 
 console.log("========================================");
-console.log("  Bitcoin Dice Game - Client Demo");
-console.log("========================================\\n");
-
-// Step 1: Initialize the game
-console.log("Step 1: Initialize Game");
-console.log("-----------------------");
-console.log("Creating game with:");
-console.log("  Min bet:     1,000 sats");
-console.log("  Max bet:   100,000 sats");
-console.log("  House edge:  2.5% (250 bps)");
+console.log("  Bitcoin Dice Game");
+console.log("========================================");
 console.log("");
 
-// In a real deployment, you would serialize the instruction using Borsh:
+// ── Step 1: Initialize Game ──────────────────────────────
+
+console.log("STEP 1: Initialize Game");
+console.log("  Config:");
+console.log("    Min bet:      1,000 sats");
+console.log("    Max bet:    100,000 sats");
+console.log("    House edge:   2.5% (250 bps)");
+console.log("");
+
+// In production, you'd serialize with Borsh and send a real tx:
 //
-//   const initInstruction = {
-//     instruction: {
-//       InitializeGame: {
-//         min_bet: 1000,
-//         max_bet: 100000,
-//         house_edge_bps: 250,
-//       }
-//     },
+//   const connection = new RpcConnection("https://rpc.testnet.arch.network");
+//   const instruction = borsh.serialize(DiceInputSchema, {
+//     instruction: { InitializeGame: { min_bet: 1000, max_bet: 100000, house_edge_bps: 250 } },
 //     anchoring: null,
-//   };
-//
-//   const serialized = borsh.serialize(DiceInputSchema, initInstruction);
-//   await connection.sendTransaction(programId, [gameAccount], serialized);
+//   });
+//   await connection.sendTransaction(programId, [gameAccount], instruction);
 
-console.log("Step 2: Deposit BTC");
-console.log("--------------------");
-console.log("Depositing 10,000 sats into player balance...");
-console.log("  The program tracks your balance in account state.");
-console.log("  The BTC is held in the program's UTXO pot.\\n");
+// ── Step 2: Deposit BTC ──────────────────────────────────
 
-console.log("Step 3: Roll the Dice!");
-console.log("----------------------");
+const DEPOSIT = 10000;
+console.log("STEP 2: Deposit");
+console.log("  Amount: " + DEPOSIT + " sats");
+console.log("  The program holds BTC in its UTXO pot and tracks");
+console.log("  your balance in on-chain account state.");
+console.log("");
 
-// Simulate a few rolls
-const rolls = [
-  { bet: 2000, seed: 42, roll: 5, won: true },
-  { bet: 3000, seed: 77, roll: 2, won: false },
-  { bet: 1500, seed: 123, roll: 6, won: true },
-  { bet: 2500, seed: 256, roll: 1, won: false },
-  { bet: 5000, seed: 999, roll: 4, won: true },
+// ── Step 3: Roll the Dice ────────────────────────────────
+
+console.log("STEP 3: Roll the Dice!");
+console.log("  Rules: Roll 4-6 = WIN (2x payout minus house edge)");
+console.log("         Roll 1-3 = LOSS");
+console.log("");
+
+// Simulate the dice roll logic from the Rust program
+function rollDice(seed: number, pubkeyByte0: number, pubkeyByte1: number): number {
+  // Same algorithm as the on-chain program
+  let entropy = seed;
+  entropy = Math.imul(entropy, 6364136223846793005 & 0xFFFFFFFF) >>> 0;
+  entropy = (entropy + pubkeyByte0) >>> 0;
+  entropy = (entropy + pubkeyByte1) >>> 0;
+  entropy = Math.imul(entropy, 1442695040888963407 & 0xFFFFFFFF) >>> 0;
+  return ((entropy >>> 17) % 6) + 1;
+}
+
+const HOUSE_EDGE_BPS = 250;
+const bets = [
+  { amount: 2000, seed: 42 },
+  { amount: 3000, seed: 77 },
+  { amount: 1500, seed: 123 },
+  { amount: 2500, seed: 256 },
+  { amount: 5000, seed: 999 },
 ];
 
-let balance = 10000;
+let balance = DEPOSIT;
 let totalWagered = 0;
 let totalWon = 0;
 let gamesWon = 0;
 
-for (const r of rolls) {
-  totalWagered += r.bet;
-  balance -= r.bet;
+// Use arbitrary pubkey bytes for demo entropy
+const pk0 = 0xA7;
+const pk1 = 0x3B;
 
-  if (r.won) {
-    const houseCut = Math.floor((r.bet * 250) / 10000);
-    const payout = r.bet * 2 - houseCut;
+for (const bet of bets) {
+  const roll = rollDice(bet.seed, pk0, pk1);
+  const won = roll >= 4;
+
+  totalWagered += bet.amount;
+  balance -= bet.amount;
+
+  if (won) {
+    const houseCut = Math.floor((bet.amount * HOUSE_EDGE_BPS) / 10000);
+    const payout = bet.amount * 2 - houseCut;
     balance += payout;
     totalWon += payout;
     gamesWon++;
-    console.log(\`  Roll: \${r.roll} | Bet: \${r.bet} sats | WIN! +\${payout} sats (house: \${houseCut})\`);
+    console.log("  Bet " + bet.amount + " sats | Roll: " + roll + " | WIN  +" + payout + " sats (house: " + houseCut + ")");
   } else {
-    console.log(\`  Roll: \${r.roll} | Bet: \${r.bet} sats | LOSS\`);
+    console.log("  Bet " + bet.amount + " sats | Roll: " + roll + " | LOSS -" + bet.amount + " sats");
   }
 }
 
 console.log("");
-console.log("Game Summary:");
-console.log(\`  Games played:  \${rolls.length}\`);
-console.log(\`  Games won:     \${gamesWon}/\${rolls.length}\`);
-console.log(\`  Total wagered: \${totalWagered} sats\`);
-console.log(\`  Total won:     \${totalWon} sats\`);
-console.log(\`  Final balance: \${balance} sats\\n\`);
+console.log("  ── Summary ──");
+console.log("  Games:    " + gamesWon + "/" + bets.length + " won");
+console.log("  Wagered:  " + totalWagered + " sats");
+console.log("  Won:      " + totalWon + " sats");
+console.log("  Balance:  " + balance + " sats");
+console.log("");
 
-console.log("Step 4: Withdraw");
-console.log("-----------------");
-console.log(\`Withdrawing \${balance} sats to Bitcoin address...\`);
-console.log("  The program constructs a Bitcoin transaction with");
-console.log("  a TxOut sending your sats to your BTC address.\\n");
+// ── Step 4: Withdraw ─────────────────────────────────────
 
+console.log("STEP 4: Withdraw");
+console.log("  Amount: " + balance + " sats");
+console.log("  The program constructs a Bitcoin transaction");
+console.log("  with a TxOut to your BTC address.");
+console.log("");
 console.log("========================================");
-console.log("  Demo complete!");
-console.log("  In production, each step above would be");
-console.log("  a real Arch Network transaction managing");
+console.log("  In production, each step is a real");
+console.log("  Arch Network transaction managing");
 console.log("  actual Bitcoin UTXOs on-chain.");
 console.log("========================================");
 `,
