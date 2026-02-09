@@ -2,7 +2,7 @@ import React, { useState, Dispatch, SetStateAction, useCallback, useEffect } fro
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 import { Switch } from "./ui/switch";
 import { Label } from "./ui/label";
-import { X, Globe, Link, Server, Key, Lock, Eye, AlertTriangle, Coins, Loader2, Wifi, HelpCircle } from 'lucide-react';
+import { X, Globe, Server, Key, Lock, Eye, AlertTriangle, Coins, Loader2, Wifi, HelpCircle } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import type { Config } from '../types';
@@ -49,6 +49,50 @@ const PRESET_RPC_URLS = {
   'custom': ''
 };
 
+// ── Sub-components ──────────────────────────────────────────
+
+const SectionLabel: React.FC<{ icon: React.ReactNode; children: React.ReactNode }> = ({ icon, children }) => (
+  <div className="flex items-center gap-2 mb-4">
+    <span className="text-gray-500">{icon}</span>
+    <h4 className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">{children}</h4>
+  </div>
+);
+
+const FieldLabel: React.FC<{ icon?: React.ReactNode; children: React.ReactNode; extra?: React.ReactNode }> = ({ icon, children, extra }) => (
+  <div className="flex items-center justify-between">
+    <Label className="flex items-center gap-2 text-xs text-gray-400">
+      {icon && <span className="text-gray-500">{icon}</span>}
+      {children}
+    </Label>
+    {extra}
+  </div>
+);
+
+const SettingRow: React.FC<{
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+}> = ({ icon, label, description, checked, onCheckedChange }) => (
+  <div className="flex items-center justify-between py-3 px-3.5 rounded-lg bg-gray-900/40 border border-gray-800/60 hover:border-gray-700/60 transition-colors">
+    <div className="flex items-center gap-3 min-w-0">
+      <span className="text-gray-500 shrink-0">{icon}</span>
+      <div className="min-w-0">
+        <Label className="text-[13px] text-gray-200">{label}</Label>
+        <p className="text-[11px] text-gray-500 mt-0.5">{description}</p>
+      </div>
+    </div>
+    <Switch
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+      className="shrink-0 ml-3"
+    />
+  </div>
+);
+
+// ── Main component ──────────────────────────────────────────
+
 export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigPanelProps) => {
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<{success: boolean, message: string} | null>(null);
@@ -59,19 +103,14 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
     return preset || 'custom';
   });
 
-  // Separate debounced test functions for main RPC and Bitcoin RPC
   const debouncedTestBitcoinConnection = useCallback(
     debounce(async () => {
-      console.log('Debounced Bitcoin test connection running...');
       setTestingConnection(true);
       setConnectionStatus('none');
-
       try {
         const response = await bitcoinRpcRequest(config.regtestConfig, 'getblockcount');
-        console.log('Bitcoin connection test response:', response);
         setConnectionStatus(response.result !== undefined ? 'success' : 'error');
       } catch (error) {
-        console.error('Bitcoin connection error:', error);
         setConnectionStatus('error');
       } finally {
         setTestingConnection(false);
@@ -81,15 +120,11 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
   );
 
   const debouncedTestMainConnection = useCallback(
-    debounce(async () => {
-      console.log('Debounced main RPC test connection running...');
-      // Add your main RPC connection test logic here if needed
-    }, 1000),
+    debounce(async () => {}, 1000),
     [config.rpcUrl]
   );
 
   const handleRegtestChange = (field: 'url' | 'username' | 'password', value: string) => {
-    console.log('handleRegtestChange called for field:', field);
     onConfigChange(prevConfig => ({
       ...prevConfig,
       regtestConfig: {
@@ -101,7 +136,6 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
   };
 
   const handleRpcUrlChange = (value: string) => {
-    console.log('handleRpcUrlChange called');
     onConfigChange(prevConfig => ({
       ...prevConfig,
       rpcUrl: value
@@ -109,7 +143,6 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
     debouncedTestMainConnection();
   };
 
-  // Cleanup both debounced functions
   useEffect(() => {
     return () => {
       debouncedTestBitcoinConnection.cancel?.();
@@ -123,11 +156,8 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
 
     try {
       const smartUrl = getSmartRpcUrl(config.rpcUrl);
-      console.log('Testing connection to:', smartUrl, '(original URL:', config.rpcUrl, ')');
-
       const connection = new RpcConnection(smartUrl);
 
-      // Add a timeout to prevent hanging requests
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Connection timeout after 8 seconds')), 8000);
       });
@@ -143,13 +173,12 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
 
       setTestResult({
         success: true,
-        message: `Successfully connected to RPC server: ${config.rpcUrl} (Block height: ${blockCount})`
+        message: `Connected — Block height: ${blockCount}`
       });
     } catch (error) {
-      console.error('Connection test error:', error);
       setTestResult({
         success: false,
-        message: `Connection failed to ${config.rpcUrl}: ${error instanceof Error ? error.message : String(error)}`
+        message: `Failed: ${error instanceof Error ? error.message : String(error)}`
       });
     } finally {
       setTestingConnection(false);
@@ -158,68 +187,42 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
 
   if (!isOpen) return null;
 
-  const connectionTestButton = (
-    <div className="mt-4">
-      <Button
-        onClick={testConnection}
-        disabled={testingConnection}
-        variant="secondary"
-        className="mt-2 w-full bg-gray-700 text-white hover:bg-gray-600"
-      >
-        {testingConnection ? (
-          <>
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-            Testing...
-          </>
-        ) : (
-          <>
-            <Wifi className="mr-2 h-4 w-4" />
-            Test Connection
-          </>
-        )}
-      </Button>
-      {testResult && (
-        <div className={`mt-2 p-2 rounded text-sm ${testResult.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-          {testResult.message}
-        </div>
-      )}
-    </div>
-  );
-
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center" onClick={(e) => {
-      if (e.target === e.currentTarget) onClose();
-    }}>
-      <div className="bg-gray-800 rounded-lg shadow-xl w-[600px] max-h-[80vh] overflow-y-auto custom-scrollbar">
-        <div className="flex justify-between items-center p-6 border-b border-gray-700">
-          <h3 className="text-lg font-medium">Configuration</h3>
-          <Button variant="ghost" size="icon" onClick={onClose}>
-            <X className="h-4 w-4" />
+    <div
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="bg-[#141414] border border-gray-800/60 rounded-xl shadow-2xl w-[520px] max-h-[80vh] overflow-y-auto custom-scrollbar">
+        {/* Header */}
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-800/60">
+          <h3 className="text-sm font-semibold text-gray-200 tracking-wide">Settings</h3>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onClose}
+            className="h-7 w-7 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800/60"
+          >
+            <X className="h-3.5 w-3.5" />
           </Button>
         </div>
 
         <div className="p-6 space-y-8">
-          {/* Network Settings Section */}
+          {/* ── Network Settings ─────────────────────────── */}
           <div>
-            <div className="flex items-center gap-2 mb-4">
-              <Globe className="h-4 w-4 text-blue-400" />
-              <h4 className="text-sm font-medium text-gray-200 uppercase">Network Settings</h4>
-            </div>
+            <SectionLabel icon={<Globe className="h-3.5 w-3.5" />}>Network</SectionLabel>
 
-            <div className="grid gap-6">
+            <div className="space-y-5">
+              {/* Network selector */}
               <div className="space-y-2">
-                <Label className="flex items-center gap-2">
-                  <Link className="h-4 w-4 text-gray-400" />
-                  Network
-                </Label>
+                <FieldLabel>Network</FieldLabel>
                 <Select
                   value={config.network}
                   onValueChange={(value: any) => onConfigChange({ ...config, network: value })}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-9 text-xs bg-gray-900/50 border-gray-800/60 rounded-lg">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-gray-900 border-gray-800">
                     <SelectItem value="mainnet">Mainnet</SelectItem>
                     <SelectItem value="devnet">Devnet</SelectItem>
                     <SelectItem value="testnet">Testnet</SelectItem>
@@ -227,32 +230,33 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
                 </Select>
               </div>
 
+              {/* RPC server */}
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <Label className="flex items-center gap-2">
-                    <Server className="h-4 w-4 text-gray-400" />
-                    RPC Server Configuration
-                  </Label>
-                  <TooltipProvider>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <Button variant="ghost" size="icon">
-                          <HelpCircle className="h-4 w-4" />
-                        </Button>
-                      </TooltipTrigger>
-                      <TooltipContent className="max-w-xs">
-                        <p>Configure which Arch Network RPC server to use:</p>
-                        <ul className="list-disc pl-4 mt-1 text-xs">
-                          <li><strong>Mainnet:</strong> Production environment</li>
-                          <li><strong>Testnet:</strong> Testing environment</li>
-                          <li><strong>Local:</strong> For local development (localhost:9002)</li>
-                          <li><strong>Custom:</strong> Specify your own RPC URL</li>
-                        </ul>
-                        <p className="mt-1 text-xs">Local development automatically uses the proxy.</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
-                </div>
+                <FieldLabel
+                  icon={<Server className="h-3.5 w-3.5" />}
+                  extra={
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button className="text-gray-600 hover:text-gray-400 transition-colors">
+                            <HelpCircle className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent className="max-w-xs text-xs">
+                          <p>Configure which Arch Network RPC server to use.</p>
+                          <ul className="list-disc pl-3 mt-1 space-y-0.5 text-[11px] text-gray-400">
+                            <li><strong className="text-gray-300">Mainnet:</strong> Production</li>
+                            <li><strong className="text-gray-300">Testnet:</strong> Testing</li>
+                            <li><strong className="text-gray-300">Local:</strong> localhost:9002</li>
+                            <li><strong className="text-gray-300">Custom:</strong> Your own RPC URL</li>
+                          </ul>
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  }
+                >
+                  RPC Server
+                </FieldLabel>
                 <Select
                   value={rpcPreset}
                   onValueChange={(value) => {
@@ -266,10 +270,10 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
                     }
                   }}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger className="h-9 text-xs bg-gray-900/50 border-gray-800/60 rounded-lg">
                     <SelectValue placeholder="Select RPC server" />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="bg-gray-900 border-gray-800">
                     <SelectItem value="mainnet">Mainnet</SelectItem>
                     <SelectItem value="testnet">Testnet</SelectItem>
                     <SelectItem value="devnet">Local (localhost:9002)</SelectItem>
@@ -277,145 +281,147 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
                   </SelectContent>
                 </Select>
 
-                {/* Show the custom URL input only if custom is selected */}
+                {/* Custom URL input */}
                 {rpcPreset === 'custom' && (
-                  <>
+                  <div className="space-y-2 pt-1">
                     <Input
                       value={config.rpcUrl}
                       onChange={(e) => onConfigChange({ ...config, rpcUrl: e.target.value })}
                       placeholder="https://your-rpc-server.com"
+                      className="h-9 text-xs bg-gray-900/50 border-gray-800/60 rounded-lg"
                     />
                     <Button
                       onClick={testConnection}
                       disabled={testingConnection}
                       variant="secondary"
-                      className="mt-2 w-full bg-gray-700 text-white hover:bg-gray-600"
+                      className="w-full h-9 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700/50"
                     >
                       {testingConnection ? (
                         <>
-                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
                           Testing...
                         </>
                       ) : (
                         <>
-                          <Wifi className="mr-2 h-4 w-4" />
+                          <Wifi className="mr-2 h-3.5 w-3.5" />
                           Test Connection
                         </>
                       )}
                     </Button>
-
                     {testResult && (
-                      <div className={`mt-2 p-2 rounded text-sm ${testResult.success ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      <div className={`p-2.5 rounded-lg text-[11px] ${
+                        testResult.success
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                      }`}>
                         {testResult.message}
                       </div>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
 
+              {/* Bitcoin Regtest (devnet only) */}
               {config.network === 'devnet' && (
-                <div className="space-y-4 border-l-2 border-blue-500/30 pl-4 mt-2">
+                <div className="space-y-4 rounded-lg bg-gray-900/30 border border-gray-800/40 p-4">
                   <div>
-                    <h4 className="text-sm font-medium text-blue-400">Bitcoin Regtest Settings</h4>
-                    <p className="text-xs text-gray-400 mt-1">
-                      These settings allow direct interaction with a Bitcoin node, enabling transactions without a web wallet.
-                      Perfect for development and testing.
+                    <h4 className="text-xs font-medium text-gray-300">Bitcoin Regtest</h4>
+                    <p className="text-[11px] text-gray-500 mt-0.5">
+                      Direct Bitcoin node interaction for development and testing.
                     </p>
                   </div>
 
-                  <div className="grid gap-4">
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <Server className="h-4 w-4 text-gray-400" />
-                        Bitcoin RPC URL
-                      </Label>
+                  <div className="space-y-3">
+                    <div className="space-y-1.5">
+                      <FieldLabel icon={<Server className="h-3.5 w-3.5" />}>Bitcoin RPC URL</FieldLabel>
                       <Input
                         value={config.regtestConfig?.url || 'http://bitcoin-node.dev.aws.archnetwork.xyz:18443'}
                         onChange={(e) => handleRegtestChange('url', e.target.value)}
                         placeholder="http://bitcoin-node.dev.aws.archnetwork.xyz:18443"
+                        className="h-9 text-xs bg-gray-900/50 border-gray-800/60 rounded-lg"
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <Key className="h-4 w-4 text-gray-400" />
-                        RPC Username
-                      </Label>
+                    <div className="space-y-1.5">
+                      <FieldLabel icon={<Key className="h-3.5 w-3.5" />}>RPC Username</FieldLabel>
                       <Input
                         value={config.regtestConfig?.username || 'bitcoin'}
                         onChange={(e) => handleRegtestChange('username', e.target.value)}
                         placeholder="bitcoin"
+                        className="h-9 text-xs bg-gray-900/50 border-gray-800/60 rounded-lg"
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label className="flex items-center gap-2">
-                        <Lock className="h-4 w-4 text-gray-400" />
-                        RPC Password
-                      </Label>
-                      <Input type="password"
+                    <div className="space-y-1.5">
+                      <FieldLabel icon={<Lock className="h-3.5 w-3.5" />}>RPC Password</FieldLabel>
+                      <Input
+                        type="password"
                         value={config.regtestConfig?.password || '428bae8f3c94f8c39c50757fc89c39bc7e6ebc70ebf8f618'}
                         onChange={(e) => handleRegtestChange('password', e.target.value)}
-                        placeholder="428bae8f3c94f8c39c50757fc89c39bc7e6ebc70ebf8f618"
+                        placeholder="••••••••"
+                        className="h-9 text-xs bg-gray-900/50 border-gray-800/60 rounded-lg"
                       />
                     </div>
 
-                    {connectionTestButton}
+                    <Button
+                      onClick={testConnection}
+                      disabled={testingConnection}
+                      variant="secondary"
+                      className="w-full h-9 text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg border border-gray-700/50"
+                    >
+                      {testingConnection ? (
+                        <>
+                          <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+                          Testing...
+                        </>
+                      ) : (
+                        <>
+                          <Wifi className="mr-2 h-3.5 w-3.5" />
+                          Test Connection
+                        </>
+                      )}
+                    </Button>
+                    {testResult && (
+                      <div className={`p-2.5 rounded-lg text-[11px] ${
+                        testResult.success
+                          ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                          : 'bg-red-500/10 text-red-400 border border-red-500/20'
+                      }`}>
+                        {testResult.message}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Development Settings Section */}
+          {/* ── Development Settings ─────────────────────── */}
           <div>
-            <div className="flex items-center gap-2 mb-4">
-              <AlertTriangle className="h-4 w-4 text-yellow-400" />
-              <h4 className="text-sm font-medium text-gray-200 uppercase">Development Settings</h4>
-            </div>
+            <SectionLabel icon={<AlertTriangle className="h-3.5 w-3.5" />}>Development</SectionLabel>
 
-            <div className="space-y-4">
-              <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                <div className="flex items-center gap-3">
-                  <Eye className="h-4 w-4 text-gray-400" />
-                  <div>
-                    <Label>Show Transaction Details</Label>
-                    <p className="text-xs text-gray-400">Display detailed transaction information</p>
-                  </div>
-                </div>
-                <Switch
-                  checked={config.showTransactionDetails}
-                  onCheckedChange={(checked) => onConfigChange({ ...config, showTransactionDetails: checked })}
-                />
-              </div>
-
-              <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                <div className="flex items-center gap-3">
-                  <Coins className="h-4 w-4 text-gray-400" />
-                  <div>
-                    <Label>Improve Build Errors</Label>
-                    <p className="text-xs text-gray-400">Show enhanced error messages</p>
-                  </div>
-                </div>
-                <Switch
-                  checked={config.improveErrors}
-                  onCheckedChange={(checked) => onConfigChange({ ...config, improveErrors: checked })}
-                />
-              </div>
-
-              <div className="flex items-center justify-between p-3 bg-gray-800/50 rounded-lg border border-gray-700">
-                <div className="flex items-center gap-3">
-                  <Coins className="h-4 w-4 text-gray-400" />
-                  <div>
-                    <Label>Automatic Airdrop</Label>
-                    <p className="text-xs text-gray-400">Request airdrop when balance is low</p>
-                  </div>
-                </div>
-                <Switch
-                  checked={config.automaticAirdrop}
-                  onCheckedChange={(checked) => onConfigChange({ ...config, automaticAirdrop: checked })}
-                />
-              </div>
+            <div className="space-y-2.5">
+              <SettingRow
+                icon={<Eye className="h-4 w-4" />}
+                label="Show Transaction Details"
+                description="Display detailed transaction information"
+                checked={config.showTransactionDetails}
+                onCheckedChange={(checked) => onConfigChange({ ...config, showTransactionDetails: checked })}
+              />
+              <SettingRow
+                icon={<Coins className="h-4 w-4" />}
+                label="Improve Build Errors"
+                description="Show enhanced error messages"
+                checked={config.improveErrors}
+                onCheckedChange={(checked) => onConfigChange({ ...config, improveErrors: checked })}
+              />
+              <SettingRow
+                icon={<Coins className="h-4 w-4" />}
+                label="Automatic Airdrop"
+                description="Request airdrop when balance is low"
+                checked={config.automaticAirdrop}
+                onCheckedChange={(checked) => onConfigChange({ ...config, automaticAirdrop: checked })}
+              />
             </div>
           </div>
         </div>
