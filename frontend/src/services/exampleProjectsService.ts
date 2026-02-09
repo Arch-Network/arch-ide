@@ -236,6 +236,8 @@ fn process_deposit(
 
         if let Some(utxo) = player_utxo {
             let signer_seeds = &[b"player", player_wallet.key.as_ref(), &[player_bump]];
+            let txid: [u8; 32] = utxo.txid().try_into()
+                .map_err(|_| ProgramError::InvalidArgument)?;
             invoke_signed(
                 &create_account_with_anchor(
                     player_wallet.key,
@@ -243,7 +245,7 @@ fn process_deposit(
                     minimum_rent(serialized.len()),
                     serialized.len() as u64,
                     program_id,
-                    utxo.txid(),
+                    txid,
                     utxo.vout(),
                 ),
                 &[player_wallet.clone(), player_account.clone(), system_program.clone()],
