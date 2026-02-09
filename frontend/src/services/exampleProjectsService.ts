@@ -785,9 +785,11 @@ async function main() {
   console.log("========================================");
 }
 
-main().catch(function(err) {
+try {
+  await main();
+} catch (err: any) {
   console.log("Error: " + (err.message || err));
-});
+}
 `,
   },
 };
