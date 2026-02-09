@@ -28,7 +28,7 @@ pub async fn rpc_proxy(
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
     // Default RPC URL - can be overridden via query param
     let default_rpc_url = std::env::var("RPC_URL")
-        .unwrap_or_else(|_| "https://rpc.internal.arch.network".to_string());
+        .unwrap_or_else(|_| "https://rpc.testnet.arch.network".to_string());
 
     let target_url = query.target.as_deref().unwrap_or(&default_rpc_url);
 

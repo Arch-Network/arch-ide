@@ -1,5 +1,5 @@
 export interface Config {
-    network: 'mainnet-beta' | 'devnet' | 'testnet';
+    network: 'mainnet' | 'devnet' | 'testnet';
     rpcUrl: string;
     showTransactionDetails: boolean;
     improveErrors: boolean;
@@ -14,7 +14,7 @@ export interface Config {
 // Default config that can be imported and used
 export const DEFAULT_CONFIG: Config = {
     network: 'testnet',
-    rpcUrl: 'https://rpc.internal.arch.network',
+    rpcUrl: 'https://rpc.testnet.arch.network',
     showTransactionDetails: false,
     improveErrors: true,
     automaticAirdrop: true,

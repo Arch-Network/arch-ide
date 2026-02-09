@@ -13,7 +13,7 @@ import { RpcConnection } from '@saturnbtcio/arch-sdk';
 export interface FaucetRequestOptions {
   pubkey: string; // Hex string
   rpcUrl: string;
-  network: 'testnet' | 'devnet';
+  network: 'testnet' | 'devnet' | 'mainnet';
   privkey?: string; // Optional: hex string of private key for auto-signing
 }
 
@@ -60,10 +60,10 @@ export async function requestFaucetFunds(
   const { pubkey, rpcUrl, network, privkey } = options;
 
   // Validate network
-  if (network !== 'testnet' && network !== 'devnet') {
+  if (network !== 'testnet' && network !== 'devnet' && network !== 'mainnet') {
     return {
       success: false,
-      error: 'Faucet only available on testnet and devnet'
+      error: 'Faucet only available on mainnet, testnet, and devnet'
     };
   }
 
@@ -200,5 +200,5 @@ export async function requestFaucetFunds(
  * Check if faucet is available for the given network
  */
 export function isFaucetAvailable(network: string): boolean {
-  return network === 'testnet' || network === 'devnet';
+  return network === 'mainnet' || network === 'testnet' || network === 'devnet';
 }

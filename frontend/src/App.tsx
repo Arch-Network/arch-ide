@@ -46,7 +46,7 @@ console.log('API_URL', import.meta.env.VITE_API_URL);
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
 interface Config {
-  network: 'mainnet-beta' | 'devnet' | 'testnet';
+  network: 'mainnet' | 'devnet' | 'testnet';
   rpcUrl: string;
   showTransactionDetails: boolean;
   improveErrors: boolean;
@@ -440,9 +440,13 @@ const AppContent = () => {
 
   const [config, setConfig] = useState<Config>(() => {
     const savedConfig = storage.getConfig();
+    // Backward-compat: old configs used `mainnet-beta` in storage.
+    const normalizedSavedConfig = (savedConfig && (savedConfig as any).network === 'mainnet-beta')
+      ? { ...(savedConfig as any), network: 'mainnet' }
+      : savedConfig;
     const defaultConfig = {
       network: 'testnet',
-      rpcUrl: 'https://rpc.internal.arch.network',
+      rpcUrl: 'https://rpc.testnet.arch.network',
       showTransactionDetails: false,
       improveErrors: true,
       automaticAirdrop: true,
@@ -453,14 +457,14 @@ const AppContent = () => {
       }
     };
 
-    if (!savedConfig) return defaultConfig;
+    if (!normalizedSavedConfig) return defaultConfig;
 
     return {
       ...defaultConfig,
-      ...savedConfig,
+      ...(normalizedSavedConfig as any),
       regtestConfig: {
         ...defaultConfig.regtestConfig,
-        ...(savedConfig.regtestConfig || {})
+        ...((normalizedSavedConfig as any).regtestConfig || {})
       }
     };
   });
@@ -669,7 +673,7 @@ const AppContent = () => {
       // Call deployProgram directly with separate program and authority keypairs
       const result = await deployProgram({
         rpcUrl: config.rpcUrl,
-        network: config.network as 'testnet' | 'mainnet-beta' | 'devnet',
+        network: config.network as 'testnet' | 'mainnet' | 'devnet',
         programBinary: Buffer.from(binaryData),
         programKeypair: fullCurrentProject.account,
         authorityKeypair: fullCurrentProject.authorityAccount,
@@ -681,7 +685,7 @@ const AppContent = () => {
       if (result.programId) {
         addOutputMessage('success', `Program deployed successfully`);
         const programIdBase58 = hexToBase58(result.programId);
-        const explorerUrls = getExplorerUrls(config.network as 'testnet' | 'mainnet-beta' | 'devnet');
+        const explorerUrls = getExplorerUrls(config.network as 'testnet' | 'mainnet' | 'devnet');
         addOutputMessage('info', `Program ID: ${programIdBase58}`, explorerUrls?.program(programIdBase58));
         setProgramId(result.programId);
         setBinaryFileName(`${fullCurrentProject.name}.so`);
@@ -2114,7 +2118,7 @@ const AppContent = () => {
         onDeploy={handleDeployConfirm}
         isConnected={isConnected}
         isDeploying={isDeploying}
-        network={config.network === 'mainnet-beta' ? 'mainnet' :
+        network={config.network === 'mainnet' ? 'mainnet' :
                 config.network === 'testnet' ? 'testnet' : 'devnet'}
         programId={programId}
         rpcUrl={config.rpcUrl}

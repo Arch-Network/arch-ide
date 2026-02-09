@@ -33,7 +33,7 @@ export function getSmartRpcUrl(rpcUrl: string): string {
         'This may be blocked by your browser (mixed content policy).\n' +
         'If connection fails, either:\n' +
         '1. Run your local devnet with HTTPS, OR\n' +
-        '2. Use a public RPC URL (e.g., https://rpc.internal.arch.network), OR\n' +
+        '2. Use a public RPC URL (e.g., https://rpc.testnet.arch.network), OR\n' +
         '3. Run the IDE locally (http://localhost:5173)'
       );
     }
@@ -41,7 +41,7 @@ export function getSmartRpcUrl(rpcUrl: string): string {
     return rpcUrl;
   }
 
-  // For external RPC endpoints (https://rpc.internal.arch.network, etc):
+  // For external RPC endpoints (https://rpc.testnet.arch.network, etc):
   // - On localhost dev: Use Vite's /rpc proxy (it handles CORS and forwards to RPC server)
   // - On production: Use RPC directly (CORS is configured on the RPC server)
   if (isRunningOnLocalhost) {

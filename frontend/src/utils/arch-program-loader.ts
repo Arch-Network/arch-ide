@@ -268,7 +268,7 @@ export class ArchProgramLoader {
 
     switch (network) {
       case 'testnet':
-      case 'mainnet-beta': {
+      case 'mainnet': {
         // Use the new wallet manager
         if (walletManager.availableWallets.length === 0) {
           throw new Error(
@@ -282,7 +282,7 @@ export class ArchProgramLoader {
           // Connect wallet if not already connected
           if (!walletManager.isConnected) {
             const firstWallet = walletManager.availableWallets[0];
-            await walletManager.connect(firstWallet.name, 'testnet');
+            await walletManager.connect(firstWallet.name, network === 'mainnet' ? 'mainnet' : 'testnet');
           }
 
           // Send Bitcoin using the wallet manager
@@ -420,7 +420,7 @@ export class ArchProgramLoader {
     const privateKeyBuffer = Buffer.from(keypair.privkey, 'hex');
 
     // Convert network string to BIP322 network type
-    const bitcoinNetwork = network === 'mainnet-beta' ? 'mainnet' :
+    const bitcoinNetwork = network === 'mainnet' ? 'mainnet' :
                           network === 'devnet' ? 'regtest' : 'testnet';
 
     const signature = await signMessageBIP322(privateKeyBuffer, Buffer.from(messageHash));

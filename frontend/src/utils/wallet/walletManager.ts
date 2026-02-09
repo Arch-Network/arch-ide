@@ -34,19 +34,6 @@ class BitcoinWalletManager {
 
     // Try to restore previous connection
     this.restoreConnection();
-
-    // If not restored, auto-connect to the first available wallet on testnet
-    setTimeout(async () => {
-      try {
-        if (!this.isConnected && this.state.availableWallets.length > 0) {
-          const preferred = this.state.availableWallets[0];
-          console.log('[WalletManager] Auto-connecting to', preferred.name, 'on testnet');
-          await this.connect(preferred.name, 'testnet');
-        }
-      } catch (e) {
-        console.log('[WalletManager] Auto-connect skipped:', (e as any)?.message || e);
-      }
-    }, 0);
   }
 
   /** Get current state */
@@ -95,8 +82,12 @@ class BitcoinWalletManager {
   /** Save wallet state to localStorage */
   private saveToStorage() {
     try {
+      // Never persist a transient "connecting" state; it can get stuck across reloads.
+      // Persist only stable states (connected/disconnected).
+      const stableState: BitcoinWalletState['state'] =
+        this.state.state === 'connecting' ? 'disconnected' : this.state.state;
       const serialized: SerializedBitcoinWallet = {
-        state: this.state.state,
+        state: stableState,
         walletName: this.state.currentWallet?.name || null,
         network: this.state.currentWallet?.network,
       };
@@ -114,6 +105,12 @@ class BitcoinWalletManager {
 
       const serialized: SerializedBitcoinWallet = JSON.parse(stored);
 
+      // If we ever persisted a stale/non-stable state, clear it.
+      if (serialized.state !== 'connected') {
+        localStorage.removeItem(STORAGE_KEY);
+        return;
+      }
+
       if (serialized.state === 'connected' && serialized.walletName) {
         const wallet = this.state.availableWallets.find(
           w => w.name === serialized.walletName
@@ -128,6 +125,9 @@ class BitcoinWalletManager {
             // Clear stored state if reconnection fails
             localStorage.removeItem(STORAGE_KEY);
           }
+        } else {
+          // Previously selected wallet isn't available anymore (extension removed/disabled)
+          localStorage.removeItem(STORAGE_KEY);
         }
       }
     } catch (error) {
@@ -147,7 +147,14 @@ class BitcoinWalletManager {
       this.updateState({ state: 'connecting', currentWallet: wallet });
 
       // Pass network to wallet connect method
-      await wallet.connect(network ?? 'testnet');
+      // User-driven wallet connects often require user approval and can take a while.
+      const connectTimeoutMs = 60_000;
+      await Promise.race([
+        wallet.connect(network ?? 'testnet'),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Wallet connect timed out after ${connectTimeoutMs}ms`)), connectTimeoutMs)
+        ),
+      ]);
 
       // Use accounts from wallet adapter directly (already set in connect())
       // Only call getAccounts if no accounts are set
@@ -171,6 +178,8 @@ class BitcoinWalletManager {
         currentWallet: null,
         currentAccount: null,
       });
+      // Ensure we don't leave any stale persisted state behind
+      try { localStorage.removeItem(STORAGE_KEY); } catch (_) {}
       throw error;
     }
   }

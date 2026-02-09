@@ -16,7 +16,7 @@ async function main() {
   console.log("Arch pubkey base58:", base58.encode(archPubkey));
 
   // 3) Connect to Arch beta RPC
-  const conn = new RpcConnection("https://rpc.internal.arch.network");
+  const conn = new RpcConnection("https://rpc.testnet.arch.network");
 
   // 4) Derive the Arch account address the same way the explorer does
   const archAddress = await conn.getAccountAddress(archPubkey);

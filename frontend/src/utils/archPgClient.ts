@@ -1,6 +1,8 @@
 import { transpile, ScriptTarget, ModuleKind } from "typescript";
 import { RpcConnection, ArchConnection, PubkeyUtil, MessageUtil, UtxoMetaUtil, SignatureUtil, SanitizedMessageUtil, TransactionUtil } from "@saturnbtcio/arch-sdk";
-import { base58 } from '@scure/base';
+import { base16, base58, base58check } from '@scure/base';
+import { sha256 } from '@noble/hashes/sha256';
+import { Signer as Bip322Signer } from 'bip322-js';
 import { walletManager } from './wallet/walletManager';
 
 declare global {
@@ -73,41 +75,43 @@ export class ArchPgClient {
 
       // IMPORTANT: Add message handler BEFORE injecting script
       messageHandler = (event: MessageEvent) => {
-        // Log ALL messages - even from other sources for debugging
-        console.log('[Parent] Raw message received:', {
-          source: event.source === iframeWindow ? 'iframe' : 'other',
-          type: event.data?.type,
-          hasId: !!event.data?.id,
-          id: event.data?.id,
-          data: event.data
-        });
+        const data = event.data;
+        const isOurIframe = event.source === iframeWindow;
+        const isOurForwardedError = !!data && typeof data === 'object' && data.__archPgClient === true;
 
-        if (event.source === iframeWindow) {
-          console.log('[Parent] ✓ Message is from our iframe');
-          if (event.data?.type?.startsWith('wallet')) {
-            console.log('[Parent] ✓ This is a wallet message!', event.data.type, 'id:', event.data.id);
-          }
+        // Keep logs high-signal: only log iframe messages or our forwarded errors.
+        if (isOurIframe || isOurForwardedError) {
+          console.log('[Parent] Message received:', {
+            source: isOurIframe ? 'iframe' : 'forwarded',
+            type: (data as any)?.type,
+            id: (data as any)?.id,
+          });
         }
 
-        if (event.source === iframeWindow) {
-          const data = event.data;
+        // Handle forwarded iframe errors/unhandled rejections (these originate from our event listeners)
+        if (isOurForwardedError) {
+          const msg = (data as any)?.message || 'Unknown iframe error';
+          console.error('Execution error (forwarded):', msg);
+          onMessage('error', msg);
+          cleanup();
+          return;
+        }
+
+        if (isOurIframe) {
           if (data && typeof data === 'object') {
-            if (data.type === 'console') {
-              console.log('Received console message:', data);
-              onMessage(data.level || 'info', data.message || '');
-            } else if (data.type === 'completion') {
-              console.log('Execution completed successfully');
+            if ((data as any).type === 'console') {
+              onMessage((data as any).level || 'info', (data as any).message || '');
+            } else if ((data as any).type === 'completion') {
               onMessage('success', 'Code execution completed');
               cleanup();
-            } else if (data.type === 'error') {
-              console.error('Execution error:', data.message);
-              onMessage('error', data.message || 'Unknown error');
+            } else if ((data as any).type === 'error') {
+              onMessage('error', (data as any).message || 'Unknown error');
               cleanup();
             }
             // ============================================================================
             // WALLET PROXY MESSAGE HANDLERS - Uses wallet manager
             // ============================================================================
-            else if (data.type === 'wallet-check') {
+            else if ((data as any).type === 'wallet-check') {
               console.log('[Parent] Handling wallet-check, id:', data.id);
               console.log('[Parent] walletManager state:', {
                 isConnected: walletManager.isConnected,
@@ -124,7 +128,7 @@ export class ArchPgClient {
                 available
               }, '*');
             }
-            else if (data.type === 'wallet-type') {
+            else if ((data as any).type === 'wallet-type') {
               const walletType = walletManager.current?.name?.toLowerCase() || null;
               console.log('[Parent] Handling wallet-type, returning:', walletType);
               iframeWindow.postMessage({
@@ -133,7 +137,7 @@ export class ArchPgClient {
                 walletType
               }, '*');
             }
-            else if (data.type === 'wallet-get-accounts') {
+            else if ((data as any).type === 'wallet-get-accounts') {
               console.log('[Parent] Handling wallet-get-accounts');
               (async () => {
                 try {
@@ -155,7 +159,7 @@ export class ArchPgClient {
                 }
               })();
             }
-            else if (data.type === 'wallet-get-pubkey') {
+            else if ((data as any).type === 'wallet-get-pubkey') {
               console.log('[Parent] Handling wallet-get-pubkey');
               (async () => {
                 try {
@@ -177,7 +181,7 @@ export class ArchPgClient {
                 }
               })();
             }
-            else if (data.type === 'wallet-sign-message') {
+            else if ((data as any).type === 'wallet-sign-message') {
               console.log('[Parent] Handling wallet-sign-message');
               console.log('[Parent] Message to sign:', data.message);
               console.log('[Parent] Protocol:', data.protocol);
@@ -226,6 +230,23 @@ export class ArchPgClient {
           (iframeWindow as any).TransactionUtil = TransactionUtil;
         (iframeWindow as any).UtxoMetaUtil = UtxoMetaUtil;
         (iframeWindow as any).SignatureUtil = SignatureUtil;
+
+        // BIP322 signing (for "no wallet" flows)
+        ;(iframeWindow as any).Bip322Signer = Bip322Signer;
+        ;(iframeWindow as any).__archPrivkeyHexToWif = (privkeyHex: string, address: string): string => {
+          // WIF = Base58Check(prefix + privkey + [0x01 if compressed])
+          // - mainnet prefix: 0x80
+          // - testnet/regtest prefix: 0xEF
+          const isTestnetish = address.startsWith('tb1') || address.startsWith('bcrt1') || address.startsWith('m') || address.startsWith('n') || address.startsWith('2');
+          const prefix = isTestnetish ? 0xef : 0x80;
+          const privBytes = base16.decode(privkeyHex);
+          const payload = new Uint8Array(1 + privBytes.length + 1);
+          payload[0] = prefix;
+          payload.set(privBytes, 1);
+          payload[payload.length - 1] = 0x01; // compressed pubkey marker
+          const b58 = base58check(sha256);
+          return b58.encode(payload);
+        };
 
         // Add base58 encoding/decoding utilities
         (iframeWindow as any).fromBase58 = function(str: string): Uint8Array {
@@ -506,6 +527,7 @@ export class ArchPgClient {
               let accountPubkey;
               let accountAddress;
               let useWallet = false;
+              let privkeyHex = null;
 
               const PubkeyUtil = window.PubkeyUtil;
               const ArchConnection = window.ArchConnection;
@@ -541,8 +563,18 @@ export class ArchPgClient {
               const newAccount = await archConn.createNewAccount();
               accountPubkey = PubkeyUtil.fromHex(newAccount.pubkey);
               accountAddress = newAccount.address;
+              privkeyHex = newAccount.privkey;
+              try {
+                // Cache local signer material so existing templates can send tx without code changes
+                window.__archLocalAccount = {
+                  address: accountAddress,
+                  pubkey: newAccount.pubkey,
+                  privkey: privkeyHex,
+                  wif: window.__archPrivkeyHexToWif ? window.__archPrivkeyHexToWif(privkeyHex, accountAddress) : null
+                };
+              } catch (_) {}
               try { await conn.requestAirdrop(accountPubkey); } catch (_) {}
-              return { accountPubkey, accountAddress, useWallet };
+              return { accountPubkey, accountAddress, useWallet, privkey: privkeyHex };
             } catch (error) {
               throw new Error('[ClientTransactionUtil.setupAccount] ' + (error && error.message ? error.message : String(error)));
             }
@@ -553,6 +585,7 @@ export class ArchPgClient {
             const SanitizedMessageUtil = window.SanitizedMessageUtil;
             const walletProxy = window.walletProxy;
             const SignatureUtil = window.SignatureUtil;
+            const Bip322Signer = window.Bip322Signer;
 
             // Build sanitized message with SDK utilities
             const bestBlockHash = await conn.getBestBlockHash();
@@ -658,7 +691,42 @@ export class ArchPgClient {
                 throw new Error('[ClientTransactionUtil.signAndSendTransaction] ' + (error && error.message ? error.message : String(error)));
               }
             } else {
-              return undefined;
+              // No wallet: try local signing using the account generated in setupAccount()
+              try {
+                const local = window.__archLocalAccount;
+                if (!local || !local.wif || !local.address) {
+                  console.log("⚠️  No wallet connected and no local signer available");
+                  return undefined;
+                }
+                if (!Bip322Signer || typeof Bip322Signer.sign !== 'function') {
+                  console.log("⚠️  BIP322 signer not available in this environment");
+                  return undefined;
+                }
+
+                console.log("✓ Using locally generated account for signing (no wallet)");
+                const signatureBase64OrBuf = Bip322Signer.sign(local.wif, local.address, hashHex);
+                const sigStr = typeof signatureBase64OrBuf === 'string'
+                  ? signatureBase64OrBuf
+                  : btoa(String.fromCharCode(...Array.from(signatureBase64OrBuf)));
+
+                let signature = Uint8Array.from(atob(sigStr), c => c.charCodeAt(0));
+                if (signature.length === 65) signature = signature.slice(0, 64);
+                if (typeof SignatureUtil !== 'undefined') {
+                  try { signature = SignatureUtil.adjustSignature(signature); } catch (_) {}
+                }
+
+                const transaction = { version: 1, signatures: [Array.from(signature)], message: sendMessage };
+                // NOTE: This code is injected via a template string; avoid \\n escapes here because
+                // they can become literal newlines in the generated JS and break parsing.
+                console.log("--- Sending Transaction (local signer) ---");
+                const txid = await conn.sendTransaction(transaction);
+                console.log("✅ Transaction sent!");
+                console.log("Transaction ID: " + txid);
+                return txid;
+              } catch (e) {
+                console.error("✗ Local signing failed:", e?.message || e);
+                throw e;
+              }
             }
           }
         };
@@ -682,69 +750,62 @@ export class ArchPgClient {
       // Process the code (remove imports, etc.)
       const processedCode = actualCode.replace(/import\s+.*?from\s+['"].*?['"];?/g, '// Import removed');
 
-      // Create a simpler wrapper
-      const wrappedCode = `
-        (async () => {
-          ${consoleOverride}
-
-          // Add a helper to handle RPC URLs correctly in the iframe (with CORS proxy)
-          const getSmartRpcUrl = (url) => {
-            try {
-              if (!url) return '';
-
-              // Check if this is a localhost URL
-              const isLocalhostUrl = url.includes('localhost') || url.includes('127.0.0.1');
-
-              // Check if we're running on localhost
-              const isRunningOnLocalhost = window.location.hostname === 'localhost' ||
-                                           window.location.hostname === '127.0.0.1';
-
-              // If the RPC URL is localhost, use it directly
-              if (isLocalhostUrl) {
-                return url;
-              }
-
-              // For external RPC endpoints: Use proxy on localhost dev to avoid CORS
-              if (isRunningOnLocalhost) {
-                console.log('Using proxy to avoid CORS:', url, '→ /rpc');
-                return '/rpc';
-              }
-
-              // In production, use RPC directly
-              return url;
-            } catch (e) {
-              console.error('Critical error in getSmartRpcUrl:', e);
-              return url || '';
-            }
-          };
-
-          // Override RpcConnection to use smart URL processing
-          const OriginalRpcConnection = window.RpcConnection;
-          window.RpcConnection = function(url) {
-            const smartUrl = getSmartRpcUrl(url);
-            console.log(\`RpcConnection: \${url} → \${smartUrl}\`);
-            return new OriginalRpcConnection(smartUrl);
-          };
-
-          class __Pg {
-            async __run() {
-              try {
-                ${processedCode}
-              } catch (error) {
-                console.error('Error executing code:', error);
-              }
-            }
-          }
-
-          const __pg = new __Pg();
-          try {
-            await __pg.__run();
-          } catch (e) {
-            console.error("Uncaught error:", e.message);
-          } finally {
-            window.parent.postMessage({ type: 'completion' }, '*');
-          }
-        })()`;
+      // Create a wrapper without template-literal interpolation.
+      // IMPORTANT: User code can contain backticks, which would break a template literal.
+      const wrappedCode = [
+        '(async () => {',
+        consoleOverride,
+        '',
+        '// Add a helper to handle RPC URLs correctly in the iframe (with CORS proxy)',
+        'const getSmartRpcUrl = (url) => {',
+        '  try {',
+        "    if (!url) return '';",
+        '',
+        "    const isLocalhostUrl = url.includes('localhost') || url.includes('127.0.0.1');",
+        "    const isRunningOnLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';",
+        '',
+        '    if (isLocalhostUrl) return url;',
+        '',
+        '    if (isRunningOnLocalhost) {',
+        "      console.log('Using proxy to avoid CORS:', url, '→ /rpc');",
+        "      return '/rpc';",
+        '    }',
+        '',
+        '    return url;',
+        '  } catch (e) {',
+        "    console.error('Critical error in getSmartRpcUrl:', e);",
+        "    return url || '';",
+        '  }',
+        '};',
+        '',
+        '// Override RpcConnection to use smart URL processing',
+        'const OriginalRpcConnection = window.RpcConnection;',
+        'window.RpcConnection = function(url) {',
+        '  const smartUrl = getSmartRpcUrl(url);',
+        "  console.log('RpcConnection: ' + url + ' → ' + smartUrl);",
+        '  return new OriginalRpcConnection(smartUrl);',
+        '};',
+        '',
+        'class __Pg {',
+        '  async __run() {',
+        '    try {',
+        processedCode,
+        '    } catch (error) {',
+        "      console.error('Error executing code:', error);",
+        '    }',
+        '  }',
+        '}',
+        '',
+        'const __pg = new __Pg();',
+        'try {',
+        '  await __pg.__run();',
+        '} catch (e) {',
+        "  console.error('Uncaught error:', e && e.message ? e.message : String(e));",
+        '} finally {',
+        "  window.parent.postMessage({ type: 'completion' }, '*');",
+        '}',
+        '})()',
+      ].join('\n');
 
       // Transpile with modern settings that support async/await
       const transpiled = transpile(wrappedCode, {
@@ -755,6 +816,48 @@ export class ArchPgClient {
       });
 
       console.log('Transpiled code:', transpiled);
+
+      // Preflight syntax check before injecting into the iframe.
+      // This catches cases where user code (or our wrapper) produces invalid JS that would otherwise fail silently.
+      try {
+        // eslint-disable-next-line no-new-func
+        new Function(transpiled);
+      } catch (e: any) {
+        const message = e?.message ? String(e.message) : String(e);
+        const stack = e?.stack ? String(e.stack) : '';
+
+        // Try to extract a <anonymous>:line:col location from the stack
+        let line: number | null = null;
+        let col: number | null = null;
+        const m =
+          stack.match(/<anonymous>:(\d+):(\d+)/) ||
+          stack.match(/Function:\s*(\d+):(\d+)/) ||
+          stack.match(/eval at .*<anonymous>:(\d+):(\d+)/);
+        if (m) {
+          line = Number(m[1]);
+          col = Number(m[2]);
+        }
+
+        let context = '';
+        if (line && Number.isFinite(line)) {
+          const lines = transpiled.split('\n');
+          const start = Math.max(0, line - 3);
+          const end = Math.min(lines.length, line + 2);
+          const snippet = lines
+            .slice(start, end)
+            .map((l, idx) => {
+              const n = start + idx + 1;
+              const marker = n === line ? '>>' : '  ';
+              return `${marker} ${String(n).padStart(4, ' ')} | ${l}`;
+            })
+            .join('\n');
+          context = `\n\n${snippet}`;
+        }
+
+        onMessage('error', `Generated script syntax error${line ? ` at ${line}:${col ?? ''}` : ''}: ${message}${context}`);
+        cleanup();
+        return;
+      }
 
       // Create and inject the script
       const scriptEl = document.createElement("script");
@@ -858,12 +961,15 @@ export class ArchPgClient {
 
     // Handle errors
     iframeWindow.addEventListener("error", (ev) => {
-      window.postMessage({ type: 'error', message: ev.message }, '*');
+      // Forward as a marked message so our handler can safely accept it.
+      window.postMessage({ __archPgClient: true, type: 'error', message: ev.message }, '*');
     });
 
     // Handle promise rejections
     iframeWindow.addEventListener("unhandledrejection", (ev) => {
-      window.postMessage({ type: 'error', message: `Uncaught error: ${ev.reason.message}` }, '*');
+      const reason = (ev as any)?.reason;
+      const msg = reason?.message ? String(reason.message) : String(reason);
+      window.postMessage({ __archPgClient: true, type: 'error', message: `Uncaught error: ${msg}` }, '*');
     });
 
     this._IframeWindow = iframeWindow;

@@ -43,8 +43,8 @@ const debounce = <T extends (...args: any[]) => any>(
 };
 
 const PRESET_RPC_URLS = {
-  'mainnet-beta': 'https://rpc.arch.network',
-  'testnet': 'https://rpc.internal.arch.network',
+  'mainnet': 'https://rpc.mainnet.arch.network',
+  'testnet': 'https://rpc.testnet.arch.network',
   'devnet': 'http://localhost:9002',
   'custom': ''
 };
@@ -220,7 +220,7 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="mainnet-beta">Mainnet Beta</SelectItem>
+                    <SelectItem value="mainnet">Mainnet</SelectItem>
                     <SelectItem value="devnet">Devnet</SelectItem>
                     <SelectItem value="testnet">Testnet</SelectItem>
                   </SelectContent>
@@ -261,7 +261,7 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
                       onConfigChange({
                         ...config,
                         rpcUrl: PRESET_RPC_URLS[value as keyof typeof PRESET_RPC_URLS],
-                        network: value as 'mainnet-beta' | 'devnet' | 'testnet'
+                        network: value as 'mainnet' | 'devnet' | 'testnet'
                       });
                     }
                   }}
@@ -270,7 +270,7 @@ export const ConfigPanel = ({ isOpen, onClose, config, onConfigChange }: ConfigP
                     <SelectValue placeholder="Select RPC server" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="mainnet-beta">Mainnet</SelectItem>
+                    <SelectItem value="mainnet">Mainnet</SelectItem>
                     <SelectItem value="testnet">Testnet</SelectItem>
                     <SelectItem value="devnet">Local (localhost:9002)</SelectItem>
                     <SelectItem value="custom">Custom URL</SelectItem>

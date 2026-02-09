@@ -14,6 +14,10 @@ const PROGRAMS_DIR: &str = "programs";
 const MAX_FILE_AMOUNT: usize = 64;
 const MAX_PATH_LENGTH: usize = 128;
 
+/// Arch crate version used by the compilation server: 0.6.0
+/// All arch_program, apl-token, apl-associated-token-account, and apl-token-metadata
+/// crates are pulled from crates.io at this version.
+
 fn use_gcs() -> bool {
     std::env::var("USE_GCS").is_ok()
 }
@@ -46,7 +50,7 @@ fn find_solana_rustc_path() -> Option<String> {
 }
 
 const CARGO_TOML_TEMPLATE: &str = r#"[package]
-name = "{}"
+name = "__PROGRAM_NAME__"
 version = "0.1.0"
 edition = "2021"
 
@@ -54,10 +58,10 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-arch_program = "0.5.15"
-apl-associated-token-account = { version = "0.5.15", features = ["no-entrypoint"] }
-apl-token = { version = "0.5.15", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.5.15", features = ["no-entrypoint"] }
+arch_program = "0.6.0"
+apl-associated-token-account = { version = "0.6.0", features = ["no-entrypoint"] }
+apl-token = { version = "0.6.0", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.6.0", features = ["no-entrypoint"] }
 
 # Satellite framework (pre-compiled in parent Cargo.toml)
 satellite-lang = "0.31.5"
@@ -92,6 +96,19 @@ incremental = true
 codegen-units = 256
 "#;
 
+fn build_diagnostics_enabled() -> bool {
+    // Off by default to preserve caching + keep builds fast.
+    // Enable ad-hoc with BUILD_DIAGNOSTICS=1 in the server environment.
+    env::var("BUILD_DIAGNOSTICS")
+        .map(|v| !v.trim().is_empty() && v.trim() != "0" && v.trim().to_lowercase() != "false")
+        .unwrap_or(false)
+}
+
+fn render_program_cargo_toml(program_name: &str) -> String {
+    CARGO_TOML_TEMPLATE
+        .replace("__PROGRAM_NAME__", program_name)
+}
+
 pub async fn init() -> anyhow::Result<()> {
     INIT.get_or_try_init(|| async {
         let programs_dir = Path::new(PROGRAMS_DIR);
@@ -113,10 +130,10 @@ overflow-checks = true
 incremental = true
 
 [dependencies]
-arch_program = "0.5.15"
-apl-associated-token-account = { version = "0.5.15", features = ["no-entrypoint"] }
-apl-token = { version = "0.5.15", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.5.15", features = ["no-entrypoint"] }
+arch_program = "0.6.0"
+apl-associated-token-account = { version = "0.6.0", features = ["no-entrypoint"] }
+apl-token = { version = "0.6.0", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.6.0", features = ["no-entrypoint"] }
 
 # Satellite framework (published crate)
 satellite-lang = "0.31.5"
@@ -178,7 +195,7 @@ pub async fn warmup() -> anyhow::Result<()> {
     fs::create_dir_all(&src_dir)?;
 
     // Create minimal Cargo.toml with all dependencies
-    let cargo_toml = CARGO_TOML_TEMPLATE.replace("{}", "warmup");
+    let cargo_toml = render_program_cargo_toml("warmup");
     fs::write(warmup_dir.join("Cargo.toml"), cargo_toml)?;
 
     // Create minimal lib.rs that uses the dependencies
@@ -289,7 +306,7 @@ pub async fn build(
     // Create program-specific Cargo.toml with sanitized name
     println!("Creating Cargo.toml...");
     let safe_program_name = program_name.replace(|c: char| !c.is_alphanumeric(), "_");
-    let cargo_toml = CARGO_TOML_TEMPLATE.replace("{}", &safe_program_name);
+    let cargo_toml = render_program_cargo_toml(&safe_program_name);
     let manifest_path = program_path.join("Cargo.toml");
 
     // Debug output for Cargo.toml creation
@@ -363,8 +380,8 @@ pub async fn build(
             println!("Updating bytemuck_derive version in Cargo.lock...");
             fs::write(&lock_file, modified_content)?;
         } else {
-            println!("No bytemuck_derive 1.9.2 found in Cargo.lock, removing the file...");
-            fs::remove_file(&lock_file)?;
+            // Keep Cargo.lock to maximize iterative build caching and avoid re-resolving dependencies.
+            println!("No bytemuck_derive 1.9.2 found in Cargo.lock; keeping lockfile for caching.");
         }
     } else {
         println!("No existing Cargo.lock file found.");
@@ -456,51 +473,56 @@ pub async fn build(
     println!("Deploy dir exists: {}", Path::new(&deploy_dir_str).exists());
     println!("Shared target exists: {}", Path::new(&shared_target_str).exists());
 
-    // Pre-build diagnostic: find who depends on getrandom
-    println!("Running 'cargo tree -i getrandom' to diagnose dependency source...");
-    let tree_diag_output = Command::new("cargo")
-        .args(["tree", "-i", "getrandom"]) // show inverse deps of getrandom
-        .current_dir(&program_path)
-        .output();
-
     let mut getrandom_diag = String::new();
-    match tree_diag_output {
-        Ok(output) => {
-            let out = String::from_utf8_lossy(&output.stdout);
-            let err = String::from_utf8_lossy(&output.stderr);
-            println!("cargo tree (stdout):\n{}", out);
-            if !err.is_empty() { println!("cargo tree (stderr):\n{}", err); }
-            getrandom_diag.push_str("\n--- cargo tree -i getrandom ---\n");
-            getrandom_diag.push_str(&out);
-            if !err.is_empty() {
-                getrandom_diag.push_str("\n[stderr from cargo tree]\n");
-                getrandom_diag.push_str(&err);
+    if build_diagnostics_enabled() {
+        // Pre-build diagnostic: find who depends on getrandom
+        println!("Running diagnostics: 'cargo tree -i getrandom'...");
+        let tree_diag_output = Command::new("cargo")
+            .args(["tree", "-i", "getrandom"]) // show inverse deps of getrandom
+            .current_dir(&program_path)
+            .output();
+
+        match tree_diag_output {
+            Ok(output) => {
+                let out = String::from_utf8_lossy(&output.stdout);
+                let err = String::from_utf8_lossy(&output.stderr);
+                println!("cargo tree (stdout):\n{}", out);
+                if !err.is_empty() { println!("cargo tree (stderr):\n{}", err); }
+                getrandom_diag.push_str("\n--- cargo tree -i getrandom ---\n");
+                getrandom_diag.push_str(&out);
+                if !err.is_empty() {
+                    getrandom_diag.push_str("\n[stderr from cargo tree]\n");
+                    getrandom_diag.push_str(&err);
+                }
+            },
+            Err(e) => {
+                let msg = format!("Failed to run cargo tree: {}", e);
+                println!("{}", msg);
+                getrandom_diag.push_str("\n--- cargo tree -i getrandom failed ---\n");
+                getrandom_diag.push_str(&msg);
             }
-        },
-        Err(e) => {
-            let msg = format!("Failed to run cargo tree: {}", e);
-            println!("{}", msg);
-            getrandom_diag.push_str("\n--- cargo tree -i getrandom failed ---\n");
-            getrandom_diag.push_str(&msg);
         }
     }
 
-    // Update bytemuck to latest compatible (align with apl-associated-token-account)
-    println!("Running cargo update for bytemuck to >=1.20.0...");
-    let update_status = Command::new("cargo")
-        .args(["update", "-p", "bytemuck"]) // allow resolver to pick >=1.20
-        .current_dir(&program_path)
-        .output();
+    if build_diagnostics_enabled() {
+        // NOTE: This is intentionally diagnostics-only. Running cargo update each build destroys
+        // incremental caching and forces re-resolving/downloading crates.
+        println!("Running diagnostics: cargo update -p bytemuck ...");
+        let update_status = Command::new("cargo")
+            .args(["update", "-p", "bytemuck"])
+            .current_dir(&program_path)
+            .output();
 
-    match update_status {
-        Ok(output) => {
-            println!("Cargo update output: {}", String::from_utf8_lossy(&output.stdout));
-            if !output.status.success() {
-                println!("Cargo update stderr: {}", String::from_utf8_lossy(&output.stderr));
-                println!("Warning: cargo update failed, but continuing with build anyway");
-            }
-        },
-        Err(e) => println!("Failed to run cargo update: {}", e),
+        match update_status {
+            Ok(output) => {
+                println!("Cargo update output: {}", String::from_utf8_lossy(&output.stdout));
+                if !output.status.success() {
+                    println!("Cargo update stderr: {}", String::from_utf8_lossy(&output.stderr));
+                    println!("Warning: cargo update failed, but continuing with build anyway");
+                }
+            },
+            Err(e) => println!("Failed to run cargo update: {}", e),
+        }
     }
 
     // Check the Solana rust version
@@ -577,9 +599,6 @@ pub async fn build(
         .stderr(Stdio::piped())
         .spawn()?;
 
-    let mut stdout_lines = String::new();
-    let mut stderr_lines = String::new();
-
     // CRITICAL: Read stdout and stderr in PARALLEL to avoid deadlock
     // If we read sequentially, the child process can hang if one buffer fills up
     let stdout = child.stdout.take();
@@ -613,8 +632,8 @@ pub async fn build(
 
     // Wait for both streams to complete in parallel
     let (stdout_result, stderr_result) = tokio::join!(stdout_handle, stderr_handle);
-    stdout_lines = stdout_result.unwrap_or_default();
-    stderr_lines = stderr_result.unwrap_or_default();
+    let stdout_lines = stdout_result.unwrap_or_default();
+    let mut stderr_lines = stderr_result.unwrap_or_default();
 
     // Wait for the command to complete
     let status = child.wait().await?;

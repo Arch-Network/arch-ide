@@ -15,6 +15,7 @@ import { getExplorerUrls } from '../utils/explorerLinks';
 import { hexToBase58 } from '../utils/base58';
 // Identicon removed per design update
 import { requestFaucetFunds } from '../utils/faucet';
+import { formatArchFromLamports, lamportsToArch } from '../utils/archUnits';
 import { useToast } from './ui/use-toast';
 import HistoricalKeysModal from './HistoricalKeysModal';
 
@@ -25,7 +26,7 @@ interface AuthorityAccountPanelProps {
   onRestoreFromHistory?: (index: number) => Promise<void>;
   onDeleteFromHistory?: (index: number) => Promise<void>;
   config: {
-    network: 'mainnet-beta' | 'devnet' | 'testnet';
+    network: 'mainnet' | 'devnet' | 'testnet';
     rpcUrl: string;
   };
   isConnected: boolean;
@@ -49,9 +50,9 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
 
   const { toast } = useToast();
   const authority = project?.authorityAccount;
-  const networkDisplay = config.network === 'mainnet-beta' ? 'mainnet' : config.network;
-  const isFaucetNetwork = config.network === 'testnet' || config.network === 'devnet';
-  const explorerUrls = getExplorerUrls(config.network as 'testnet' | 'mainnet-beta' | 'devnet');
+  const networkDisplay = config.network === 'mainnet' ? 'mainnet' : config.network;
+  const isFaucetNetwork = config.network === 'mainnet' || config.network === 'testnet' || config.network === 'devnet';
+  const explorerUrls = getExplorerUrls(config.network as 'testnet' | 'mainnet' | 'devnet');
   const authorityBase58 = authority ? hexToBase58(authority.pubkey) : null;
 
   // Fetch balance when authority account changes or component mounts
@@ -132,7 +133,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
       }
     }
     
-    const networkType = config.network === 'mainnet-beta' ? 'mainnet' :
+    const networkType = config.network === 'mainnet' ? 'mainnet' :
                        config.network === 'testnet' ? 'testnet' : 'devnet';
     const newAuthority = generateArchKeypair(networkType);
     onAuthorityAccountChange(newAuthority);
@@ -159,7 +160,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
       const startingLamports = (await fetchBalance()) ?? (balance ?? 0);
 
       const smartRpcUrl = getSmartRpcUrl(config.rpcUrl);
-      const network = config.network as 'testnet' | 'devnet';
+      const network = config.network as 'mainnet' | 'testnet' | 'devnet';
 
       toast({
         title: "Funding Account",
@@ -202,14 +203,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   const hasSufficientFunds = balance !== null && balance > 5000; // Minimum for deployment
   const isLowFunds = balance !== null && balance > 0 && !hasSufficientFunds;
 
-  // Convert lamports to ARCH (1 ARCH = 100,000,000 lamports)
-  const formatBalance = (lamports: number): string => {
-    const arch = lamports / 100_000_000;
-    return arch.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 8
-    });
-  };
+  const formatBalance = (lamports: number): string => formatArchFromLamports(lamports);
 
   // Don't render if no project is loaded
   if (!project) {
@@ -313,7 +307,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
                         const arch = formatBalance(balance);
                         // Show fewer decimals on very narrow sidebars
                         if (window && window.innerWidth < 360) {
-                          const short = (balance / 100_000_000).toFixed(2);
+                          const short = lamportsToArch(balance).toFixed(2);
                           return `${short} ARCH`;
                         }
                         return `${arch} ARCH`;
@@ -343,7 +337,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
               </div>
               <div className="flex items-center gap-2">
                 <span className={`text-[10px] font-medium px-2 py-1 rounded border border-current ${
-                  config.network === 'mainnet-beta'
+                  config.network === 'mainnet'
                     ? 'bg-red-900/40 text-red-300'
                     : config.network === 'testnet'
                       ? 'bg-yellow-900/30 text-yellow-300'

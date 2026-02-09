@@ -1,5 +1,5 @@
 // Xverse Wallet Adapter
-import { request, AddressPurpose } from 'sats-connect';
+import { AddressPurpose } from '@sats-connect/core';
 import { BitcoinWalletAdapter, BitcoinWalletAccount, SignMessageResponse, SendBitcoinResponse } from '../../../types/wallet';
 
 export class XverseWalletAdapter implements BitcoinWalletAdapter {
@@ -11,7 +11,9 @@ export class XverseWalletAdapter implements BitcoinWalletAdapter {
   network?: 'mainnet' | 'testnet' | 'regtest';
 
   isAvailable(): boolean {
-    return typeof window !== 'undefined' && !!window.XverseProviders?.BitcoinProvider;
+    const provider = typeof window !== 'undefined' ? window.XverseProviders?.BitcoinProvider : undefined;
+    // Require the core request method to avoid false positives.
+    return !!provider && typeof (provider as any).request === 'function';
   }
 
   async connect(targetNetwork?: 'mainnet' | 'testnet' | 'regtest'): Promise<void> {
@@ -22,53 +24,43 @@ export class XverseWalletAdapter implements BitcoinWalletAdapter {
     try {
       this.connecting = true;
 
-      // Map network names for Xverse
-      let xverseNetwork = 'Mainnet';
-      if (targetNetwork === 'testnet') {
-        xverseNetwork = 'Testnet4'; // Xverse uses Testnet4
-        this.network = 'testnet';
-      } else if (targetNetwork === 'mainnet') {
-        xverseNetwork = 'Mainnet';
-        this.network = 'mainnet';
-      }
+      // Note: Xverse supports multiple networks; for now we only tag our internal state.
+      if (targetNetwork === 'testnet') this.network = 'testnet';
+      else if (targetNetwork === 'mainnet') this.network = 'mainnet';
 
-      console.log(`[Xverse] Connecting to ${xverseNetwork} with Taproot addresses...`);
+      console.log(`[Xverse] Requesting accounts (Taproot/Ordinals)...`);
 
-      // Use sats-connect library to connect
-      // Request Ordinals purpose which gives Taproot (P2TR) addresses for Schnorr signatures
-      const response = await request('wallet_connect', {
-        addresses: [AddressPurpose.Ordinals], // Ordinals addresses are Taproot
+      // Prefer calling the injected BitcoinProvider directly to avoid sats-connect UI/provider selection
+      // and to be more resilient to StacksProvider injection conflicts.
+      const provider = window.XverseProviders!.BitcoinProvider as any;
+      const resp = await provider.request('getAccounts', {
+        purposes: [AddressPurpose.Ordinals],
         message: 'Connect to Arch IDE',
-        network: xverseNetwork as any
       });
 
-      console.log('[Xverse] Connection response:', response);
+      // Provider implementations vary: some return { status, result }, some return result directly.
+      const accountsRaw =
+        resp?.status === 'success' ? resp.result :
+        resp?.result ? resp.result :
+        Array.isArray(resp) ? resp :
+        null;
 
-      if (response.status === 'error') {
-        throw new Error(response.error?.message || 'Failed to connect to Xverse wallet');
+      if (!Array.isArray(accountsRaw) || accountsRaw.length === 0) {
+        throw new Error('No accounts received from Xverse wallet');
       }
 
-      if (response.status !== 'success' || !response.result?.addresses) {
-        throw new Error('No addresses received from Xverse wallet');
+      const ordinals = accountsRaw.find((a: any) => a.purpose === AddressPurpose.Ordinals) || accountsRaw[0];
+      if (!ordinals?.address || !ordinals?.publicKey) {
+        throw new Error('Xverse returned an invalid account payload');
       }
 
-      // Find the ordinals address (Taproot/P2TR for Schnorr signatures)
-      const ordinalsAddress = response.result.addresses.find(
-        (addr: any) => addr.purpose === AddressPurpose.Ordinals
-      );
-
-      if (!ordinalsAddress) {
-        throw new Error('No ordinals address found in Xverse wallet');
-      }
-
-      // Xverse ordinals addresses are P2TR (Taproot) with Schnorr signatures
       this.accounts = [{
-        address: ordinalsAddress.address,
-        publicKey: ordinalsAddress.publicKey,
-        type: 'p2tr' // Taproot
+        address: ordinals.address,
+        publicKey: ordinals.publicKey,
+        type: 'p2tr',
       }];
 
-      console.log(`[Xverse] Successfully connected to ${xverseNetwork}:`, {
+      console.log(`[Xverse] Successfully connected:`, {
         address: this.accounts[0].address,
         type: this.accounts[0].type,
         network: this.network
@@ -84,6 +76,18 @@ export class XverseWalletAdapter implements BitcoinWalletAdapter {
       // Provide user-friendly error messages
       if (error.message?.includes('User rejected')) {
         throw new Error('Connection rejected. Please approve the connection in your Xverse wallet.');
+      }
+
+      // Common Xverse failure when another Stacks wallet has set a non-configurable StacksProvider
+      if (
+        String(error?.message || error).includes('StacksProvider') ||
+        String(error?.message || error).includes('Cannot redefine property') ||
+        String(error?.message || error).includes('immutable')
+      ) {
+        throw new Error(
+          'Xverse failed to initialize due to a Stacks provider conflict. ' +
+          'Please disable other Stacks wallets/extensions (e.g. Leather/Hiro) and reload the page, then try again.'
+        );
       }
 
       throw error;
@@ -116,19 +120,18 @@ export class XverseWalletAdapter implements BitcoinWalletAdapter {
     }
 
     try {
-      // Use BIP-322 for Taproot addresses to get Schnorr signatures
-      const response = await request('signMessage', {
+      const provider = window.XverseProviders!.BitcoinProvider as any;
+      const response = await provider.request('signMessage', {
         address: this.accounts[0].address,
         message,
-        protocol: 'BIP322' as any // Explicitly request BIP-322 for Taproot/Schnorr signatures
+        protocol: 'BIP322',
       });
 
-      if (response.status === 'error') {
-        throw new Error(response.error?.message || 'Failed to sign message');
-      }
-
+      if (response?.status === 'error') throw new Error(response.error?.message || 'Failed to sign message');
+      const signature = response?.status === 'success' ? response.result?.signature : (response?.result?.signature || response?.signature);
+      if (!signature) throw new Error('Xverse did not return a signature');
       return {
-        signature: response.result.signature,
+        signature,
         address: this.accounts[0].address
       };
     } catch (error: any) {

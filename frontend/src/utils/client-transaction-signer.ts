@@ -15,11 +15,13 @@ export async function setupAccount(conn: any): Promise<{
   accountPubkey: Uint8Array;
   accountAddress: string;
   useWallet: boolean;
+  privkey?: string;
 }> {
   try {
     let accountPubkey: Uint8Array;
     let accountAddress: string;
     let useWallet = false;
+    let privkey: string | undefined;
 
     // Get references from window/global scope (they're injected by archPgClient)
     const PubkeyUtil = (typeof window !== 'undefined' ? (window as any).PubkeyUtil : (globalThis as any).PubkeyUtil);
@@ -85,6 +87,7 @@ export async function setupAccount(conn: any): Promise<{
 
     accountPubkey = PubkeyUtil.fromHex(newAccount.pubkey);
     accountAddress = newAccount.address;
+    privkey = newAccount.privkey;
 
     console.log("✓ Account Created:");
     console.log("  Address:", accountAddress);
@@ -97,7 +100,7 @@ export async function setupAccount(conn: any): Promise<{
       console.log("✗ Airdrop error:", e.error ? e.error.message : e.message);
     }
 
-    return { accountPubkey, accountAddress, useWallet };
+    return { accountPubkey, accountAddress, useWallet, privkey };
   } catch (error: any) {
     console.error("[setupAccount] Error occurred:", error);
     console.error("[setupAccount] Error message:", error?.message);

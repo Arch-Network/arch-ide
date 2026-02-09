@@ -2,7 +2,7 @@
  * Generate explorer URLs for Arch Network
  */
 
-type Network = 'testnet' | 'mainnet-beta' | 'devnet';
+type Network = 'testnet' | 'mainnet' | 'devnet';
 
 interface ExplorerUrls {
   base: string;
@@ -23,7 +23,7 @@ export function getExplorerUrls(network: Network): ExplorerUrls | null {
         account: (address: string) => `https://explorer-beta.test.arch.network/accounts/${address}`,
         program: (programId: string) => `https://explorer-beta.test.arch.network/programs/${programId}`,
       };
-    case 'mainnet-beta':
+    case 'mainnet':
       // TODO: Update when mainnet explorer is available
       return {
         base: 'https://explorer.arch.network',

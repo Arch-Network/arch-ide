@@ -19,7 +19,7 @@ interface StatusBarProps {
 // Map config network to wallet network
 const mapConfigNetwork = (network: string): 'mainnet' | 'testnet' | 'regtest' => {
   if (network === 'testnet') return 'testnet';
-  if (network === 'mainnet-beta') return 'mainnet';
+  if (network === 'mainnet' || network === 'mainnet-beta') return 'mainnet';
   if (network === 'devnet') return 'regtest';
   return 'mainnet';
 };

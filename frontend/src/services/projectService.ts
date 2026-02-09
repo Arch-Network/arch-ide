@@ -11,10 +11,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-arch_program = "0.5.13"
-apl-associated-token-account = "0.5.13"
-apl-token = "0.5.13"
-apl-token-metadata = "0.5.13"
+arch_program = "0.6.0"
+apl-associated-token-account = "0.6.0"
+apl-token = "0.6.0"
+apl-token-metadata = "0.6.0"
 borsh = { version = "1.5.1", features = ["derive"] }
 
 [lib]
@@ -191,7 +191,7 @@ if (PROGRAM_ID_HEX === "YOUR_PROGRAM_ID_HERE") {
 
 // Connect to Arch Network
 console.log("Connecting to Arch Network...");
-const conn = new RpcConnection("https://rpc.internal.arch.network");
+const conn = new RpcConnection("https://rpc.testnet.arch.network");
 const blockCount = await conn.getBlockCount();
 console.log("✓ Connected! Block:", blockCount);
 
@@ -555,7 +555,7 @@ let bestBlockHash;
 
 try {
   console.log("Connecting to Arch Network...");
-  conn = new RpcConnection("https://rpc.internal.arch.network");
+  conn = new RpcConnection("https://rpc.testnet.arch.network");
 
   // Test connection with a simple call (with timeout protection)
   const timeout = new Promise((_, reject) =>

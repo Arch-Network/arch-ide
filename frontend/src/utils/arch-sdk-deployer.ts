@@ -104,7 +104,7 @@ enum SystemInstruction {
 
 interface DeployOptions {
   rpcUrl: string;
-  network: 'testnet' | 'mainnet-beta' | 'devnet';
+  network: 'testnet' | 'mainnet' | 'devnet';
   programBinary: Buffer;
   programKeypair: {
     privkey: string;
@@ -376,6 +376,69 @@ class ArchDeployer {
     }
   }
 
+  private async rpcCall<T>(method: string, params?: unknown): Promise<T> {
+    const payload: any = {
+      jsonrpc: '2.0',
+      id: 'curlycurl',
+      method,
+    };
+    if (params !== undefined) payload.params = params;
+
+    const response = await fetch(this.smartRpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      throw new Error(`RPC HTTP error (${method}): ${response.status}`);
+    }
+
+    const json = await response.json();
+    if (json?.error) {
+      const msg = typeof json.error?.message === 'string' ? json.error.message : JSON.stringify(json.error);
+      const code = json.error?.code;
+      const err: any = new Error(`RPC error (${method}): ${msg}`);
+      err.code = code;
+      err.rpcError = json.error;
+      throw err;
+    }
+    return json.result as T;
+  }
+
+  private isRpcNotFoundError(err: unknown): boolean {
+    const anyErr: any = err;
+    const code = anyErr?.code;
+    const msg = String(anyErr?.message || '');
+    return code === 404 || msg.toUpperCase().includes('NOT FOUND');
+  }
+
+  /**
+   * Wait until an account exists (readAccountInfo succeeds) or timeout.
+   * This is important because Arch RPC can return 404 for a short window after send_transaction
+   * while the indexer catches up.
+   */
+  async waitForAccountInfo(
+    pubkey: Buffer,
+    label: string,
+    opts: { maxWaitMs?: number; intervalMs?: number } = {}
+  ): Promise<AccountInfo> {
+    const maxWaitMs = opts.maxWaitMs ?? 60_000;
+    const intervalMs = opts.intervalMs ?? 1_000;
+    const start = Date.now();
+
+    for (;;) {
+      const info = await this.readAccountInfo(pubkey);
+      if (info) return info;
+
+      const elapsed = Date.now() - start;
+      if (elapsed >= maxWaitMs) {
+        throw new Error(`${label} not found after ${Math.ceil(maxWaitMs / 1000)}s (RPC/indexer delay?)`);
+      }
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+  }
+
   /** Get account address (Bitcoin address for UTXO) */
   async getAccountAddress(pubkey: Buffer): Promise<string> {
     return await this.connection.getAccountAddress(pubkey);
@@ -494,36 +557,7 @@ class ArchDeployer {
 
     // Wait for transaction confirmation (poll until processed)
     console.log('[Authority] Waiting for transaction confirmation...');
-    const maxAttempts = 20;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second between polls
-
-      const checkPayload = {
-        jsonrpc: '2.0',
-        id: 'curlycurl',
-        method: 'get_processed_transaction',
-        params: [txid],
-      };
-
-      const checkResponse = await fetch(this.smartRpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(checkPayload),
-      });
-
-      if (checkResponse.ok) {
-        const checkResult = await checkResponse.json();
-        if (checkResult.result?.status === 'Processed') {
-          console.log('[Authority] Transaction confirmed!');
-          return;
-        }
-        if (checkResult.result?.status?.Failed) {
-          throw new Error(`Faucet transaction failed: ${JSON.stringify(checkResult.result.status.Failed)}`);
-        }
-      }
-    }
-
-    console.warn('[Authority] Transaction not confirmed after 20 seconds, proceeding anyway...');
+    await this.waitForConfirmation(txid, 60);
   }
 
   /** Check if an account has sufficient balance */
@@ -549,10 +583,39 @@ class ArchDeployer {
     }
   }
 
-  /** Get best finalized block hash for recent blockhash */
+  /**
+   * Get a "recent_blockhash" that will actually validate in the tx pool.
+   *
+   * IMPORTANT: tx_pool validation checks that the recent_blockhash exists in the node DB
+   * (`get_full_block_by_hash`). We therefore must use a finalized/known blockhash, not an
+   * execution-tip hash that may not be queryable yet.
+   */
+  async getRecentBlockhash(): Promise<Buffer> {
+    const maxAttempts = 10;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      // Use finalized so it should exist in DB.
+      const hashHex = await this.rpcCall<string>('get_best_finalized_block_hash');
+
+      // Sanity check: ensure the block exists on this same RPC node.
+      try {
+        await this.rpcCall<any>('get_block', [hashHex]);
+        return Buffer.from(hashHex, 'hex');
+      } catch (err) {
+        if (this.isRpcNotFoundError(err)) {
+          // Extremely short race window; retry.
+          await new Promise(resolve => setTimeout(resolve, 250 + attempt * 100));
+          continue;
+        }
+        throw err;
+      }
+    }
+
+    throw new Error('Failed to fetch a valid recent blockhash (finalized block not found)');
+  }
+
+  /** Backwards-compatible name */
   async getBestBlockHash(): Promise<Buffer> {
-    const hash = await this.connection.getBestBlockHash();
-    return Buffer.from(hash, 'hex');
+    return await this.getRecentBlockhash();
   }
 
   /** Request airdrop for testnet/devnet */
@@ -646,8 +709,8 @@ class ArchDeployer {
       const txid = result.result;
       console.log('[Transaction] Sent successfully:', txid);
 
-      // Wait for confirmation
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      // Wait for confirmation. Arch RPC may return 404 briefly; this handles it.
+      await this.waitForConfirmation(txid, 60);
 
       return txid;
     } catch (error) {
@@ -705,7 +768,8 @@ class ArchDeployer {
         console.log(`[Batch] Batch ${batchNum} sent successfully (${batchTxids.length} txs), waiting for confirmations...`);
 
         // Wait for all transactions in PARALLEL (not sequentially!)
-        await Promise.all(batchTxids.map(txid => this.waitForConfirmation(txid)));
+        // Arch RPC may return 404 for a short window after send_transactions; allow more time.
+        await Promise.all(batchTxids.map(txid => this.waitForConfirmation(txid, 120)));
 
         console.log(`[Batch] Batch ${batchNum} confirmed (${batchTxids.length} transactions)`);
         this.onMessage('success', `Batch ${batchNum}/${totalBatches} confirmed (${allTxids.length}/${txs.length} chunks)`);
@@ -721,8 +785,11 @@ class ArchDeployer {
 
   /** Wait for a transaction to be confirmed (polling) */
   private async waitForConfirmation(txid: string, maxAttempts: number = 30): Promise<void> {
+    let lastError: unknown = undefined;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // Small linear backoff to reduce pressure on RPC/indexer while still feeling responsive.
+      const sleepMs = 1_000 + attempt * 250;
+      await new Promise(resolve => setTimeout(resolve, sleepMs));
 
       try {
         const payload = {
@@ -752,17 +819,28 @@ class ArchDeployer {
             return;
           }
 
-          // Check for error (transaction not found yet is okay, keep polling)
-          if (result.error && result.error.code !== -32000) {
-            console.warn(`[Confirmation] Error for ${txid.slice(0, 8)}:`, result.error);
+          // Transaction not found yet is common: treat as pending.
+          if (result.error) {
+            const code = result.error.code;
+            const msg = String(result.error.message || "");
+            const isNotFound = code === 404 || code === -32000 || msg.toUpperCase().includes("NOT FOUND");
+            if (!isNotFound) {
+              throw new Error(`Confirmation error for ${txid.slice(0, 8)}: ${JSON.stringify(result.error)}`);
+            }
           }
         }
       } catch (error) {
-        // Continue polling on errors
+        // If we hit a *real* confirmation error, don't hide it behind retries.
+        if (error instanceof Error && error.message.startsWith('Confirmation error')) {
+          throw error;
+        }
+        lastError = error;
+        // Continue polling on transient errors
       }
     }
 
-    console.warn(`[Confirmation] Transaction ${txid} not confirmed after ${maxAttempts} seconds`);
+    const suffix = lastError ? ` Last error: ${String((lastError as any)?.message || lastError)}` : '';
+    throw new Error(`Transaction ${txid} not confirmed after ${maxAttempts} attempts.${suffix}`);
   }
 
   /** Serialize ArchMessage (matches Rust's ArchMessage::serialize) */
@@ -1341,11 +1419,8 @@ export async function deployProgram(options: DeployOptions): Promise<{
     const createTxidBase58 = hexToBase58(createTxid);
     onMessage('success', `Program account created: ${createTxidBase58}`, explorerUrls?.tx(createTxidBase58));
 
-    // Refresh account info
-    accountInfo = await deployer.readAccountInfo(programPubkey);
-    if (!accountInfo) {
-      throw new Error('Failed to create program account');
-    }
+    // Wait for account to be visible via RPC/indexer.
+    accountInfo = await deployer.waitForAccountInfo(programPubkey, 'Program account', { maxWaitMs: 60_000, intervalMs: 1_000 });
 
     // Verify the account has the correct owner
     const accountOwnerHex = accountInfo.owner.toString('hex');
@@ -1543,36 +1618,50 @@ async function deployProgramElf(
   console.log(`[Deploy] Total chunks: ${chunks.length}, max chunk size: ${maxChunkSize} bytes`);
   onMessage('info', `Splitting into ${chunks.length} chunks (${maxChunkSize} bytes each)`);
 
-  // Build ALL write transactions at once (using the same blockhash for efficiency)
-  // With batch sending (100 at a time), we can handle many transactions before blockhash expires
-  const writeBlockhash = await deployer.getBestBlockHash();
-  const allWriteTxs: RuntimeTransaction[] = [];
+  // IMPORTANT:
+  // Validators drop txs if recent_blockhash is unknown/expired (tx_pool::validate_transaction).
+  // Upload can involve many txs; using a single blockhash for all chunks increases rejection risk
+  // if the network is busy. Instead, we sign/send in smaller batches with a fresh verified blockhash.
+  const CHUNK_TX_BATCH_SIZE = 25;
+  let uploaded = 0;
 
-  for (let i = 0; i < chunks.length; i++) {
-    const { offset, chunk } = chunks[i];
-    const writeIx: Instruction = {
-      program_id: BPF_LOADER_ID,
-      accounts: [
-        { pubkey: programPubkey, is_signer: false, is_writable: true },
-        { pubkey: authorityPubkey, is_signer: true, is_writable: false },
-      ],
-      data: serializeWriteInstruction(offset, chunk),
-    };
+  for (let start = 0; start < chunks.length; start += CHUNK_TX_BATCH_SIZE) {
+    const batchChunks = chunks.slice(start, Math.min(start + CHUNK_TX_BATCH_SIZE, chunks.length));
+    const batchNum = Math.floor(start / CHUNK_TX_BATCH_SIZE) + 1;
+    const totalBatches = Math.ceil(chunks.length / CHUNK_TX_BATCH_SIZE);
 
-    allWriteTxs.push(deployer.buildAndSignTransaction(
-      [writeIx],
-      [authorityKeypair],
-      writeBlockhash,
-      authorityPubkey.toString('hex')  // Authority is the fee payer
-    ));
+    const writeBlockhash = await deployer.getBestBlockHash();
+    const batchTxs: RuntimeTransaction[] = [];
+
+    for (const { offset, chunk } of batchChunks) {
+      const writeIx: Instruction = {
+        program_id: BPF_LOADER_ID,
+        accounts: [
+          { pubkey: programPubkey, is_signer: false, is_writable: true },
+          { pubkey: authorityPubkey, is_signer: true, is_writable: false },
+        ],
+        data: serializeWriteInstruction(offset, chunk),
+      };
+
+      batchTxs.push(
+        deployer.buildAndSignTransaction(
+          [writeIx],
+          [authorityKeypair],
+          writeBlockhash,
+          authorityPubkey.toString('hex') // Authority is the fee payer
+        )
+      );
+    }
+
+    console.log(`[Deploy] Sending write batch ${batchNum}/${totalBatches} (${batchTxs.length} txs)`);
+    onMessage('info', `Uploading batch ${batchNum}/${totalBatches} (${uploaded}/${chunks.length} chunks uploaded)`);
+
+    const batchTxids = await deployer.sendBatchTransactions(batchTxs);
+    txids.push(...batchTxids);
+    uploaded += batchChunks.length;
+
+    onMessage('success', `Uploaded batch ${batchNum}/${totalBatches} (${uploaded}/${chunks.length} chunks)`);
   }
-
-  console.log(`[Deploy] Built ${allWriteTxs.length} write transactions, sending in batches of 100...`);
-
-  // Send all transactions in batches of 100 (matching arch-cli behavior)
-  const writeTxids = await deployer.sendBatchTransactions(allWriteTxs);
-  txids.push(...writeTxids);
-  onMessage('success', `Uploaded ${chunks.length} chunks`);
 
   return txids;
 }

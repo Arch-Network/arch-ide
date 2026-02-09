@@ -5,6 +5,7 @@ set -euo pipefail
 ACCOUNT_ID=${ACCOUNT_ID:-590184001652}
 REGION=${REGION:-us-east-1}
 REPO_NAME=${REPO_NAME:-arch-ide/rust-server}
+ALB_NAME=${ALB_NAME:-arch-ide-alb}
 ECS_CLUSTER="arch-ide-cluster"
 ECS_SERVICE="arch-ide-server"
 
@@ -24,6 +25,58 @@ log_warn() {
 
 log_error() {
     echo -e "${RED}[ERROR]${NC} $1"
+}
+
+get_alb_dns() {
+    # Try Terraform output first (fast path when state is available)
+    local dns=""
+    dns=$(terraform -chdir=deploy/aws/terraform output -raw alb_dns_name 2>/dev/null || echo "")
+    # Terraform can print warnings to stdout when state/outputs are missing; treat that as invalid.
+    if [ -n "$dns" ] && [[ "$dns" != *"Warning:"* ]] && [[ "$dns" != *"No outputs found"* ]] && [[ "$dns" != *"╷"* ]]; then
+        echo "$dns"
+        return 0
+    fi
+
+    # Fallback: query AWS directly by ALB name
+    dns=$(aws elbv2 describe-load-balancers \
+        --names "$ALB_NAME" \
+        --region "$REGION" \
+        --query 'LoadBalancers[0].DNSName' \
+        --output text 2>/dev/null || echo "")
+    if [ -n "$dns" ] && [ "$dns" != "None" ]; then
+        echo "$dns"
+        return 0
+    fi
+
+    echo ""
+    return 0
+}
+
+ensure_execution_role_secret_access() {
+    local secret_arn="$1"
+    if [ -z "$secret_arn" ]; then
+        return 0
+    fi
+
+    local role_name="arch-ide-ecs-execution"
+    local policy_name="arch-ide-ecs-execution-secrets-access"
+
+    log_info "Ensuring ECS execution role can read Secrets Manager secret..."
+
+    # Inline policy so we don't depend on Terraform state/imports.
+    aws iam put-role-policy \
+        --role-name "$role_name" \
+        --policy-name "$policy_name" \
+        --policy-document "{
+          \"Version\": \"2012-10-17\",
+          \"Statement\": [{
+            \"Effect\": \"Allow\",
+            \"Action\": [\"secretsmanager:GetSecretValue\",\"secretsmanager:DescribeSecret\"],
+            \"Resource\": \"${secret_arn}\"
+          }]
+        }" >/dev/null
+
+    log_info "✓ Secrets access policy ensured on role: $role_name"
 }
 
 # Parse command line arguments
@@ -80,6 +133,7 @@ if [ "$SKIP_BACKEND" = false ]; then
 
     # Build and push Docker image
     IMAGE_URI="$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME"
+    IMAGE_URI_LATEST="$IMAGE_URI:latest"
 
     log_info "Ensuring ECR repository exists..."
     aws ecr describe-repositories --repository-names "$REPO_NAME" --region "$REGION" >/dev/null 2>&1 || \
@@ -108,10 +162,65 @@ if [ "$SKIP_BACKEND" = false ]; then
 
     # Update Terraform to ensure task definition uses latest image
     log_info "Applying Terraform configuration..."
-    terraform -chdir=deploy/aws/terraform apply -auto-approve \
-        -var "rust_server_image=$IMAGE_URI:latest" >/dev/null
+    # Allow overriding the arch-network pin used by the compilation server.
+    # Prefer ARCH_NETWORK_REV for stable deployments; BRANCH is fallback for pre-release workflows.
+    ARCH_NETWORK_GIT_VAR=${ARCH_NETWORK_GIT:-""}
+    ARCH_NETWORK_REV_VAR=${ARCH_NETWORK_REV:-""}
+    ARCH_NETWORK_BRANCH_VAR=${ARCH_NETWORK_BRANCH:-""}
+    GITHUB_TOKEN_SECRET_ARN_VAR=${GITHUB_TOKEN_SECRET_ARN:-""}
 
-    log_info "✓ Terraform apply complete"
+    # If we’re injecting a secret, make sure the ECS execution role can read it.
+    ensure_execution_role_secret_access "$GITHUB_TOKEN_SECRET_ARN_VAR"
+
+    TF_ARGS=(
+        -var "rust_server_image=$IMAGE_URI:latest"
+    )
+    if [ -n "$ARCH_NETWORK_GIT_VAR" ]; then
+        TF_ARGS+=(-var "arch_network_git=$ARCH_NETWORK_GIT_VAR")
+    fi
+    if [ -n "$ARCH_NETWORK_REV_VAR" ]; then
+        TF_ARGS+=(-var "arch_network_rev=$ARCH_NETWORK_REV_VAR")
+    fi
+    if [ -n "$ARCH_NETWORK_BRANCH_VAR" ]; then
+        TF_ARGS+=(-var "arch_network_branch=$ARCH_NETWORK_BRANCH_VAR")
+    fi
+    if [ -n "$GITHUB_TOKEN_SECRET_ARN_VAR" ]; then
+        TF_ARGS+=(-var "github_token_secret_arn=$GITHUB_TOKEN_SECRET_ARN_VAR")
+    fi
+
+    # Terraform can fail if state is missing/drifted and infra already exists (common in AWS accounts
+    # where VPC limits are hit or resources were created in a different state/backend).
+    # In those cases, fall back to an ECS-only task definition update.
+    TF_LOG_FILE="$(mktemp -t arch-ide-tf.XXXXXX.log)"
+    set +e
+    terraform -chdir=deploy/aws/terraform apply -auto-approve "${TF_ARGS[@]}" >"$TF_LOG_FILE" 2>&1
+    TF_EXIT=$?
+    set -e
+
+    if [ $TF_EXIT -ne 0 ]; then
+        log_warn "Terraform apply failed (exit=$TF_EXIT). Checking if this is a known 'already exists / limits' case..."
+        if grep -qE "VpcLimitExceeded|ResourceAlreadyExistsException|EntityAlreadyExists" "$TF_LOG_FILE"; then
+            log_warn "Detected existing infra / account limits. Falling back to ECS-only task definition update."
+            export REGION="$REGION"
+            export ECS_CLUSTER="$ECS_CLUSTER"
+            export ECS_SERVICE="$ECS_SERVICE"
+            export IMAGE_URI="$IMAGE_URI_LATEST"
+            export ARCH_NETWORK_GIT="$ARCH_NETWORK_GIT_VAR"
+            export ARCH_NETWORK_REV="$ARCH_NETWORK_REV_VAR"
+            export ARCH_NETWORK_BRANCH="$ARCH_NETWORK_BRANCH_VAR"
+            export GITHUB_TOKEN_SECRET_ARN="$GITHUB_TOKEN_SECRET_ARN_VAR"
+
+            NEW_TASK_DEF_ARN=$(python3 deploy/aws/update_ecs_task_definition.py)
+            log_info "✓ Registered and deployed new task definition: $NEW_TASK_DEF_ARN"
+        else
+            log_error "Terraform apply failed. Full output:"
+            cat "$TF_LOG_FILE"
+            exit $TF_EXIT
+        fi
+    else
+        log_info "✓ Terraform apply complete"
+    fi
+    rm -f "$TF_LOG_FILE"
 
     # Force new deployment
     log_info "Forcing new ECS deployment..."
@@ -240,7 +349,12 @@ if [ "$SKIP_BACKEND" = false ]; then
     log_info "  • Image: $IMAGE_URI:$GIT_SHA"
     log_info "  • ECS Cluster: $ECS_CLUSTER"
     log_info "  • ECS Service: $ECS_SERVICE"
-    log_info "  • API Endpoint: http://$ALB_DNS"
+    ALB_DNS="$(get_alb_dns)"
+    if [ -n "$ALB_DNS" ]; then
+        log_info "  • API Endpoint: http://$ALB_DNS"
+    else
+        log_warn "  • API Endpoint: <unknown> (ALB DNS not found)"
+    fi
 fi
 
 if [ "$SKIP_FRONTEND" = false ]; then

@@ -291,13 +291,13 @@ import Identicon from './Identicon';
             <h2 className="text-lg font-semibold">BUILD & DEPLOY</h2>
             <div className="flex items-center gap-2">
               <span className={`text-[10px] font-medium px-2 py-1 rounded border ${
-                config.network === 'mainnet-beta'
+                config.network === 'mainnet'
                   ? 'bg-red-900/40 text-red-300 border-red-400'
                   : config.network === 'testnet'
                     ? 'bg-yellow-900/30 text-yellow-300 border-yellow-400'
                     : 'bg-blue-900/40 text-blue-300 border-blue-400'
               }`}>
-                {config.network === 'mainnet-beta' ? 'MAINNET' : config.network.toUpperCase()}
+                {config.network === 'mainnet' ? 'MAINNET' : config.network.toUpperCase()}
               </span>
             </div>
           </div>
@@ -417,7 +417,7 @@ import Identicon from './Identicon';
             </div>
           </StepCard>
 
-          {config.network === 'mainnet-beta' && (
+          {config.network === 'mainnet' && (
             <div className="rounded-md border border-red-700 bg-red-900/20 text-red-300 text-xs p-3">
               Deploys on Mainnet are irreversible. Review fees and program permissions.
             </div>

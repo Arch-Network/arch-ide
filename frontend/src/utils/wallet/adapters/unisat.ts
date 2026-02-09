@@ -12,7 +12,15 @@ export class UnisatWalletAdapter implements BitcoinWalletAdapter {
   private accountChangeHandler?: (accounts: string[]) => void;
 
   isAvailable(): boolean {
-    return typeof window !== 'undefined' && !!window.unisat;
+    // Some environments/extensions may leave a stub `window.unisat` object behind.
+    // Require the core methods we rely on to avoid false "available" positives.
+    return (
+      typeof window !== 'undefined' &&
+      !!window.unisat &&
+      typeof window.unisat.requestAccounts === 'function' &&
+      typeof window.unisat.getAccounts === 'function' &&
+      typeof window.unisat.signMessage === 'function'
+    );
   }
 
   async connect(targetNetwork?: 'mainnet' | 'testnet' | 'regtest'): Promise<void> {

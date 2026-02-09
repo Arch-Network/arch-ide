@@ -142,6 +142,26 @@ resource "aws_iam_role_policy_attachment" "ecs_exec_attach" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
 }
 
+resource "aws_iam_role_policy" "ecs_exec_secrets_access" {
+  count = var.github_token_secret_arn != "" ? 1 : 0
+  name  = "${var.service_name}-ecs-execution-secrets-access"
+  role  = aws_iam_role.ecs_execution.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = var.github_token_secret_arn
+      }
+    ]
+  })
+}
+
 resource "aws_iam_role" "ecs_task" {
   name               = "${var.service_name}-ecs-task"
   assume_role_policy = aws_iam_role.ecs_execution.assume_role_policy
@@ -157,18 +177,31 @@ resource "aws_ecs_task_definition" "server" {
   task_role_arn            = aws_iam_role.ecs_task.arn
 
   container_definitions = jsonencode([
-    {
-      name  = "server"
-      image = var.rust_server_image
-      portMappings = [{ containerPort = var.port, hostPort = var.port, protocol = "tcp" }]
-      environment = [
-        { name = "PORT", value = tostring(var.port) },
-        { name = "CLIENT_URL", value = "https://ide.arch.network" },
-        { name = "VERBOSE", value = "1" }
-      ]
-      logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.server.name, awslogs-region = var.region, awslogs-stream-prefix = "ecs" } }
-      healthCheck = { command = ["CMD-SHELL", "curl -f http://localhost:${var.port}/health || exit 1"], interval = 30, timeout = 5, retries = 3, startPeriod = 30 }
-    }
+    merge(
+      {
+        name  = "server"
+        image = var.rust_server_image
+        portMappings = [{ containerPort = var.port, hostPort = var.port, protocol = "tcp" }]
+        environment = [
+          { name = "PORT", value = tostring(var.port) },
+          { name = "CLIENT_URL", value = "https://ide.arch.network" },
+          { name = "VERBOSE", value = "1" },
+
+          # Controls which arch-network commit/branch the compilation server uses when generating
+          # per-build Cargo.toml dependencies for user programs.
+          { name = "ARCH_NETWORK_GIT", value = var.arch_network_git },
+          { name = "ARCH_NETWORK_REV", value = var.arch_network_rev },
+          { name = "ARCH_NETWORK_BRANCH", value = var.arch_network_branch }
+        ]
+        logConfiguration = { logDriver = "awslogs", options = { awslogs-group = aws_cloudwatch_log_group.server.name, awslogs-region = var.region, awslogs-stream-prefix = "ecs" } }
+        healthCheck = { command = ["CMD-SHELL", "curl -f http://localhost:${var.port}/health || exit 1"], interval = 30, timeout = 5, retries = 3, startPeriod = 30 }
+      },
+      var.github_token_secret_arn != "" ? {
+        secrets = [
+          { name = "GITHUB_TOKEN", valueFrom = var.github_token_secret_arn }
+        ]
+      } : {}
+    )
   ])
 }
 
