@@ -543,14 +543,11 @@ pub struct PlayerState {
 // This script simulates the full game flow: initialize, deposit,
 // roll dice, and withdraw winnings.
 //
-// The Arch SDK is available globally via window.archSdk
-// (RpcConnection, PubkeyUtil, MessageUtil)
+// The Arch SDK globals (RpcConnection, PubkeyUtil, MessageUtil, etc.)
+// are injected automatically by the IDE runtime -- just use them directly.
 //
 // Usage: Select this file and click "Run" in the Client section.
 // ============================================================================
-
-// Access the SDK from globals (injected by the IDE runtime)
-const { RpcConnection, PubkeyUtil, MessageUtil } = (window as any).archSdk;
 
 console.log("========================================");
 console.log("  Bitcoin Dice Game");
