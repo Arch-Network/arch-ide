@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
-import { Info, Check, AlertTriangle } from 'lucide-react';
+import { Check, AlertTriangle, Rocket } from 'lucide-react';
 
 interface DeploymentModalProps {
   isOpen: boolean;
@@ -24,80 +24,74 @@ export const DeploymentModal = ({
 }: DeploymentModalProps) => {
 
   const handleDeploy = async () => {
-    // Close the modal immediately so user can see the logs
     onClose();
-    // Start deployment
     await onDeploy();
   };
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-white max-w-xl p-0 overflow-hidden rounded-lg">
-        <div className="p-6">
-          <h2 className="text-xl font-semibold text-black mb-4">Deploy Program</h2>
-
-          <div className="space-y-4">
-            {/* Network badge */}
-            <div className={`inline-flex items-center px-3 py-1.5 rounded text-sm font-medium ${
-              network === 'mainnet'
-                ? 'bg-red-100 text-red-800 border border-red-200'
-                : network === 'testnet'
-                  ? 'bg-yellow-100 text-yellow-800 border border-yellow-200'
-                  : 'bg-blue-100 text-blue-800 border border-blue-200'
-            }`}>
-              <AlertTriangle className="h-4 w-4 mr-2" />
-              {network === 'mainnet'
-                ? 'MAINNET'
-                : network === 'testnet'
-                  ? 'TESTNET'
-                  : 'DEVNET'}
+      <DialogContent className="bg-[#141414] border-gray-800/60 max-w-md p-0 overflow-hidden rounded-xl text-gray-200">
+        <div className="p-5 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg bg-[#F7931A]/10 flex items-center justify-center">
+              <Rocket className="h-4.5 w-4.5 text-[#F7931A]" />
             </div>
-
-            {/* Info panel */}
-            <div className="bg-green-50 border border-green-200 p-4 rounded-md">
-              <div className="flex items-start gap-3">
-                <Check className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
-                <div className="space-y-2">
-                  <h3 className="text-sm font-semibold text-green-900">Ready to Deploy</h3>
-                  <p className="text-sm text-green-800">
-                    Your program will be deployed to the {network} network. The deployment process will:
-                  </p>
-                  <ul className="text-sm text-green-800 list-disc list-inside space-y-1 ml-2">
-                    <li>Create and fund a temporary authority account using the network faucet</li>
-                    <li>Create your program account on-chain</li>
-                    <li>Upload your compiled program binary</li>
-                    <li>Mark the program as executable</li>
-                  </ul>
-                  <p className="text-sm text-green-800 mt-2">
-                    Check the console below for deployment progress and transaction IDs.
-                  </p>
-                </div>
-              </div>
+            <div>
+              <h2 className="text-sm font-semibold text-gray-100">Deploy Program</h2>
+              <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+                network === 'mainnet'
+                  ? 'text-red-400'
+                  : network === 'testnet'
+                    ? 'text-yellow-400'
+                    : 'text-blue-400'
+              }`}>
+                {network === 'mainnet' ? 'Mainnet' : network === 'testnet' ? 'Testnet' : 'Devnet'}
+              </span>
             </div>
-
-            {!isConnected && (
-              <div className="bg-red-50 border border-red-200 p-4 rounded-md">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <h3 className="text-sm font-semibold text-red-900">Not Connected</h3>
-                    <p className="text-sm text-red-800 mt-1">
-                      Please connect to the network before deploying.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
+
+          {/* Ready info */}
+          <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/15 p-3.5">
+            <div className="flex items-start gap-2.5">
+              <Check className="h-4 w-4 text-emerald-400 mt-0.5 shrink-0" />
+              <div className="space-y-2">
+                <p className="text-xs text-emerald-300/90 font-medium">Ready to deploy</p>
+                <ul className="text-[11px] text-gray-400 space-y-1 list-disc list-inside">
+                  <li>Create and fund a temporary authority account</li>
+                  <li>Create your program account on-chain</li>
+                  <li>Upload your compiled binary</li>
+                  <li>Mark the program as executable</li>
+                </ul>
+                <p className="text-[11px] text-gray-500">
+                  Check the console for deployment progress.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Not connected warning */}
+          {!isConnected && (
+            <div className="rounded-lg bg-red-500/5 border border-red-500/15 p-3.5">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="h-4 w-4 text-red-400 mt-0.5 shrink-0" />
+                <div>
+                  <p className="text-xs text-red-400 font-medium">Not Connected</p>
+                  <p className="text-[11px] text-gray-400 mt-0.5">
+                    Please connect to the network before deploying.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="flex justify-end gap-3 p-4 border-t border-gray-200 bg-gray-50">
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-gray-800/60">
           <Button
             type="button"
             variant="outline"
             onClick={onClose}
             disabled={isDeploying}
-            className="border-gray-300 bg-white text-gray-900 hover:bg-gray-100"
+            className="text-gray-300 border-gray-700 hover:bg-gray-800 hover:text-gray-200 text-xs h-9"
           >
             Cancel
           </Button>
@@ -105,9 +99,9 @@ export const DeploymentModal = ({
             type="button"
             onClick={handleDeploy}
             disabled={!isConnected || isDeploying}
-            className="bg-[#E05A1A] hover:bg-[#d14e12] text-white border-0"
+            className="bg-[#F7931A] hover:bg-[#d47b16] text-white text-xs h-9"
           >
-            Deploy Program
+            {isDeploying ? 'Deploying...' : 'Deploy Program'}
           </Button>
         </div>
       </DialogContent>

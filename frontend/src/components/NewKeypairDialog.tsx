@@ -53,37 +53,38 @@ export const NewKeypairDialog = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent>
+      <DialogContent className="bg-[#141414] border-gray-800/60 text-gray-200">
         <DialogHeader>
-          <DialogTitle className="text-xl font-mono text-gray-900">Create a new program keypair?</DialogTitle>
-          <DialogDescription className="pt-4">
+          <DialogTitle className="text-base font-semibold text-gray-100">Create a new program keypair?</DialogTitle>
+          <DialogDescription className="pt-2 text-sm text-gray-400">
             This will create a brand new keypair for your program.
           </DialogDescription>
         </DialogHeader>
 
         {!isConnected && (
-          <div className="flex items-center gap-2 p-3 bg-red-500/10 rounded-md">
-            <WifiOff className="h-5 w-5 text-red-500" />
-            <p className="text-sm text-red-500">
+          <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+            <WifiOff className="h-4 w-4 text-red-400" />
+            <p className="text-xs text-red-400">
               No RPC connection available. Please check your connection and try again.
             </p>
           </div>
         )}
 
-        <div className="flex items-center gap-2 p-3 bg-yellow-500/10 rounded-md">
-          <AlertTriangle className="h-5 w-5 text-yellow-500" />
-          <p className="text-sm text-yellow-500">
+        <div className="flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
+          <AlertTriangle className="h-4 w-4 text-yellow-400" />
+          <p className="text-xs text-yellow-400">
             The old keypair will be lost if you don't save it.
           </p>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="text-gray-900 border-gray-300">
+          <Button variant="outline" onClick={onClose} className="text-gray-300 border-gray-700 hover:bg-gray-800 hover:text-gray-200">
             Cancel
           </Button>
           <Button
             onClick={handleConfirm}
             disabled={!isConnected || isGenerating}
+            className="bg-[#F7931A] hover:bg-[#d47b16] text-white"
           >
             {isGenerating ? "Generating..." : "Generate"}
           </Button>
