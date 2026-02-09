@@ -1890,25 +1890,24 @@ const AppContent = () => {
       backgroundColor: theme.colors.default.bgPrimary,
       color: theme.colors.default.textPrimary
     }}>
-      <nav className="flex items-center justify-between gap-3 px-3 py-2 md:px-6 md:py-4" style={{
-        borderBottom: `1px solid ${theme.colors.default.border}`,
-        backgroundColor: theme.colors.default.bgSecondary
-      }}>
-        <div className="flex items-center gap-3 md:gap-6 min-w-0">
+      <nav className="flex items-center justify-between gap-3 px-3 py-1.5 md:px-4 md:py-1.5 bg-[#121212] border-b border-gray-800/60 shadow-[0_1px_0_0_rgba(255,255,255,0.03)]">
+        {/* Left: branding */}
+        <div className="flex items-center gap-2.5 min-w-0 shrink-0">
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden"
+            className="md:hidden h-8 w-8"
             onClick={() => setIsMobileSidebarOpen(true)}
             aria-label="Open sidebar"
           >
-            <PanelLeft className="h-6 w-6" />
+            <PanelLeft className="h-5 w-5" />
           </Button>
-          <img src="/images/logo.svg" alt="Logo" className="h-8 w-auto md:h-12 md:w-21" />
-          <h1 className="hidden md:block text-3xl font-bold text-white">Playground</h1>
+          <img src="/images/logo.svg" alt="Arch Network" className="h-5 w-auto md:h-6" />
+          <span className="hidden md:inline text-sm font-semibold tracking-wide text-gray-400">IDE</span>
         </div>
 
-        <div className="flex items-center gap-2 min-w-0">
+        {/* Right: project selector + actions + settings */}
+        <div className="flex items-center gap-1.5 min-w-0">
           <ProjectList
             projects={projects}
             currentProject={fullCurrentProject || undefined}
@@ -1919,13 +1918,16 @@ const AppContent = () => {
             onDeleteAllProjects={handleDeleteAllProjects}
           />
 
+          <div className="hidden md:block h-5 w-px bg-gray-700/40 mx-1" />
+
           <Button
             variant="ghost"
             size="icon"
+            className="h-8 w-8 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700/40"
             onClick={() => setIsConfigOpen(true)}
             aria-label="Open settings"
           >
-            <Settings className="h-6 w-6" />
+            <Settings className="h-4 w-4" />
           </Button>
         </div>
       </nav>

@@ -16,7 +16,7 @@
           onClick={onClose}
         />
         <div className="absolute inset-0 flex items-center justify-center p-4">
-          <div className="w-full max-w-xl bg-[#1C1E26] border border-gray-800 rounded-lg p-6 shadow-lg animate-in fade-in">
+          <div className="w-full max-w-xl bg-[#141414] border border-gray-800 rounded-lg p-6 shadow-lg animate-in fade-in">
             <div className="flex items-start justify-between gap-4">
               <h1 className="text-xl font-semibold text-white">
                 Connect to localnet
@@ -32,7 +32,7 @@
               </Button>
             </div>
   
-          <div className="bg-[#15171E] text-red-400 p-4 rounded-md flex items-center gap-2 mt-4">
+          <div className="bg-[#0d0d0d] text-red-400 p-4 rounded-md flex items-center gap-2 mt-4">
             <span className="text-2xl">☹</span>
             <span>Unable to connect to localnet</span>
           </div>
@@ -51,7 +51,7 @@
                 <p className="text-gray-400 mb-2">
                   Run the following command in your terminal:
                 </p>
-                <pre className="bg-[#15171E] p-4 rounded-md font-mono text-sm">
+                <pre className="bg-[#0d0d0d] p-4 rounded-md font-mono text-sm">
                   <code>
                     <span className="text-green-400">sh</span>{" "}
                     <span className="text-white">-c</span>{" "}
@@ -69,7 +69,7 @@
                 <h3 className="text-white font-mono mb-2">
                   2. Start a local test validator
                 </h3>
-                <pre className="bg-[#15171E] p-4 rounded-md font-mono text-sm">
+                <pre className="bg-[#0d0d0d] p-4 rounded-md font-mono text-sm">
                   <code>
                     <span className="text-green-400">solana-test-validator</span>
                   </code>

@@ -78,7 +78,7 @@ export const StatusBar = ({
   return (
     <>
       {/* Desktop / tablet status bar */}
-      <div className="hidden sm:flex h-6 bg-[#1a1b26] border-t border-gray-800 px-4 items-center justify-between text-xs">
+      <div className="hidden sm:flex h-6 bg-[#121212] border-t border-gray-800 px-4 items-center justify-between text-xs">
         <div className="flex items-center gap-2 min-w-0">
           <span className="text-gray-400 flex-shrink-0">Network: {config.network}</span>
           {isConnected && lastPingTime ? (
@@ -109,7 +109,7 @@ export const StatusBar = ({
 
       {/* Mobile compact bar */}
       <div
-        className="sm:hidden bg-[#1a1b26]/95 backdrop-blur border-t border-gray-800 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+12px)] text-sm"
+        className="sm:hidden bg-[#121212]/95 backdrop-blur border-t border-gray-800 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+12px)] text-sm"
       >
         <div className="flex items-center justify-between gap-3">
           <button
@@ -166,7 +166,7 @@ export const StatusBar = ({
             aria-hidden="true"
             onClick={() => setIsMobileExpanded(false)}
           />
-          <div className="absolute inset-x-0 bottom-0 bg-[#1a1b26] border-t border-gray-800 rounded-t-lg p-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
+          <div className="absolute inset-x-0 bottom-0 bg-[#121212] border-t border-gray-800 rounded-t-lg p-4 pb-[calc(env(safe-area-inset-bottom)+16px)]">
             <div className="flex items-center justify-between mb-3">
               <div className="flex items-center gap-2">
                 {mobileActiveTab === 'console' ? (

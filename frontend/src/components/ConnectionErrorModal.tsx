@@ -99,7 +99,7 @@
 
         {/* Layer 3: centered modal */}
         <div className="absolute inset-0 flex items-center justify-center p-4">
-          <div className="w-full max-w-2xl bg-[#1C1E26] border border-gray-800 rounded-lg p-6 shadow-lg animate-in fade-in">
+          <div className="w-full max-w-2xl bg-[#141414] border border-gray-800 rounded-lg p-6 shadow-lg animate-in fade-in">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <h1 className="text-xl font-semibold text-white">
@@ -117,7 +117,7 @@
               </Button>
             </div>
 
-            <div className="bg-[#15171E] text-red-300 p-4 rounded-md flex items-start gap-3 mt-5">
+            <div className="bg-[#0d0d0d] text-red-300 p-4 rounded-md flex items-start gap-3 mt-5">
               <span className="text-2xl leading-none">☹</span>
               <div className="text-sm">
                 <div>
@@ -151,7 +151,7 @@
                     <p className="text-gray-400 mb-2">
                       Run the following command in your terminal:
                     </p>
-                    <div className="bg-[#15171E] p-4 rounded-md font-mono text-sm whitespace-pre-wrap overflow-x-auto relative group">
+                    <div className="bg-[#0d0d0d] p-4 rounded-md font-mono text-sm whitespace-pre-wrap overflow-x-auto relative group">
                       <code>
                         {os !== 'unknown' ? (
                           <>
@@ -185,7 +185,7 @@
                     <h3 className="text-white font-medium mb-2">
                       2. Start the local validator
                     </h3>
-                    <div className="bg-[#15171E] p-4 rounded-md font-mono text-sm relative group">
+                    <div className="bg-[#0d0d0d] p-4 rounded-md font-mono text-sm relative group">
                       <code>
                         <span className="text-green-400">arch-local-validator</span>
                         <span className="text-white"> --bitcoin-rpc-endpoint </span>

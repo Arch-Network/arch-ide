@@ -7,13 +7,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Trash2, Download, Upload, HelpCircle } from 'lucide-react';
-
+import { PlusCircle, Trash2, Download, Upload, HelpCircle, MoreHorizontal } from 'lucide-react';
 import type { Project } from '../types';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { projectService } from '../services/projectService';
@@ -56,20 +56,14 @@ const ProjectList: React.FC<ProjectListProps> = ({
 
   const handleProjectSelect = (value: string) => {
     setSelectedId(value);
-
     const project = projects.find(p => p.id === value);
     if (project) {
-      const updatedProject = {
-        ...project,
-        lastAccessed: new Date()
-      };
-      onSelectProject(updatedProject);
+      onSelectProject({ ...project, lastAccessed: new Date() });
     }
   };
 
   const handleExportProject = async () => {
     if (!currentProject) return;
-
     try {
       const blob = await projectService.exportProjectAsZip(currentProject);
       const url = URL.createObjectURL(blob);
@@ -88,24 +82,17 @@ const ProjectList: React.FC<ProjectListProps> = ({
   const handleImportProject = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files?.length) return;
-
     try {
       let importedProject: Project;
-
       if (files[0].webkitRelativePath) {
-        // Handling folder import
         importedProject = await projectService.importFromFolder(files);
-        // Clear open files and current file when importing a folder
         onProjectsChange([...projects, importedProject]);
-        // Pass additional parameter to indicate this is a folder import
         onSelectProject(importedProject, true);
       } else if (files[0].name.endsWith('.zip')) {
-        // Handling zip import
         importedProject = await projectService.importProjectAsZip(files[0]);
         onProjectsChange([...projects, importedProject]);
         onSelectProject(importedProject, true);
       } else {
-        // Handling JSON import
         const fileReader = new FileReader();
         const importPromise = new Promise<Project>((resolve) => {
           fileReader.onload = async (e) => {
@@ -122,7 +109,6 @@ const ProjectList: React.FC<ProjectListProps> = ({
       }
     } catch (error) {
       console.error('Failed to import project:', error);
-      // TODO: Show error message to user
     }
   };
 
@@ -135,26 +121,68 @@ const ProjectList: React.FC<ProjectListProps> = ({
     setIsDeleteDialogOpen(false);
   };
 
-  const handleShowTutorial = () => {
-    startTutorial();
-  };
+  // Shared menu items used by both desktop and mobile overflow menus
+  const menuItems = (
+    <>
+      <DropdownMenuItem
+        data-tutorial="create-project-button"
+        onClick={onNewProject}
+        className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs"
+      >
+        <PlusCircle className="h-3.5 w-3.5 mr-2" />
+        New Project
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => document.getElementById('import-project')?.click()}
+        className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs"
+      >
+        <Upload className="h-3.5 w-3.5 mr-2" />
+        Import Project
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={handleExportProject}
+        disabled={!currentProject}
+        className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs"
+      >
+        <Download className="h-3.5 w-3.5 mr-2" />
+        Export Project
+      </DropdownMenuItem>
+      <DropdownMenuSeparator className="bg-gray-700/50" />
+      <DropdownMenuItem
+        onClick={() => startTutorial()}
+        className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs"
+      >
+        <HelpCircle className="h-3.5 w-3.5 mr-2" />
+        Tutorial
+      </DropdownMenuItem>
+      {currentProject && (
+        <>
+          <DropdownMenuSeparator className="bg-gray-700/50" />
+          <DropdownMenuItem
+            onClick={() => setIsDeleteDialogOpen(true)}
+            className="text-red-400 hover:bg-gray-700 cursor-pointer text-xs"
+          >
+            <Trash2 className="h-3.5 w-3.5 mr-2" />
+            Delete Project
+          </DropdownMenuItem>
+        </>
+      )}
+    </>
+  );
 
   return (
-    <div className="flex items-center gap-2 flex-nowrap min-w-0">
-      <Select
-        value={selectedId}
-        onValueChange={handleProjectSelect}
-      >
-        {/* Compact on mobile so the top bar stays single-row */}
-        <SelectTrigger className="w-[min(56vw,220px)] md:w-[260px] h-10 md:h-9 bg-background text-foreground border-input">
+    <div className="flex items-center gap-1.5 flex-nowrap min-w-0">
+      {/* Project selector -- compact chip style */}
+      <Select value={selectedId} onValueChange={handleProjectSelect}>
+        <SelectTrigger className="w-[min(48vw,180px)] md:w-[200px] h-8 text-xs bg-gray-900/60 text-gray-300 border-gray-700/50 rounded-lg hover:bg-gray-800 transition-colors">
           <SelectValue placeholder="Select a project" />
         </SelectTrigger>
-        <SelectContent className="bg-background border-input">
+        <SelectContent className="bg-gray-800 border-gray-700">
           {sortedProjects.map((project) => (
             <SelectItem
               key={project.id}
               value={project.id}
-              className="text-foreground"
+              className="text-gray-300 text-xs hover:bg-gray-700 cursor-pointer"
             >
               {project.name}
             </SelectItem>
@@ -172,85 +200,50 @@ const ProjectList: React.FC<ProjectListProps> = ({
         onChange={handleImportProject}
       />
 
-      {/* Desktop actions */}
-      <div className="hidden md:flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={() => document.getElementById('import-project')?.click()} title="Import project">
-          <Upload className="h-5 w-5" />
-        </Button>
-
-        <Button variant="ghost" size="icon" onClick={handleExportProject} disabled={!currentProject} title="Export project">
-          <Download className="h-5 w-5" />
-        </Button>
-
-        <Button variant="ghost" data-tutorial="create-project-button" size="icon" onClick={onNewProject} title="Create project">
-          <PlusCircle className="h-5 w-5" />
-        </Button>
-
-        {currentProject && (
-          <>
-            <Button variant="ghost" size="icon" onClick={() => setIsDeleteDialogOpen(true)} title="Delete project">
-              <Trash2 className="h-5 w-5 text-red-500" />
+      {/* Desktop: single overflow menu */}
+      <div className="hidden md:block">
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700/40"
+              aria-label="Project actions"
+            >
+              <MoreHorizontal className="h-4 w-4" />
             </Button>
-            <DeleteProjectDialog
-              isOpen={isDeleteDialogOpen}
-              onClose={() => setIsDeleteDialogOpen(false)}
-              onConfirm={handleDeleteConfirm}
-              projectName={currentProject.name}
-            />
-          </>
-        )}
-
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={handleShowTutorial}
-          title="Show Tutorial"
-        >
-          <HelpCircle className="h-5 w-5" />
-        </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700 min-w-[170px]">
+            {menuItems}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
 
-      {/* Mobile overflow menu */}
+      {/* Mobile: overflow menu */}
       <div className="md:hidden">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" aria-label="Project actions">
-              <MoreVertical className="h-5 w-5" />
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700/40"
+              aria-label="Project actions"
+            >
+              <MoreVertical className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="bg-gray-900 border-gray-700 text-gray-200">
-            <DropdownMenuItem onClick={onNewProject} className="cursor-pointer">
-              <PlusCircle className="h-4 w-4 mr-2" />
-              New Project
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => document.getElementById('import-project')?.click()} className="cursor-pointer">
-              <Upload className="h-4 w-4 mr-2" />
-              Import
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={handleExportProject} disabled={!currentProject} className="cursor-pointer">
-              <Download className="h-4 w-4 mr-2" />
-              Export
-            </DropdownMenuItem>
-            {currentProject && (
-              <DropdownMenuItem onClick={() => setIsDeleteDialogOpen(true)} className="cursor-pointer text-red-300">
-                <Trash2 className="h-4 w-4 mr-2" />
-                Delete
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={handleShowTutorial} className="cursor-pointer">
-              <HelpCircle className="h-4 w-4 mr-2" />
-              Tutorial
-            </DropdownMenuItem>
+          <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700 min-w-[170px]">
+            {menuItems}
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <DeleteProjectDialog
-          isOpen={isDeleteDialogOpen}
-          onClose={() => setIsDeleteDialogOpen(false)}
-          onConfirm={handleDeleteConfirm}
-          projectName={currentProject?.name || 'project'}
-        />
       </div>
+
+      <DeleteProjectDialog
+        isOpen={isDeleteDialogOpen}
+        onClose={() => setIsDeleteDialogOpen(false)}
+        onConfirm={handleDeleteConfirm}
+        projectName={currentProject?.name || 'project'}
+      />
     </div>
   );
 };

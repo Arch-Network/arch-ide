@@ -101,14 +101,14 @@ const QUICK_LINKS = [
     description: 'Learn about Arch Network',
     icon: BookOpen,
     href: 'https://docs.arch.network',
-    color: 'text-blue-400'
+    color: 'text-gray-300'
   },
   {
     title: 'Join Discord',
     description: 'Get help from the community',
     icon: MessageSquare,
     href: 'https://discord.gg/archnetwork',
-    color: 'text-purple-400'
+    color: 'text-gray-300'
   },
   {
     title: 'GitHub',
@@ -158,7 +158,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             <img src="/images/logo.svg" alt="Arch Network" className="h-16 w-auto" />
           </div>
           <h1 className="text-5xl font-bold bg-gradient-to-r from-[#F7931A] via-orange-400 to-yellow-500 bg-clip-text text-transparent">
-            Arch Network Playground
+            Arch Network IDE
           </h1>
           <p className="text-xl text-gray-400 max-w-2xl mx-auto">
             Build Bitcoin-native programs with Rust + eBPF. Learn. Explore. Create.

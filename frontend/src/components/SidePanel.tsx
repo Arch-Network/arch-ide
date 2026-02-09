@@ -104,7 +104,7 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
           className={cn(
             'flex-1 rounded-none border-b-2',
             currentView === 'explorer'
-              ? 'bg-[#212431] border-[#F7931A] text-white'
+              ? 'bg-[#1a1a1a] border-[#F7931A] text-white'
               : 'border-transparent text-gray-400'
           )}
           onClick={() => onViewChange('explorer')}
@@ -119,7 +119,7 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
           className={cn(
             'flex-1 rounded-none border-b-2',
             currentView === 'build'
-              ? 'bg-[#212431] border-[#F7931A] text-white'
+              ? 'bg-[#1a1a1a] border-[#F7931A] text-white'
               : 'border-transparent text-gray-400'
           )}
           onClick={() => onViewChange('build')}

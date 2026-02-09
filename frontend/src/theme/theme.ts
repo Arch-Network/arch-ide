@@ -1,10 +1,10 @@
 import type { Theme } from './types';
 
-// Core brand colors
+// Core brand colors -- warm neutral palette (no blue tint)
 export const BITCOIN_ORANGE = "#F7931A";
 export const ARCH_BLACK = "#000000";
-export const ARCH_DARK = "#18191E";
-export const ARCH_GRAY = "#212431";
+export const ARCH_DARK = "#121212";
+export const ARCH_GRAY = "#1a1a1a";
 
 // Accent colors
 export const BLUE = "#80ECFF";
@@ -13,9 +13,9 @@ export const RED = "#FF5555";
 export const YELLOW = "#FFC107";
 export const PURPLE = "#9945FF";
 
-// Text colors
-export const TEXT_PRIMARY = "#FFFFFF";
-export const TEXT_SECONDARY = "#AAAAAA";
+// Text colors -- warm whites and grays
+export const TEXT_PRIMARY = "#F5F5F4";
+export const TEXT_SECONDARY = "#A8A29E";
 
 // Syntax highlighting
 export const H_ORANGE = BITCOIN_ORANGE;
@@ -24,11 +24,11 @@ export const H_GREEN = "#2EF0B1";
 export const H_PURPLE = "#B57BEE";
 export const H_YELLOW = "#FFD174";
 
-// Borders & States
-export const BORDER_COLOR = "#232323";
-export const HOVER_BG = "#2B2D39";
-export const DISABLED = "#111114";
-export const COMMENT = "#666666";
+// Borders & States -- true neutral
+export const BORDER_COLOR = "#2a2a2a";
+export const HOVER_BG = "#2e2e2e";
+export const DISABLED = "#0d0d0d";
+export const COMMENT = "#6b6b6b";
 
 const ARCH_THEME: Theme = {
   isDark: true,
