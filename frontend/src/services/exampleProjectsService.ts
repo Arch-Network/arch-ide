@@ -696,14 +696,25 @@ async function main() {
   // ── Step 3: Game Flow Demo ─────────────────────────────
 
   console.log("STEP 3: Deposit BTC");
-  console.log("  Sending 1,000 sats to the game pot...");
+
+  // The pot address is the program's authority account BTC address.
+  // This is set in the Build panel when you generate the authority keypair.
+  const authority = (window as any).__archProgramAuthority;
+  if (!authority || !authority.address) {
+    console.log("  ERROR: No program authority account found!");
+    console.log("  Please go to the Build tab, Step 2 (Authority),");
+    console.log("  and generate a keypair first. That keypair's BTC");
+    console.log("  address will be used as the game pot.");
+    return;
+  }
+
+  const POT_ADDRESS = authority.address;
+  const DEPOSIT_AMOUNT = 1000; // sats
+
+  console.log("  Pot address: " + POT_ADDRESS);
+  console.log("  Sending " + DEPOSIT_AMOUNT + " sats to the game pot...");
   console.log("  Your wallet will prompt you to confirm.");
   console.log("");
-
-  // The pot address would be the program's Bitcoin address in production.
-  // For this demo, we use the player's own address as a placeholder.
-  const POT_ADDRESS = accounts[0];
-  const DEPOSIT_AMOUNT = 1000; // sats
 
   try {
     const txid = await walletProxy.sendBitcoin(POT_ADDRESS, DEPOSIT_AMOUNT);
@@ -781,31 +792,31 @@ async function main() {
   // ── Step 5: Withdraw ───────────────────────────────────
 
   console.log("STEP 5: Withdraw");
-  console.log("  Sending " + DEPOSIT_AMOUNT + " sats back to your wallet...");
-  console.log("  (In production, the program's pot would send your full");
-  console.log("   balance of " + balance + " sats via a Bitcoin TxOut.)");
-  console.log("  Your wallet will prompt you to confirm.");
+  console.log("  Balance: " + balance + " sats");
+  console.log("  Destination: " + accounts[0].substring(0, 24) + "...");
   console.log("");
-
-  try {
-    const withdrawTxid = await walletProxy.sendBitcoin(accounts[0], DEPOSIT_AMOUNT);
-    console.log("  Withdrawal TX confirmed!");
-    console.log("  TXID: " + withdrawTxid);
-    console.log("  Amount: " + DEPOSIT_AMOUNT + " sats returned to wallet");
-  } catch (err: any) {
-    console.log("  Withdrawal skipped: " + (err.message || err));
-  }
+  console.log("  When the program is deployed, calling the Withdraw");
+  console.log("  instruction would make the program construct a");
+  console.log("  Bitcoin transaction using set_transaction_to_sign()");
+  console.log("  with a TxOut of " + balance + " sats to your address.");
+  console.log("  The pot UTXO (at " + POT_ADDRESS.substring(0, 20) + "...)");
+  console.log("  would be spent as the input.");
   console.log("");
 
   // ── Summary ────────────────────────────────────────────
 
   console.log("========================================");
   console.log("  Game Complete!");
-  console.log("  Deposited: " + DEPOSIT_AMOUNT + " sats");
-  console.log("  Wagered:   " + totalWagered + " sats");
-  console.log("  Won:        " + wins + "/" + bets.length + " rolls");
-  console.log("  Balance:   " + balance + " sats");
-  console.log("  Withdrawn: " + DEPOSIT_AMOUNT + " sats");
+  console.log("");
+  console.log("  Pot address:  " + POT_ADDRESS.substring(0, 24) + "...");
+  console.log("  Deposited:    " + DEPOSIT_AMOUNT + " sats (real BTC tx)");
+  console.log("  Wagered:      " + totalWagered + " sats");
+  console.log("  Won:          " + wins + "/" + bets.length + " rolls");
+  console.log("  Final balance:" + balance + " sats");
+  console.log("");
+  console.log("  The deposit was a real Bitcoin transaction.");
+  console.log("  Deploy the program to enable on-chain dice");
+  console.log("  rolls and UTXO-based withdrawals.");
   console.log("========================================");
 }
 

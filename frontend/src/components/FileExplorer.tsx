@@ -174,6 +174,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
         onMessage: (type: string, message: string) => {
           addOutputMessage(type, message);
         },
+        authorityAccount: project?.authorityAccount || null,
       });
     } catch (error: unknown) {
       if (error instanceof Error) {

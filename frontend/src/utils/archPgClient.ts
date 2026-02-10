@@ -22,6 +22,8 @@ interface ClientParams {
   fileName: string;
   code: string;
   onMessage: (type: string, message: string) => void;
+  /** Optional: the program's authority account info, injected as window.__archProgramAuthority */
+  authorityAccount?: { pubkey: string; address: string; privkey?: string } | null;
 }
 
 interface ProjectFile {
@@ -34,7 +36,7 @@ export class ArchPgClient {
   private static _IframeWindow: Window | null = null;
   private static _isClientRunning = false;
 
-  static async execute({ fileName, code, onMessage }: ClientParams) {
+  static async execute({ fileName, code, onMessage, authorityAccount }: ClientParams) {
     console.log('ArchPgClient.execute called', this._isClientRunning);
     console.log('Code type:', typeof code);
     console.log('Code preview:', code.substring(0, 100) + '...');
@@ -252,6 +254,14 @@ export class ArchPgClient {
           (iframeWindow as any).TransactionUtil = TransactionUtil;
         (iframeWindow as any).UtxoMetaUtil = UtxoMetaUtil;
         (iframeWindow as any).SignatureUtil = SignatureUtil;
+
+        // Inject program authority account if provided
+        if (authorityAccount) {
+          (iframeWindow as any).__archProgramAuthority = {
+            pubkey: authorityAccount.pubkey,
+            address: authorityAccount.address,
+          };
+        }
 
         // BIP322 signing (for "no wallet" flows)
         ;(iframeWindow as any).Bip322Signer = Bip322Signer;
