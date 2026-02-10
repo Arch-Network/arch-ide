@@ -130,6 +130,9 @@ pub fn process_instruction(
         DiceInstruction::Withdraw { amount, ref destination } => {
             process_withdraw(program_id, accounts, amount, destination, &input)
         }
+        DiceInstruction::SendBtc { amount, ref destination } => {
+            process_send_btc(accounts, amount, destination)
+        }
     }
 }
 
@@ -565,6 +568,52 @@ fn process_withdraw(
     Ok(())
 }
 
+// ── SendBtc (simple direct send) ───────────────────────────
+// Minimal instruction: just craft a Bitcoin TxOut to a destination.
+// Accounts: [authority_account (signer + writable)]
+// No game state required -- useful for testing withdrawals.
+
+fn process_send_btc(
+    accounts: &[AccountInfo],
+    amount: u64,
+    destination: &str,
+) -> Result<(), ProgramError> {
+    let account_iter = &mut accounts.iter();
+    let authority = next_account_info(account_iter)?;
+
+    if !authority.is_signer {
+        return Err(ProgramError::MissingRequiredSignature);
+    }
+
+    let dest_address = Address::from_str(destination)
+        .map_err(|_| ProgramError::Custom(505))?
+        .assume_checked();
+
+    let mut tx = Transaction {
+        version: Version::TWO,
+        lock_time: LockTime::ZERO,
+        input: vec![],
+        output: vec![],
+    };
+
+    add_state_transition(&mut tx, authority);
+
+    tx.output.push(TxOut {
+        value: Amount::from_sat(amount),
+        script_pubkey: dest_address.script_pubkey(),
+    });
+
+    let inputs = [InputToSign {
+        index: 0,
+        signer: authority.key.clone(),
+    }];
+
+    set_transaction_to_sign(accounts, &tx, &inputs)?;
+
+    msg!("SendBtc: {} sats to {}", amount, destination);
+    Ok(())
+}
+
 // ============================================================================
 // Data Structures
 // ============================================================================
@@ -588,10 +637,15 @@ pub enum DiceInstruction {
         bet_amount: u64,
         seed: u64, // client-provided entropy
     },
-    /// Withdraw sats to a Bitcoin address
+    /// Withdraw sats to a Bitcoin address (requires game state)
     Withdraw {
         amount: u64,
-        destination: String, // Bitcoin address
+        destination: String,
+    },
+    /// Simple direct BTC send (no game state needed)
+    SendBtc {
+        amount: u64,
+        destination: String,
     },
 }
 
@@ -830,14 +884,14 @@ async function main() {
     const programPubkey = new Uint8Array(programPubkeyBytes);
     console.log("  Program ID: " + programAcct.pubkey.substring(0, 16) + "...");
 
-    // Build the Withdraw instruction data
-    // Borsh enum index 3 = Withdraw, then u64 amount + string destination
+    // Build the SendBtc instruction data
+    // Borsh enum index 4 = SendBtc, then u64 amount + string destination
     const destination = accounts[0];
     const destBytes = new TextEncoder().encode(destination);
-    // Layout: [3 (enum tag)] [8 bytes u64 amount] [4 bytes u32 string len] [string bytes] [0 (None for anchoring)]
+    // DiceInput layout: [enum tag] [u64 amount] [u32 string len] [string bytes] [0 (None anchoring)]
     const instrData = new Uint8Array(1 + 8 + 4 + destBytes.length + 1);
     let offset = 0;
-    instrData[offset++] = 3; // Withdraw variant index
+    instrData[offset++] = 4; // SendBtc variant index
 
     // u64 amount (little-endian)
     const amountBuf = new ArrayBuffer(8);
@@ -865,7 +919,6 @@ async function main() {
       instructions: [{
         program_id: programPubkey,
         accounts: [
-          { pubkey: programPubkey, is_signer: false, is_writable: true },
           { pubkey: accountPubkey, is_signer: true, is_writable: true },
         ],
         data: Array.from(instrData),
