@@ -570,8 +570,9 @@ fn process_withdraw(
 
 // ── SendBtc (simple direct send) ───────────────────────────
 // Minimal instruction: just craft a Bitcoin TxOut to a destination.
-// Accounts: [authority_account (signer + writable)]
-// No game state required -- useful for testing withdrawals.
+// Accounts: [signer (writable), pot_account (writable)]
+// The pot_account is the authority whose BTC address received the deposit.
+// The signer authorizes the Arch tx; the pot_account's key signs the Bitcoin UTXO.
 
 fn process_send_btc(
     accounts: &[AccountInfo],
@@ -581,9 +582,10 @@ fn process_send_btc(
     fee_vout: u32,
 ) -> Result<(), ProgramError> {
     let account_iter = &mut accounts.iter();
-    let authority = next_account_info(account_iter)?;
+    let signer = next_account_info(account_iter)?;
+    let pot_account = next_account_info(account_iter)?;
 
-    if !authority.is_signer {
+    if !signer.is_signer {
         return Err(ProgramError::MissingRequiredSignature);
     }
 
@@ -613,7 +615,7 @@ fn process_send_btc(
 
     let inputs = [InputToSign {
         index: 0,
-        signer: authority.key.clone(),
+        signer: pot_account.key.clone(),
     }];
 
     set_transaction_to_sign(accounts, &tx, &inputs)?;
@@ -962,12 +964,20 @@ async function play() {
 
     console.log("  Signing transaction...");
 
+    // Authority/pot pubkey (the account whose BTC address holds the deposit)
+    const authBytes = [];
+    for (let i = 0; i < authority.pubkey.length; i += 2) {
+      authBytes.push(parseInt(authority.pubkey.substring(i, i + 2), 16));
+    }
+    const authPubkey = new Uint8Array(authBytes);
+
     const message = {
       signers: [accountPubkey],
       instructions: [{
         program_id: programPubkey,
         accounts: [
           { pubkey: accountPubkey, is_signer: true, is_writable: true },
+          { pubkey: authPubkey, is_signer: false, is_writable: true },
         ],
         data: Array.from(instrData),
       }],
