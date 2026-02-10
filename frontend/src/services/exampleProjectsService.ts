@@ -130,8 +130,8 @@ pub fn process_instruction(
         DiceInstruction::Withdraw { amount, ref destination } => {
             process_withdraw(program_id, accounts, amount, destination, &input)
         }
-        DiceInstruction::SendBtc { amount, ref destination } => {
-            process_send_btc(accounts, amount, destination)
+        DiceInstruction::SendBtc { amount, ref destination, fee_txid, fee_vout } => {
+            process_send_btc(accounts, amount, destination, fee_txid, fee_vout)
         }
     }
 }
@@ -577,6 +577,8 @@ fn process_send_btc(
     accounts: &[AccountInfo],
     amount: u64,
     destination: &str,
+    fee_txid: [u8; 32],
+    fee_vout: u32,
 ) -> Result<(), ProgramError> {
     let account_iter = &mut accounts.iter();
     let authority = next_account_info(account_iter)?;
@@ -589,19 +591,24 @@ fn process_send_btc(
         .map_err(|_| ProgramError::Custom(505))?
         .assume_checked();
 
+    // Build the Bitcoin transaction using the provided UTXO as input
+    let txid = bitcoin::Txid::from_byte_array(fee_txid);
+    let outpoint = bitcoin::OutPoint::new(txid, fee_vout);
+
     let mut tx = Transaction {
         version: Version::TWO,
         lock_time: LockTime::ZERO,
-        input: vec![],
-        output: vec![],
+        input: vec![bitcoin::TxIn {
+            previous_output: outpoint,
+            script_sig: bitcoin::ScriptBuf::new(),
+            sequence: bitcoin::Sequence::MAX,
+            witness: bitcoin::Witness::new(),
+        }],
+        output: vec![TxOut {
+            value: Amount::from_sat(amount),
+            script_pubkey: dest_address.script_pubkey(),
+        }],
     };
-
-    add_state_transition(&mut tx, authority);
-
-    tx.output.push(TxOut {
-        value: Amount::from_sat(amount),
-        script_pubkey: dest_address.script_pubkey(),
-    });
 
     let inputs = [InputToSign {
         index: 0,
@@ -610,7 +617,7 @@ fn process_send_btc(
 
     set_transaction_to_sign(accounts, &tx, &inputs)?;
 
-    msg!("SendBtc: {} sats to {}", amount, destination);
+    msg!("SendBtc: {} sats to {} (utxo: {}:{})", amount, destination, txid, fee_vout);
     Ok(())
 }
 
@@ -642,10 +649,13 @@ pub enum DiceInstruction {
         amount: u64,
         destination: String,
     },
-    /// Simple direct BTC send (no game state needed)
+    /// Simple direct BTC send -- pass deposit txid for UTXO input
     SendBtc {
         amount: u64,
         destination: String,
+        /// The deposit transaction ID (32 bytes, reversed) to use as Bitcoin input
+        fee_txid: [u8; 32],
+        fee_vout: u32,
     },
 }
 
@@ -872,13 +882,15 @@ async function play() {
   console.log("  Your wallet will prompt you to confirm.");
   console.log("");
 
-  let depositTxid = null;
+  let depositTxid: string | null = null;
   try {
     depositTxid = await walletProxy.sendBitcoin(POT_ADDRESS, DEPOSIT_AMOUNT);
     console.log("  Deposit confirmed!");
     console.log("  TXID: " + depositTxid);
   } catch (err: any) {
     console.log("  Deposit skipped: " + (err.message || err));
+    console.log("  Cannot withdraw without a deposit UTXO.");
+    return;
   }
   console.log("");
 
@@ -908,9 +920,18 @@ async function play() {
     const programPubkey = new Uint8Array(progBytes);
 
     // Build SendBtc instruction (enum index 4)
+    // Layout: [4] [u64 amount] [u32 str_len] [str bytes] [32 bytes txid] [u32 vout] [0 = None anchoring]
     const destination = accounts[0];
     const destBytes = new TextEncoder().encode(destination);
-    const instrData = new Uint8Array(1 + 8 + 4 + destBytes.length + 1);
+
+    // Convert deposit txid hex to bytes (reversed for Bitcoin internal byte order)
+    const txidBytes = new Uint8Array(32);
+    for (let i = 0; i < 32; i++) {
+      txidBytes[31 - i] = parseInt(depositTxid!.substring(i * 2, i * 2 + 2), 16);
+    }
+    const VOUT = 0; // First output of the deposit tx
+
+    const instrData = new Uint8Array(1 + 8 + 4 + destBytes.length + 32 + 4 + 1);
     let off = 0;
 
     instrData[off++] = 4; // SendBtc variant
@@ -926,7 +947,17 @@ async function play() {
     instrData.set(new Uint8Array(lenBuf.buffer), off); off += 4;
     instrData.set(destBytes, off); off += destBytes.length;
 
+    // [u8; 32] fee_txid
+    instrData.set(txidBytes, off); off += 32;
+
+    // u32 fee_vout (LE)
+    const voutBuf = new DataView(new ArrayBuffer(4));
+    voutBuf.setUint32(0, VOUT, true);
+    instrData.set(new Uint8Array(voutBuf.buffer), off); off += 4;
+
     instrData[off] = 0; // None anchoring
+
+    console.log("  Using deposit UTXO: " + depositTxid!.substring(0, 16) + "...:" + VOUT);
 
     console.log("  Signing transaction...");
 
