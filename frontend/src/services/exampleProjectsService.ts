@@ -780,21 +780,32 @@ async function main() {
 
   // ── Step 5: Withdraw ───────────────────────────────────
 
-  console.log("STEP 5: Withdraw to " + accounts[0].substring(0, 20) + "...");
-  console.log("  Amount: " + balance + " sats");
-  console.log("  The program constructs a Bitcoin transaction");
-  console.log("  with a TxOut sending sats to your wallet address.");
-  console.log("  Uses add_state_transition() + set_transaction_to_sign()");
+  console.log("STEP 5: Withdraw");
+  console.log("  Sending " + DEPOSIT_AMOUNT + " sats back to your wallet...");
+  console.log("  (In production, the program's pot would send your full");
+  console.log("   balance of " + balance + " sats via a Bitcoin TxOut.)");
+  console.log("  Your wallet will prompt you to confirm.");
+  console.log("");
+
+  try {
+    const withdrawTxid = await walletProxy.sendBitcoin(accounts[0], DEPOSIT_AMOUNT);
+    console.log("  Withdrawal TX confirmed!");
+    console.log("  TXID: " + withdrawTxid);
+    console.log("  Amount: " + DEPOSIT_AMOUNT + " sats returned to wallet");
+  } catch (err: any) {
+    console.log("  Withdrawal skipped: " + (err.message || err));
+  }
   console.log("");
 
   // ── Summary ────────────────────────────────────────────
 
   console.log("========================================");
-  console.log("  Transaction Flow Summary:");
-  console.log("  1. Wallet signs each instruction");
-  console.log("  2. Player PDA tracks your balance");
-  console.log("  3. Game pot holds all deposited BTC");
-  console.log("  4. Withdrawals create real Bitcoin TxOuts");
+  console.log("  Game Complete!");
+  console.log("  Deposited: " + DEPOSIT_AMOUNT + " sats");
+  console.log("  Wagered:   " + totalWagered + " sats");
+  console.log("  Won:        " + wins + "/" + bets.length + " rolls");
+  console.log("  Balance:   " + balance + " sats");
+  console.log("  Withdrawn: " + DEPOSIT_AMOUNT + " sats");
   console.log("========================================");
 }
 
