@@ -4,6 +4,7 @@ import { base16, base58, base58check } from '@scure/base';
 import { sha256 } from '@noble/hashes/sha256';
 import { Signer as Bip322Signer } from 'bip322-js';
 import { walletManager } from './wallet/walletManager';
+import { getSmartRpcUrl } from './smartRpcConnection';
 
 declare global {
   interface Window {
