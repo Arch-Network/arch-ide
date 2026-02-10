@@ -894,7 +894,12 @@ async function play() {
 
   try {
     const conn = new RpcConnection(rpcUrl);
+    console.log("  Setting up Arch account (requesting airdrop)...");
     const { accountPubkey, useWallet } = await ClientTransactionUtil.setupAccount(conn);
+
+    // Wait for airdrop to confirm
+    console.log("  Waiting for account to be funded...");
+    await new Promise(function(r) { setTimeout(r, 3000); });
 
     // Program pubkey
     const progBytes = [];
