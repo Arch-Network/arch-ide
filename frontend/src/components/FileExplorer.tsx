@@ -37,6 +37,7 @@ interface FileExplorerProps {
   onDeploy?: () => void;
   isBuilding?: boolean;
   isDeploying?: boolean;
+  rpcUrl?: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -100,6 +101,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   onDeploy,
   isBuilding = false,
   isDeploying = false,
+  rpcUrl,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [worker, setWorker] = useState<Worker | null>(null);
@@ -175,6 +177,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
           addOutputMessage(type, message);
         },
         authorityAccount: project?.authorityAccount || null,
+        rpcUrl: rpcUrl,
       });
     } catch (error: unknown) {
       if (error instanceof Error) {

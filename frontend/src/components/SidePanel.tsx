@@ -150,6 +150,7 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
               onDeploy={onDeploy}
               isBuilding={isBuilding}
               isDeploying={isDeploying}
+              rpcUrl={config.rpcUrl}
             />
           ) : (
           <BuildPanel

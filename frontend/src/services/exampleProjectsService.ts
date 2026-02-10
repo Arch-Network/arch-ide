@@ -803,7 +803,12 @@ async function main() {
   // Build and send the Withdraw instruction to the deployed program
   try {
     // Connect to Arch RPC
-    const conn = new RpcConnection(getSmartRpcUrl(window.location.origin));
+    const rpcUrl = (window as any).__archRpcUrl;
+    if (!rpcUrl) {
+      console.log("  ERROR: No RPC URL configured. Check Settings.");
+      return;
+    }
+    const conn = new RpcConnection(rpcUrl);
 
     // Set up the signing account (uses wallet if connected)
     console.log("  Setting up account...");
