@@ -22,7 +22,7 @@ const EXAMPLE_STRUCTURES: Record<string, { src: string[], client?: string[], src
   },
   'dice-game': {
     src: ['lib.rs'],
-    client: ['client.ts'],
+    client: ['setup.ts', 'client.ts'],
     srcPath: 'program/src'
   },
   'escrow': {
@@ -680,41 +680,178 @@ pub struct PlayerState {
     pub games_won: u64,
 }
 `,
+    'setup.ts': `// ============================================================================
+// Bitcoin Dice Game - Setup Script (run once after deploy)
+// ============================================================================
+//
+// Initializes the game state on-chain by calling the InitializeGame
+// instruction on the deployed Dice Game program.
+//
+// Prerequisites:
+//   1. Build the program (Build tab)
+//   2. Deploy the program (Build tab -> Deploy)
+//   3. Select this file and click "Run"
+//
+// This only needs to be run once per deployment.
+// ============================================================================
+
+async function setup() {
+  console.log("========================================");
+  console.log("  Dice Game - Setup");
+  console.log("========================================");
+  console.log("");
+
+  // ── Check prerequisites ────────────────────────────────
+
+  const rpcUrl = (window as any).__archRpcUrl;
+  if (!rpcUrl) {
+    console.log("ERROR: No RPC URL. Check Settings.");
+    return;
+  }
+
+  const programAcct = (window as any).__archProgramAccount;
+  if (!programAcct || !programAcct.pubkey) {
+    console.log("ERROR: No program keypair found.");
+    console.log("Go to Build tab -> Step 1 -> Generate keypair.");
+    return;
+  }
+
+  console.log("Program ID: " + programAcct.pubkey.substring(0, 20) + "...");
+  console.log("");
+
+  // ── Connect and set up signing account ─────────────────
+
+  const conn = new RpcConnection(rpcUrl);
+  console.log("Setting up authority account...");
+  const { accountPubkey, useWallet } = await ClientTransactionUtil.setupAccount(conn);
+  console.log("Authority ready.");
+  console.log("");
+
+  // ── Build InitializeGame instruction ───────────────────
+
+  const MIN_BET = 1000;       // 1,000 sats
+  const MAX_BET = 100000;     // 100,000 sats
+  const HOUSE_EDGE_BPS = 250; // 2.5%
+
+  console.log("Game config:");
+  console.log("  Min bet:     " + MIN_BET + " sats");
+  console.log("  Max bet:     " + MAX_BET + " sats");
+  console.log("  House edge:  " + (HOUSE_EDGE_BPS / 100) + "%");
+  console.log("");
+
+  // Borsh layout for DiceInput { instruction: InitializeGame {...}, anchoring: None }
+  // InitializeGame is enum variant 0: [0] [u64 min] [u64 max] [u16 edge] [0 = None anchoring]
+  const instrData = new Uint8Array(1 + 8 + 8 + 2 + 1);
+  let off = 0;
+
+  instrData[off++] = 0; // InitializeGame variant
+
+  // u64 min_bet (LE)
+  const minBuf = new DataView(new ArrayBuffer(8));
+  minBuf.setUint32(0, MIN_BET, true);
+  instrData.set(new Uint8Array(minBuf.buffer), off); off += 8;
+
+  // u64 max_bet (LE)
+  const maxBuf = new DataView(new ArrayBuffer(8));
+  maxBuf.setUint32(0, MAX_BET, true);
+  instrData.set(new Uint8Array(maxBuf.buffer), off); off += 8;
+
+  // u16 house_edge_bps (LE)
+  instrData[off++] = HOUSE_EDGE_BPS & 0xFF;
+  instrData[off++] = (HOUSE_EDGE_BPS >> 8) & 0xFF;
+
+  instrData[off] = 0; // None for anchoring
+
+  // Program pubkey bytes
+  const progBytes = [];
+  for (let i = 0; i < programAcct.pubkey.length; i += 2) {
+    progBytes.push(parseInt(programAcct.pubkey.substring(i, i + 2), 16));
+  }
+  const programPubkey = new Uint8Array(progBytes);
+
+  console.log("Sending InitializeGame transaction...");
+
+  const message = {
+    signers: [accountPubkey],
+    instructions: [{
+      program_id: programPubkey,
+      accounts: [
+        { pubkey: accountPubkey, is_signer: true, is_writable: true },
+      ],
+      data: Array.from(instrData),
+    }],
+  };
+
+  try {
+    const txid = await ClientTransactionUtil.signAndSendTransaction(conn, message, useWallet);
+    console.log("");
+    console.log("Game initialized!");
+    console.log("Arch TXID: " + txid);
+    console.log("");
+    console.log("You can now run client.ts to play the game.");
+  } catch (err: any) {
+    console.log("Setup failed: " + (err.message || err));
+    console.log("Make sure the program is deployed first.");
+  }
+
+  console.log("");
+  console.log("========================================");
+}
+
+try {
+  await setup();
+} catch (err: any) {
+  console.log("Error: " + (err.message || err));
+}
+`,
     'client.ts': `// ============================================================================
-// Bitcoin Dice Game - Wallet-Integrated Client
+// Bitcoin Dice Game - Player Client
 // ============================================================================
 //
-// This client connects to your Bitcoin wallet (Unisat or Xverse),
-// retrieves your pubkey, derives your player PDA, and demonstrates
-// the full dice game flow with real wallet signing.
+// Connects your wallet, deposits BTC to the game pot, and withdraws
+// winnings via the deployed Arch program.
 //
-// SDK globals available: RpcConnection, PubkeyUtil, MessageUtil,
-//   ArchConnection, SignatureUtil, walletProxy, ClientTransactionUtil
-//
-// Usage: Connect your wallet, select this file, and click "Run".
+// Prerequisites:
+//   1. Deploy the program (Build tab)
+//   2. Run setup.ts first to initialize game state
+//   3. Connect your Bitcoin wallet (Unisat or Xverse)
+//   4. Select this file and click "Run"
 // ============================================================================
 
-// ── Helper: async wrapper for top-level await ────────────
-
-async function main() {
-
+async function play() {
   console.log("========================================");
   console.log("  Bitcoin Dice Game");
   console.log("========================================");
   console.log("");
 
+  // ── Check prerequisites ────────────────────────────────
+
+  const rpcUrl = (window as any).__archRpcUrl;
+  if (!rpcUrl) {
+    console.log("ERROR: No RPC URL. Check Settings.");
+    return;
+  }
+
+  const programAcct = (window as any).__archProgramAccount;
+  if (!programAcct || !programAcct.pubkey) {
+    console.log("ERROR: No program keypair. Generate one in Build tab (Step 1).");
+    return;
+  }
+
+  const authority = (window as any).__archProgramAuthority;
+  if (!authority || !authority.address) {
+    console.log("ERROR: No authority account. Generate one in Build tab (Step 2).");
+    return;
+  }
+
   // ── Step 1: Connect Wallet ─────────────────────────────
 
   console.log("STEP 1: Connect Wallet");
-  console.log("  Checking for Bitcoin wallet...");
 
   const walletAvailable = await walletProxy.isAvailable();
   if (!walletAvailable) {
-    console.log("");
     console.log("  ERROR: No wallet connected!");
-    console.log("  Please connect Unisat or Xverse wallet");
-    console.log("  using the 'Install Wallet' button in the");
-    console.log("  bottom status bar, then run again.");
+    console.log("  Connect Unisat or Xverse via the status bar.");
     return;
   }
 
@@ -724,195 +861,70 @@ async function main() {
 
   console.log("  Wallet:  " + walletType);
   console.log("  Address: " + accounts[0]);
-  console.log("  Pubkey:  " + pubkeyHex.substring(0, 16) + "...");
   console.log("");
 
-  // ── Step 2: Derive Player PDA ──────────────────────────
-
-  console.log("STEP 2: Derive Player PDA");
-
-  // The on-chain program derives the player PDA from:
-  //   seeds = ["player", player_wallet_pubkey]
-  // The client needs to compute the same address to pass it
-  // as an account in transactions.
-
-  const pubkeyBytes = [];
-  for (let i = 0; i < pubkeyHex.length; i += 2) {
-    pubkeyBytes.push(parseInt(pubkeyHex.substring(i, i + 2), 16));
-  }
-
-  console.log("  Player wallet pubkey: " + pubkeyHex.substring(0, 20) + "...");
-  console.log("  PDA seeds: ['player', wallet_pubkey]");
-  console.log("  The program uses Pubkey::find_program_address()");
-  console.log("  to derive a unique account for each player.");
-  console.log("");
-
-  // ── Step 3: Game Flow Demo ─────────────────────────────
-
-  console.log("STEP 3: Deposit BTC");
-
-  // The pot address is the program's authority account BTC address.
-  // This is set in the Build panel when you generate the authority keypair.
-  const authority = (window as any).__archProgramAuthority;
-  if (!authority || !authority.address) {
-    console.log("  ERROR: No program authority account found!");
-    console.log("  Please go to the Build tab, Step 2 (Authority),");
-    console.log("  and generate a keypair first. That keypair's BTC");
-    console.log("  address will be used as the game pot.");
-    return;
-  }
+  // ── Step 2: Deposit BTC to pot ─────────────────────────
 
   const POT_ADDRESS = authority.address;
   const DEPOSIT_AMOUNT = 1000; // sats
 
-  console.log("  Pot address: " + POT_ADDRESS);
-  console.log("  Sending " + DEPOSIT_AMOUNT + " sats to the game pot...");
+  console.log("STEP 2: Deposit " + DEPOSIT_AMOUNT + " sats");
+  console.log("  Pot: " + POT_ADDRESS.substring(0, 24) + "...");
   console.log("  Your wallet will prompt you to confirm.");
   console.log("");
 
+  let depositTxid = null;
   try {
-    const txid = await walletProxy.sendBitcoin(POT_ADDRESS, DEPOSIT_AMOUNT);
-    console.log("  Deposit TX confirmed!");
-    console.log("  TXID: " + txid);
-    console.log("  Amount: " + DEPOSIT_AMOUNT + " sats");
-    console.log("");
-    console.log("  Next, the program would be called with a Deposit");
-    console.log("  instruction to credit your PDA balance on-chain.");
+    depositTxid = await walletProxy.sendBitcoin(POT_ADDRESS, DEPOSIT_AMOUNT);
+    console.log("  Deposit confirmed!");
+    console.log("  TXID: " + depositTxid);
   } catch (err: any) {
     console.log("  Deposit skipped: " + (err.message || err));
-    console.log("  (User cancelled or wallet error)");
   }
   console.log("");
 
-  // ── Step 4: Roll Dice ──────────────────────────────────
+  // ── Step 3: Withdraw via Arch program ──────────────────
 
-  console.log("STEP 4: Roll the Dice!");
-  console.log("  Rules: Roll 4-6 = WIN (2x minus 2.5% house edge)");
-  console.log("         Roll 1-3 = LOSS");
+  const WITHDRAW_AMOUNT = DEPOSIT_AMOUNT; // withdraw what we deposited
+
+  console.log("STEP 3: Withdraw " + WITHDRAW_AMOUNT + " sats via Arch Network");
+  console.log("  The program will craft a Bitcoin TxOut to your wallet.");
+  console.log("  Arch validators will broadcast the Bitcoin transaction.");
   console.log("");
 
-  // Simulate rolls using the same entropy as the on-chain program
-  const HOUSE_EDGE_BPS = 250;
-  const DEPOSIT = 10000;
-  const bets = [
-    { amount: 2000, seed: Math.floor(Math.random() * 1000000) },
-    { amount: 3000, seed: Math.floor(Math.random() * 1000000) },
-    { amount: 1500, seed: Math.floor(Math.random() * 1000000) },
-    { amount: 2500, seed: Math.floor(Math.random() * 1000000) },
-    { amount: 5000, seed: Math.floor(Math.random() * 1000000) },
-  ];
-
-  let balance = DEPOSIT;
-  let totalWagered = 0;
-  let totalWon = 0;
-  let wins = 0;
-
-  // Use actual wallet pubkey bytes for entropy (matches on-chain logic)
-  const pk0 = pubkeyBytes[0] || 0;
-  const pk1 = pubkeyBytes[1] || 0;
-
-  for (const bet of bets) {
-    // Replicate on-chain dice roll algorithm
-    let entropy = bet.seed;
-    entropy = Math.imul(entropy, 6364136223846793005 & 0xFFFFFFFF) >>> 0;
-    entropy = (entropy + pk0) >>> 0;
-    entropy = (entropy + pk1) >>> 0;
-    entropy = Math.imul(entropy, 1442695040888963407 & 0xFFFFFFFF) >>> 0;
-    const roll = ((entropy >>> 17) % 6) + 1;
-    const won = roll >= 4;
-
-    totalWagered += bet.amount;
-    balance -= bet.amount;
-
-    if (won) {
-      const houseCut = Math.floor((bet.amount * HOUSE_EDGE_BPS) / 10000);
-      const payout = bet.amount * 2 - houseCut;
-      balance += payout;
-      totalWon += payout;
-      wins++;
-      console.log("  Bet " + bet.amount + " | Roll: " + roll + " | WIN  +" + payout + " sats");
-    } else {
-      console.log("  Bet " + bet.amount + " | Roll: " + roll + " | LOSS -" + bet.amount + " sats");
-    }
-  }
-
-  console.log("");
-  console.log("  Results: " + wins + "/" + bets.length + " won");
-  console.log("  Wagered: " + totalWagered + " sats");
-  console.log("  Won:     " + totalWon + " sats");
-  console.log("  Balance: " + balance + " sats");
-  console.log("");
-
-  // ── Step 5: Withdraw ───────────────────────────────────
-
-  console.log("STEP 5: Withdraw via Arch Network");
-  console.log("  Amount: " + balance + " sats -> " + accounts[0].substring(0, 20) + "...");
-  console.log("");
-  console.log("  Calling the deployed program's Withdraw instruction.");
-  console.log("  The program will call set_transaction_to_sign() to craft");
-  console.log("  a Bitcoin TxOut sending " + balance + " sats to your wallet.");
-  console.log("  Arch Network validators will broadcast the Bitcoin tx.");
-  console.log("");
-
-  // Build and send the Withdraw instruction to the deployed program
   try {
-    // Connect to Arch RPC
-    const rpcUrl = (window as any).__archRpcUrl;
-    if (!rpcUrl) {
-      console.log("  ERROR: No RPC URL configured. Check Settings.");
-      return;
-    }
     const conn = new RpcConnection(rpcUrl);
-
-    // Set up the signing account (uses wallet if connected)
-    console.log("  Setting up account...");
     const { accountPubkey, useWallet } = await ClientTransactionUtil.setupAccount(conn);
 
-    // Get the deployed program ID (Step 1 keypair from Build tab)
-    const programAcct = (window as any).__archProgramAccount;
-    if (!programAcct || !programAcct.pubkey) {
-      console.log("  ERROR: No program account found!");
-      console.log("  Please generate a program keypair in Build tab (Step 1)");
-      console.log("  and deploy the program first.");
-      return;
-    }
-
-    const programPubkeyBytes = [];
+    // Program pubkey
+    const progBytes = [];
     for (let i = 0; i < programAcct.pubkey.length; i += 2) {
-      programPubkeyBytes.push(parseInt(programAcct.pubkey.substring(i, i + 2), 16));
+      progBytes.push(parseInt(programAcct.pubkey.substring(i, i + 2), 16));
     }
-    const programPubkey = new Uint8Array(programPubkeyBytes);
-    console.log("  Program ID: " + programAcct.pubkey.substring(0, 16) + "...");
+    const programPubkey = new Uint8Array(progBytes);
 
-    // Build the SendBtc instruction data
-    // Borsh enum index 4 = SendBtc, then u64 amount + string destination
+    // Build SendBtc instruction (enum index 4)
     const destination = accounts[0];
     const destBytes = new TextEncoder().encode(destination);
-    // DiceInput layout: [enum tag] [u64 amount] [u32 string len] [string bytes] [0 (None anchoring)]
     const instrData = new Uint8Array(1 + 8 + 4 + destBytes.length + 1);
-    let offset = 0;
-    instrData[offset++] = 4; // SendBtc variant index
+    let off = 0;
 
-    // u64 amount (little-endian)
-    const amountBuf = new ArrayBuffer(8);
-    const amountView = new DataView(amountBuf);
-    amountView.setUint32(0, balance & 0xFFFFFFFF, true);
-    amountView.setUint32(4, Math.floor(balance / 0x100000000), true);
-    instrData.set(new Uint8Array(amountBuf), offset);
-    offset += 8;
+    instrData[off++] = 4; // SendBtc variant
+
+    // u64 amount (LE)
+    const amtBuf = new DataView(new ArrayBuffer(8));
+    amtBuf.setUint32(0, WITHDRAW_AMOUNT, true);
+    instrData.set(new Uint8Array(amtBuf.buffer), off); off += 8;
 
     // String: u32 len + bytes
-    const lenBuf = new ArrayBuffer(4);
-    new DataView(lenBuf).setUint32(0, destBytes.length, true);
-    instrData.set(new Uint8Array(lenBuf), offset);
-    offset += 4;
-    instrData.set(destBytes, offset);
-    offset += destBytes.length;
+    const lenBuf = new DataView(new ArrayBuffer(4));
+    lenBuf.setUint32(0, destBytes.length, true);
+    instrData.set(new Uint8Array(lenBuf.buffer), off); off += 4;
+    instrData.set(destBytes, off); off += destBytes.length;
 
-    instrData[offset] = 0; // None for anchoring
+    instrData[off] = 0; // None anchoring
 
-    console.log("  Instruction built (" + instrData.length + " bytes)");
-    console.log("  Signing and submitting to Arch Network...");
+    console.log("  Signing transaction...");
 
     const message = {
       signers: [accountPubkey],
@@ -927,30 +939,25 @@ async function main() {
 
     const txid = await ClientTransactionUtil.signAndSendTransaction(conn, message, useWallet);
     console.log("");
-    console.log("  Withdrawal TX submitted to Arch Network!");
+    console.log("  Withdrawal submitted!");
     console.log("  Arch TXID: " + txid);
-    console.log("  The program crafted a Bitcoin transaction sending");
-    console.log("  " + balance + " sats to " + accounts[0].substring(0, 20) + "...");
-    console.log("  Arch validators will broadcast it to Bitcoin.");
+    console.log("  " + WITHDRAW_AMOUNT + " sats -> " + accounts[0].substring(0, 20) + "...");
   } catch (err: any) {
     console.log("  Withdrawal error: " + (err.message || err));
-    console.log("  (Make sure the program is deployed first via Build tab)");
+    console.log("  Make sure you ran setup.ts and the program is deployed.");
   }
   console.log("");
 
   // ── Summary ────────────────────────────────────────────
 
   console.log("========================================");
-  console.log("  Game Complete!");
-  console.log("  Pot:       " + POT_ADDRESS.substring(0, 20) + "...");
-  console.log("  Deposited: " + DEPOSIT_AMOUNT + " sats");
-  console.log("  Won:       " + wins + "/" + bets.length + " rolls");
-  console.log("  Balance:   " + balance + " sats");
+  console.log("  Deposited:  " + DEPOSIT_AMOUNT + " sats to pot");
+  console.log("  Withdrawn:  " + WITHDRAW_AMOUNT + " sats via Arch");
   console.log("========================================");
 }
 
 try {
-  await main();
+  await play();
 } catch (err: any) {
   console.log("Error: " + (err.message || err));
 }
