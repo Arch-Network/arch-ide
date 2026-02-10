@@ -79,6 +79,7 @@ const INLINE_EXAMPLES: Record<string, Record<string, string>> = {
     rent::minimum_rent,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
+use arch_program::bitcoin::bitcoin_hashes::Hash;
 use std::str::FromStr;
 
 /// Derives the player PDA address from the player's wallet pubkey.
