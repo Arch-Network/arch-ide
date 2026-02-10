@@ -813,9 +813,8 @@ try {
 //
 // Prerequisites:
 //   1. Deploy the program (Build tab)
-//   2. Run setup.ts first to initialize game state
-//   3. Connect your Bitcoin wallet (Unisat or Xverse)
-//   4. Select this file and click "Run"
+//   2. Connect your Bitcoin wallet (Unisat or Xverse)
+//   3. Select this file and click "Run"
 // ============================================================================
 
 async function play() {
@@ -949,7 +948,7 @@ async function play() {
     console.log("  " + WITHDRAW_AMOUNT + " sats -> " + accounts[0].substring(0, 20) + "...");
   } catch (err: any) {
     console.log("  Withdrawal error: " + (err.message || err));
-    console.log("  Make sure you ran setup.ts and the program is deployed.");
+    console.log("  Make sure the program is deployed via Build tab.");
   }
   console.log("");
 
