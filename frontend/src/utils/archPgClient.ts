@@ -26,6 +26,8 @@ interface ClientParams {
   authorityAccount?: { pubkey: string; address: string; privkey?: string } | null;
   /** Optional: the configured RPC URL, injected as window.__archRpcUrl */
   rpcUrl?: string;
+  /** Optional: the deployed program account (Step 1 keypair), injected as window.__archProgramAccount */
+  programAccount?: { pubkey: string; address: string } | null;
 }
 
 interface ProjectFile {
@@ -38,7 +40,7 @@ export class ArchPgClient {
   private static _IframeWindow: Window | null = null;
   private static _isClientRunning = false;
 
-  static async execute({ fileName, code, onMessage, authorityAccount, rpcUrl }: ClientParams) {
+  static async execute({ fileName, code, onMessage, authorityAccount, rpcUrl, programAccount }: ClientParams) {
     console.log('ArchPgClient.execute called', this._isClientRunning);
     console.log('Code type:', typeof code);
     console.log('Code preview:', code.substring(0, 100) + '...');
@@ -262,6 +264,14 @@ export class ArchPgClient {
           (iframeWindow as any).__archProgramAuthority = {
             pubkey: authorityAccount.pubkey,
             address: authorityAccount.address,
+          };
+        }
+
+        // Inject program account (Step 1 keypair -- the deployed program ID)
+        if (programAccount) {
+          (iframeWindow as any).__archProgramAccount = {
+            pubkey: programAccount.pubkey,
+            address: programAccount.address,
           };
         }
 

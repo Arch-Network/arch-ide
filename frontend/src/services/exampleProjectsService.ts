@@ -814,12 +814,21 @@ async function main() {
     console.log("  Setting up account...");
     const { accountPubkey, useWallet } = await ClientTransactionUtil.setupAccount(conn);
 
-    // We need the program ID -- use the authority pubkey as program reference
+    // Get the deployed program ID (Step 1 keypair from Build tab)
+    const programAcct = (window as any).__archProgramAccount;
+    if (!programAcct || !programAcct.pubkey) {
+      console.log("  ERROR: No program account found!");
+      console.log("  Please generate a program keypair in Build tab (Step 1)");
+      console.log("  and deploy the program first.");
+      return;
+    }
+
     const programPubkeyBytes = [];
-    for (let i = 0; i < authority.pubkey.length; i += 2) {
-      programPubkeyBytes.push(parseInt(authority.pubkey.substring(i, i + 2), 16));
+    for (let i = 0; i < programAcct.pubkey.length; i += 2) {
+      programPubkeyBytes.push(parseInt(programAcct.pubkey.substring(i, i + 2), 16));
     }
     const programPubkey = new Uint8Array(programPubkeyBytes);
+    console.log("  Program ID: " + programAcct.pubkey.substring(0, 16) + "...");
 
     // Build the Withdraw instruction data
     // Borsh enum index 3 = Withdraw, then u64 amount + string destination

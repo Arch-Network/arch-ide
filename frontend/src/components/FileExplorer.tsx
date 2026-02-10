@@ -178,6 +178,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
         },
         authorityAccount: project?.authorityAccount || null,
         rpcUrl: rpcUrl,
+        programAccount: project?.account || null,
       });
     } catch (error: unknown) {
       if (error instanceof Error) {
