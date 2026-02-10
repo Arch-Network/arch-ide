@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Button } from './ui/button';
-import { Trash2, X, Check, Info, Terminal, Loader2, ExternalLink } from 'lucide-react';
+import { Trash2, X, Check, Info, Terminal, Loader2, ExternalLink, Copy, ClipboardCheck } from 'lucide-react';
 
 export interface OutputMessage {
   type: 'command' | 'success' | 'error' | 'info';
@@ -18,11 +18,26 @@ interface OutputProps {
 
 export const Output = ({ messages, onClear }: OutputProps) => {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
+  }, [messages]);
+
+  const copyLogsToClipboard = useCallback(() => {
+    const text = messages
+      .map((msg) => {
+        const time = msg.timestamp.toLocaleTimeString();
+        const prefix = msg.type === 'command' ? '> $ ' : '  ';
+        return `${time} ${prefix}${msg.content}`;
+      })
+      .join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
   }, [messages]);
 
   const MessageIcon = ({ type, isLoading }: { type: OutputMessage['type'], isLoading?: boolean }) => {
@@ -46,7 +61,26 @@ export const Output = ({ messages, onClear }: OutputProps) => {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex justify-end py-0.5 px-2 bg-gray-800 border-b border-gray-700">
+      <div className="flex justify-end gap-1 py-0.5 px-2 bg-gray-800 border-b border-gray-700">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={copyLogsToClipboard}
+          className="text-gray-400 hover:bg-gray-700 hover:text-white h-6 px-2 text-xs"
+          disabled={messages.length === 0}
+        >
+          {copied ? (
+            <>
+              <ClipboardCheck className="h-3 w-3 mr-1 text-green-400" />
+              <span className="text-green-400">Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy className="h-3 w-3 mr-1" />
+              Copy
+            </>
+          )}
+        </Button>
         <Button
           variant="ghost"
           size="sm"
@@ -57,7 +91,7 @@ export const Output = ({ messages, onClear }: OutputProps) => {
           Clear
         </Button>
       </div>
-      <div ref={scrollRef} className="bg-gray-900 text-white font-mono p-2 overflow-y-auto overflow-x-auto flex-1 text-xs leading-4 break-words whitespace-pre-wrap">
+      <div ref={scrollRef} className="bg-gray-900 text-white font-mono p-2 overflow-y-auto overflow-x-auto flex-1 text-xs leading-4 break-words whitespace-pre-wrap select-text cursor-text">
         {messages.map((msg, i) => (
           <div key={i} className="mb-2">
             <div className="flex items-top">

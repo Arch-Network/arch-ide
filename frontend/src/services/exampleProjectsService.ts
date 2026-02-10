@@ -79,7 +79,6 @@ const INLINE_EXAMPLES: Record<string, Record<string, string>> = {
     rent::minimum_rent,
 };
 use borsh::{BorshDeserialize, BorshSerialize};
-use arch_program::bitcoin::bitcoin_hashes::Hash;
 use std::str::FromStr;
 
 /// Derives the player PDA address from the player's wallet pubkey.
@@ -593,7 +592,8 @@ fn process_send_btc(
         .assume_checked();
 
     // Build the Bitcoin transaction using the provided UTXO as input
-    let txid = bitcoin::Txid::from_byte_array(fee_txid);
+    let hash = bitcoin::hashes::sha256d::Hash::from_bytes_ref(&fee_txid);
+    let txid = bitcoin::Txid::from_raw_hash(*hash);
     let outpoint = bitcoin::OutPoint::new(txid, fee_vout);
 
     let mut tx = Transaction {
