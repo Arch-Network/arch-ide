@@ -791,32 +791,94 @@ async function main() {
 
   // ── Step 5: Withdraw ───────────────────────────────────
 
-  console.log("STEP 5: Withdraw");
-  console.log("  Balance: " + balance + " sats");
-  console.log("  Destination: " + accounts[0].substring(0, 24) + "...");
+  console.log("STEP 5: Withdraw via Arch Network");
+  console.log("  Amount: " + balance + " sats -> " + accounts[0].substring(0, 20) + "...");
   console.log("");
-  console.log("  When the program is deployed, calling the Withdraw");
-  console.log("  instruction would make the program construct a");
-  console.log("  Bitcoin transaction using set_transaction_to_sign()");
-  console.log("  with a TxOut of " + balance + " sats to your address.");
-  console.log("  The pot UTXO (at " + POT_ADDRESS.substring(0, 20) + "...)");
-  console.log("  would be spent as the input.");
+  console.log("  Calling the deployed program's Withdraw instruction.");
+  console.log("  The program will call set_transaction_to_sign() to craft");
+  console.log("  a Bitcoin TxOut sending " + balance + " sats to your wallet.");
+  console.log("  Arch Network validators will broadcast the Bitcoin tx.");
+  console.log("");
+
+  // Build and send the Withdraw instruction to the deployed program
+  try {
+    // Connect to Arch RPC
+    const conn = new RpcConnection(getSmartRpcUrl(window.location.origin));
+
+    // Set up the signing account (uses wallet if connected)
+    console.log("  Setting up account...");
+    const { accountPubkey, useWallet } = await ClientTransactionUtil.setupAccount(conn);
+
+    // We need the program ID -- use the authority pubkey as program reference
+    const programPubkeyBytes = [];
+    for (let i = 0; i < authority.pubkey.length; i += 2) {
+      programPubkeyBytes.push(parseInt(authority.pubkey.substring(i, i + 2), 16));
+    }
+    const programPubkey = new Uint8Array(programPubkeyBytes);
+
+    // Build the Withdraw instruction data
+    // Borsh enum index 3 = Withdraw, then u64 amount + string destination
+    const destination = accounts[0];
+    const destBytes = new TextEncoder().encode(destination);
+    // Layout: [3 (enum tag)] [8 bytes u64 amount] [4 bytes u32 string len] [string bytes] [0 (None for anchoring)]
+    const instrData = new Uint8Array(1 + 8 + 4 + destBytes.length + 1);
+    let offset = 0;
+    instrData[offset++] = 3; // Withdraw variant index
+
+    // u64 amount (little-endian)
+    const amountBuf = new ArrayBuffer(8);
+    const amountView = new DataView(amountBuf);
+    amountView.setUint32(0, balance & 0xFFFFFFFF, true);
+    amountView.setUint32(4, Math.floor(balance / 0x100000000), true);
+    instrData.set(new Uint8Array(amountBuf), offset);
+    offset += 8;
+
+    // String: u32 len + bytes
+    const lenBuf = new ArrayBuffer(4);
+    new DataView(lenBuf).setUint32(0, destBytes.length, true);
+    instrData.set(new Uint8Array(lenBuf), offset);
+    offset += 4;
+    instrData.set(destBytes, offset);
+    offset += destBytes.length;
+
+    instrData[offset] = 0; // None for anchoring
+
+    console.log("  Instruction built (" + instrData.length + " bytes)");
+    console.log("  Signing and submitting to Arch Network...");
+
+    const message = {
+      signers: [accountPubkey],
+      instructions: [{
+        program_id: programPubkey,
+        accounts: [
+          { pubkey: programPubkey, is_signer: false, is_writable: true },
+          { pubkey: accountPubkey, is_signer: true, is_writable: true },
+        ],
+        data: Array.from(instrData),
+      }],
+    };
+
+    const txid = await ClientTransactionUtil.signAndSendTransaction(conn, message, useWallet);
+    console.log("");
+    console.log("  Withdrawal TX submitted to Arch Network!");
+    console.log("  Arch TXID: " + txid);
+    console.log("  The program crafted a Bitcoin transaction sending");
+    console.log("  " + balance + " sats to " + accounts[0].substring(0, 20) + "...");
+    console.log("  Arch validators will broadcast it to Bitcoin.");
+  } catch (err: any) {
+    console.log("  Withdrawal error: " + (err.message || err));
+    console.log("  (Make sure the program is deployed first via Build tab)");
+  }
   console.log("");
 
   // ── Summary ────────────────────────────────────────────
 
   console.log("========================================");
   console.log("  Game Complete!");
-  console.log("");
-  console.log("  Pot address:  " + POT_ADDRESS.substring(0, 24) + "...");
-  console.log("  Deposited:    " + DEPOSIT_AMOUNT + " sats (real BTC tx)");
-  console.log("  Wagered:      " + totalWagered + " sats");
-  console.log("  Won:          " + wins + "/" + bets.length + " rolls");
-  console.log("  Final balance:" + balance + " sats");
-  console.log("");
-  console.log("  The deposit was a real Bitcoin transaction.");
-  console.log("  Deploy the program to enable on-chain dice");
-  console.log("  rolls and UTXO-based withdrawals.");
+  console.log("  Pot:       " + POT_ADDRESS.substring(0, 20) + "...");
+  console.log("  Deposited: " + DEPOSIT_AMOUNT + " sats");
+  console.log("  Won:       " + wins + "/" + bets.length + " rolls");
+  console.log("  Balance:   " + balance + " sats");
   console.log("========================================");
 }
 
