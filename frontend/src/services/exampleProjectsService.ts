@@ -696,14 +696,27 @@ async function main() {
   // ── Step 3: Game Flow Demo ─────────────────────────────
 
   console.log("STEP 3: Deposit BTC");
-  console.log("  In production, this would:");
-  console.log("    1. Call wallet.sendBitcoin(potAddress, amount)");
-  console.log("       to send real sats to the game pot");
-  console.log("    2. Build a Deposit instruction with Borsh:");
-  console.log("       { Deposit: { amount, player_bump, player_utxo } }");
-  console.log("    3. Sign with your wallet via BIP-322");
-  console.log("    4. Submit to Arch Network");
-  console.log("    5. Program creates your PDA and credits balance");
+  console.log("  Sending 1,000 sats to the game pot...");
+  console.log("  Your wallet will prompt you to confirm.");
+  console.log("");
+
+  // The pot address would be the program's Bitcoin address in production.
+  // For this demo, we use the player's own address as a placeholder.
+  const POT_ADDRESS = accounts[0];
+  const DEPOSIT_AMOUNT = 1000; // sats
+
+  try {
+    const txid = await walletProxy.sendBitcoin(POT_ADDRESS, DEPOSIT_AMOUNT);
+    console.log("  Deposit TX confirmed!");
+    console.log("  TXID: " + txid);
+    console.log("  Amount: " + DEPOSIT_AMOUNT + " sats");
+    console.log("");
+    console.log("  Next, the program would be called with a Deposit");
+    console.log("  instruction to credit your PDA balance on-chain.");
+  } catch (err: any) {
+    console.log("  Deposit skipped: " + (err.message || err));
+    console.log("  (User cancelled or wallet error)");
+  }
   console.log("");
 
   // ── Step 4: Roll Dice ──────────────────────────────────

@@ -206,6 +206,28 @@ export class ArchPgClient {
                 }
               })();
             }
+            else if ((data as any).type === 'wallet-send-bitcoin') {
+              console.log('[Parent] Handling wallet-send-bitcoin');
+              console.log('[Parent] To:', data.toAddress, 'Amount:', data.amount);
+              (async () => {
+                try {
+                  const result = await walletManager.sendBitcoin(data.toAddress, data.amount);
+                  console.log('[Parent] sendBitcoin result:', result);
+                  iframeWindow.postMessage({
+                    type: 'wallet-send-bitcoin-response',
+                    id: data.id,
+                    txid: result.txid
+                  }, '*');
+                } catch (error: any) {
+                  console.error('[Parent] Error sending bitcoin:', error);
+                  iframeWindow.postMessage({
+                    type: 'wallet-send-bitcoin-response',
+                    id: data.id,
+                    error: error.message
+                  }, '*');
+                }
+              })();
+            }
           }
         }
       };
@@ -513,6 +535,37 @@ export class ArchPgClient {
                 console.error('[walletProxy] Sign timeout');
                 reject(new Error('Timeout or user rejected signing'));
               }, 60000);
+            });
+          },
+
+          sendBitcoin: function(toAddress, amount) {
+            return new Promise((resolve, reject) => {
+              const messageId = Math.random().toString(36);
+              console.log('[walletProxy] sendBitcoin called:', toAddress, amount, 'sats');
+
+              const handler = (event) => {
+                if (event.source !== window.parent) return;
+                if (event.data.type === 'wallet-send-bitcoin-response' && event.data.id === messageId) {
+                  window.removeEventListener('message', handler);
+                  if (event.data.error) {
+                    reject(new Error(event.data.error));
+                  } else {
+                    resolve(event.data.txid);
+                  }
+                }
+              };
+              window.addEventListener('message', handler);
+              window.parent.postMessage({
+                type: 'wallet-send-bitcoin',
+                id: messageId,
+                toAddress: toAddress,
+                amount: amount
+              }, '*');
+
+              setTimeout(() => {
+                window.removeEventListener('message', handler);
+                reject(new Error('Timeout or user rejected Bitcoin send'));
+              }, 120000);
             });
           }
         };
