@@ -384,13 +384,12 @@ export const DICE_GAME_SETUP_TS = `// ==========================================
 // ============================================================================
 //
 // Run ONCE after deploying the program.
-// This is a complex setup that requires a UTXO to anchor the game account.
+// Creates a dedicated game account with a real UTXO (the pot).
 //
-// For now, this script initializes the game state using the signer's account.
-// A production version would use create_account_with_anchor via CPI.
-//
-// After setup, fund the authority BTC address (Build tab Step 2) with testnet sats.
-// That address is the game pot.
+// After running:
+//   1. Note the game account address printed below
+//   2. Fund that BTC address with testnet sats (this becomes the pot)
+//   3. Run client.ts to play
 // ============================================================================
 
 async function setup() {
@@ -401,19 +400,51 @@ async function setup() {
 
   const rpcUrl = (window as any).__archRpcUrl;
   const programAcct = (window as any).__archProgramAccount;
-  const authority = (window as any).__archProgramAuthority;
 
   if (!rpcUrl) { console.log("ERROR: No RPC URL."); return; }
   if (!programAcct) { console.log("ERROR: No program keypair. Build tab Step 1."); return; }
-  if (!authority) { console.log("ERROR: No authority. Build tab Step 2."); return; }
 
   console.log("Program: " + programAcct.pubkey.substring(0, 20) + "...");
-  console.log("Pot BTC address: " + authority.address);
   console.log("");
-  console.log("The game pot is the authority account's BTC address.");
-  console.log("Fund it with testnet sats before players can withdraw.");
+
+  // Create a new Arch account to serve as the game account.
+  // This account gets a real UTXO automatically.
+  const conn = new RpcConnection(rpcUrl);
+  const archConn = ArchConnection(conn);
+
+  console.log("Creating game account...");
+  const gameAccount = await archConn.createNewAccount();
+  console.log("Game account created!");
+  console.log("  Pubkey:  " + gameAccount.pubkey);
+  console.log("  Address: " + gameAccount.address);
   console.log("");
-  console.log("Setup complete! Run client.ts to play.");
+
+  // Store it so client.ts can find it
+  (window as any).__diceGameAccount = gameAccount;
+
+  // Request airdrop to fund the account
+  const gamePubkeyBytes = new Uint8Array(gameAccount.pubkey.length / 2);
+  for (let i = 0; i < gamePubkeyBytes.length; i++) {
+    gamePubkeyBytes[i] = parseInt(gameAccount.pubkey.substring(i*2, i*2+2), 16);
+  }
+
+  console.log("Requesting airdrop for game account...");
+  try {
+    await conn.requestAirdrop(gamePubkeyBytes);
+    console.log("Airdrop requested.");
+  } catch (e: any) {
+    console.log("Airdrop note: " + (e.message || e));
+  }
+
+  console.log("");
+  console.log("========================================");
+  console.log("  Setup complete!");
+  console.log("");
+  console.log("  Game pot BTC address:");
+  console.log("  " + gameAccount.address);
+  console.log("");
+  console.log("  Fund this address with testnet sats,");
+  console.log("  then run client.ts to play.");
   console.log("========================================");
 }
 
