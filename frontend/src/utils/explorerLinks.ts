@@ -18,13 +18,12 @@ export function getExplorerUrls(network: Network): ExplorerUrls | null {
   switch (network) {
     case 'testnet':
       return {
-        base: 'https://explorer-beta.test.arch.network',
-        tx: (txid: string) => `https://explorer-beta.test.arch.network/tx/${txid}`,
-        account: (address: string) => `https://explorer-beta.test.arch.network/accounts/${address}`,
-        program: (programId: string) => `https://explorer-beta.test.arch.network/programs/${programId}`,
+        base: 'https://explorer.arch.network/testnet',
+        tx: (txid: string) => `https://explorer.arch.network/testnet/tx/${txid}`,
+        account: (address: string) => `https://explorer.arch.network/testnet/accounts/${address}`,
+        program: (programId: string) => `https://explorer.arch.network/testnet/programs/${programId}`,
       };
     case 'mainnet':
-      // TODO: Update when mainnet explorer is available
       return {
         base: 'https://explorer.arch.network',
         tx: (txid: string) => `https://explorer.arch.network/tx/${txid}`,
@@ -32,7 +31,6 @@ export function getExplorerUrls(network: Network): ExplorerUrls | null {
         program: (programId: string) => `https://explorer.arch.network/programs/${programId}`,
       };
     case 'devnet':
-      // Devnet typically doesn't have a public explorer
       return null;
     default:
       return null;
