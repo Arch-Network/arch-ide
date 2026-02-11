@@ -3,6 +3,9 @@ import { RpcConnection, ArchConnection, PubkeyUtil, MessageUtil, UtxoMetaUtil, S
 import { base16, base58, base58check } from '@scure/base';
 import { sha256 } from '@noble/hashes/sha256';
 import { Signer as Bip322Signer } from 'bip322-js';
+import * as bitcoinjsLib from 'bitcoinjs-lib';
+import * as tinySecp256k1 from 'tiny-secp256k1';
+import { ECPairFactory } from 'ecpair';
 import { walletManager } from './wallet/walletManager';
 import { getSmartRpcUrl } from './smartRpcConnection';
 
@@ -242,12 +245,13 @@ export class ArchPgClient {
       window.addEventListener('message', messageHandler);
       console.log('[Parent] Message handler installed, waiting for messages from iframe');
 
-      // Safety timeout - if execution takes more than 30 seconds, assume it's hung
+      // Safety timeout - if execution takes more than 3 minutes, assume it's hung
+      // (setup.ts may need ~90s to wait for Titan to index a BTC UTXO)
       timeoutId = setTimeout(() => {
         console.warn('Execution timeout - resetting client running flag');
         cleanup();
         onMessage('error', 'Execution timeout - code took too long to complete');
-      }, 30000);
+      }, 180000);
 
       // Set up SDK in iframe
       if (iframeWindow) {
@@ -294,6 +298,26 @@ export class ArchPgClient {
           payload[payload.length - 1] = 0x01; // compressed pubkey marker
           const b58 = base58check(sha256);
           return b58.encode(payload);
+        };
+
+        // BIP322 signing with private key hex — derives correct P2TR address automatically.
+        // Returns plain number[] (64-byte signature) to avoid cross-realm Uint8Array issues.
+        ;(iframeWindow as any).__bip322SignWithKey = (privkeyHex: string, messageHash: string, network?: string): number[] => {
+          bitcoinjsLib.initEccLib(tinySecp256k1);
+          const ECPair = ECPairFactory(tinySecp256k1);
+          const net = network === 'mainnet' ? bitcoinjsLib.networks.bitcoin : bitcoinjsLib.networks.testnet;
+          const privBuf = Buffer.from(privkeyHex, 'hex');
+          const kp = ECPair.fromPrivateKey(privBuf, { network: net });
+          const xOnly = kp.publicKey.subarray(1, 33);
+          const { address } = bitcoinjsLib.payments.p2tr({ internalPubkey: xOnly, network: net });
+          if (!address) throw new Error('Failed to derive P2TR address from private key');
+          const wif = kp.toWIF();
+          const sigBase64 = Bip322Signer.sign(wif, address, messageHash);
+          const sigStr = typeof sigBase64 === 'string' ? sigBase64 : btoa(String.fromCharCode(...Array.from(sigBase64 as Uint8Array)));
+          let sigBytes = Uint8Array.from(atob(sigStr), (c: string) => c.charCodeAt(0));
+          if (sigBytes.length === 65) sigBytes = sigBytes.slice(0, 64);
+          sigBytes = SignatureUtil.adjustSignature(sigBytes);
+          return Array.from(sigBytes);
         };
 
         // Add base58 encoding/decoding utilities
