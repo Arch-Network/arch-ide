@@ -7,11 +7,13 @@ import {
   Home,
   Search,
   ChevronsDownUp,
+  Upload,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '../lib/utils';
 import type { FileNode, Project, ProjectAccount } from '../types';
 import { ArchPgClient } from '../utils/archPgClient';
+import { readDroppedItems, type DroppedFile } from '../utils/fileDropUtils';
 
 import FileExplorerItem from './explorer/FileExplorerItem';
 import SectionHeader from './explorer/SectionHeader';
@@ -24,6 +26,7 @@ interface FileExplorerProps {
   onFileSelect: (file: FileNode) => void;
   onUpdateTree: (operation: 'create' | 'delete' | 'rename', path: string[], type?: 'file' | 'directory', newName?: string) => void;
   onNewItem: (path: string[], type: 'file' | 'directory', fileName?: string, content?: string) => void;
+  onFileDrop?: (files: DroppedFile[]) => void;
   expandedFolders: Set<string>;
   onExpandedFoldersChange: (folders: Set<string>) => void;
   currentFile: FileNode | null;
@@ -89,6 +92,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   onFileSelect,
   onUpdateTree,
   onNewItem,
+  onFileDrop,
   expandedFolders,
   onExpandedFoldersChange,
   currentFile,
@@ -107,6 +111,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   const [worker, setWorker] = useState<Worker | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounterRef = useRef(0);
 
   // Worker for running client code
   useEffect(() => {
@@ -193,6 +199,59 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     onProjectUpdate?.(updatedProject);
   };
 
+  // ── Drag-and-drop handlers for Finder file drops ──────────
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragOver(true);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragOver(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragOver(false);
+    dragCounterRef.current = 0;
+
+    if (!onFileDrop || !hasProjects) return;
+
+    try {
+      const { files: droppedFiles, skippedCount } = await readDroppedItems(e.dataTransfer);
+
+      if (droppedFiles.length === 0) {
+        addOutputMessage('error', skippedCount > 0
+          ? `Skipped ${skippedCount} binary file(s). Only text files (.rs, .ts, .toml, etc.) are supported.`
+          : 'No supported files found in drop.');
+        return;
+      }
+
+      if (skippedCount > 0) {
+        addOutputMessage('info', `Skipped ${skippedCount} unsupported binary file(s).`);
+      }
+
+      onFileDrop(droppedFiles);
+    } catch (error) {
+      console.error('Failed to read dropped files:', error);
+      addOutputMessage('error', 'Failed to read dropped files.');
+    }
+  }, [onFileDrop, hasProjects, addOutputMessage]);
+
   // Shared tree props
   const treeProps = {
     onSelect: onFileSelect,
@@ -205,7 +264,13 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   };
 
   return (
-    <div className="flex flex-col h-full">
+    <div
+      className="flex flex-col h-full relative"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
       {/* Header */}
       <div className="flex justify-between items-center px-3 py-2 border-b border-gray-700/60">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Explorer</h2>
@@ -330,6 +395,19 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
           </>
         )}
       </div>
+
+      {/* Drag-and-drop overlay */}
+      {isDragOver && hasProjects && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm border-2 border-dashed border-[#F7931A]/60 rounded-lg pointer-events-none">
+          <div className="flex flex-col items-center gap-2 text-center px-4">
+            <Upload className="h-8 w-8 text-[#F7931A]" />
+            <p className="text-sm font-medium text-gray-200">Drop files here</p>
+            <p className="text-xs text-gray-400">
+              .rs files go to Program, .ts files go to Client
+            </p>
+          </div>
+        </div>
+      )}
 
       <input
         type="file"

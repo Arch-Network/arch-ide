@@ -10,6 +10,7 @@ import { Config } from '../types/config';
 import type { ArchIdl } from '../types';
 import { storage } from '../utils/storage';
 import { Project, ProjectAccount } from '../types';
+import type { DroppedFile } from '../utils/fileDropUtils';
 
 type ExpandedFolders = Set<string>;
 
@@ -26,6 +27,7 @@ interface SidePanelProps {
     newName?: string
   ) => void;
   onNewItem: (path: string[], type: 'file' | 'directory') => void;
+  onFileDrop?: (files: DroppedFile[]) => void;
   onBuild: () => void;
   onDeploy: () => void;
   isBuilding: boolean;
@@ -65,7 +67,7 @@ interface SidePanelProps {
 
 type View = 'explorer' | 'build';
 
-const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onBuild, onDeploy, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, onProgramIdChange, programIdl, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onSaveToHistory, onRestoreFromHistory, onDeleteFromHistory, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange, isMobile = false }: SidePanelProps) => {
+const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onFileDrop, onBuild, onDeploy, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, onProgramIdChange, programIdl, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onSaveToHistory, onRestoreFromHistory, onDeleteFromHistory, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange, isMobile = false }: SidePanelProps) => {
   const MIN_WIDTH = 420;
   const MAX_WIDTH = 800;
   const [width, setWidth] = useState(MIN_WIDTH);
@@ -137,6 +139,7 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
               onFileSelect={onFileSelect}
               onUpdateTree={onUpdateTree}
               onNewItem={onNewItem}
+              onFileDrop={onFileDrop}
               expandedFolders={expandedFolders}
               onExpandedFoldersChange={onExpandedFoldersChange}
               currentFile={currentFile}

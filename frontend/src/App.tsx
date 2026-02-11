@@ -40,6 +40,7 @@ import { Toaster } from './components/ui/toaster';
 import { HomeScreen } from './components/HomeScreen';
 import { exampleProjectsService } from './services/exampleProjectsService';
 import { createHomeTab, isHomeTab, addHomeTabIfNotExists } from './utils/homeTab';
+import { type DroppedFile, getTargetRoot, stripLeadingRoot } from './utils/fileDropUtils';
 
 const queryClient = new QueryClient();
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
@@ -1272,6 +1273,167 @@ const AppContent = () => {
     setOutputMessages([]);
   };
 
+  // ── Handle file drops from Finder/OS ──────────────────────
+  const handleFileDrop = useCallback((droppedFiles: DroppedFile[]) => {
+    if (!fullCurrentProject || droppedFiles.length === 0) return;
+
+    let updatedFiles = [...fullCurrentProject.files];
+    let createdCount = 0;
+    let skippedDuplicates = 0;
+    const expandPaths = new Set<string>();
+
+    // Helper: ensure a directory node exists at the given path segments in the tree
+    const ensureDirectory = (nodes: FileNode[], pathSegments: string[], parentPath: string = ''): FileNode[] => {
+      if (pathSegments.length === 0) return nodes;
+
+      const [current, ...rest] = pathSegments;
+      const existing = nodes.find(n => n.name === current);
+      const dirPath = parentPath ? `${parentPath}/${current}` : current;
+
+      if (existing) {
+        if (rest.length === 0) return nodes;
+        // Recurse into existing directory
+        return nodes.map(n => {
+          if (n.name !== current) return n;
+          return {
+            ...n,
+            children: ensureDirectory(n.children || [], rest, dirPath),
+          };
+        });
+      }
+
+      // Create the directory node
+      expandPaths.add(dirPath);
+
+      const newDir: FileNode = {
+        name: current,
+        type: 'directory',
+        children: [],
+        path: dirPath,
+      };
+
+      if (rest.length > 0) {
+        newDir.children = ensureDirectory([], rest, dirPath);
+      }
+
+      return [...nodes, newDir];
+    };
+
+    // Helper: insert a file at a specific path in the tree
+    const insertFile = (nodes: FileNode[], pathSegments: string[], content: string, parentPath: string = ''): FileNode[] => {
+      if (pathSegments.length === 0) return nodes;
+
+      if (pathSegments.length === 1) {
+        const fileName = pathSegments[0];
+        // Check for duplicates
+        const exists = nodes.some(n => n.name === fileName);
+        if (exists) {
+          skippedDuplicates++;
+          return nodes;
+        }
+
+        const filePath = parentPath ? `${parentPath}/${fileName}` : fileName;
+        const newFile: FileNode = {
+          name: fileName,
+          type: 'file',
+          content,
+          path: filePath,
+        };
+        createdCount++;
+        return [...nodes, newFile];
+      }
+
+      const [current, ...rest] = pathSegments;
+      const dirPath = parentPath ? `${parentPath}/${current}` : current;
+      const existing = nodes.find(n => n.name === current);
+
+      if (existing && existing.type === 'directory') {
+        return nodes.map(n => {
+          if (n.name !== current) return n;
+          return {
+            ...n,
+            children: insertFile(n.children || [], rest, content, dirPath),
+          };
+        });
+      }
+
+      // Directory doesn't exist yet -- create it
+      expandPaths.add(dirPath);
+
+      const newDir: FileNode = {
+        name: current,
+        type: 'directory',
+        children: insertFile([], rest, content, dirPath),
+        path: dirPath,
+      };
+      return [...nodes, newDir];
+    };
+
+    for (const dropped of droppedFiles) {
+      const targetRoot = getTargetRoot(dropped.fileName);
+
+      // Strip leading root prefix to avoid duplication (e.g. src/src/...)
+      const strippedPath = stripLeadingRoot(dropped.relativePath, targetRoot);
+
+      // Build full path segments: [targetRoot, ...intermediate dirs, fileName]
+      const segments = strippedPath.split('/').filter(Boolean);
+      const fullSegments = [targetRoot, ...segments];
+
+      // Ensure the root directory exists (src or client)
+      const rootExists = updatedFiles.some(n => n.name === targetRoot && n.type === 'directory');
+      if (!rootExists) {
+        updatedFiles = [
+          ...updatedFiles,
+          { name: targetRoot, type: 'directory', children: [], path: targetRoot },
+        ];
+      }
+
+      // Ensure intermediate directories exist and insert the file
+      const parentSegments = fullSegments.slice(0, -1);
+      if (parentSegments.length > 1) {
+        // Ensure all intermediate directories beyond the root
+        updatedFiles = ensureDirectory(updatedFiles, parentSegments);
+      }
+
+      // Track expand paths for all parent segments
+      let pathSoFar = '';
+      for (const segment of parentSegments) {
+        pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
+        expandPaths.add(pathSoFar);
+      }
+
+      // Insert the file into the tree
+      updatedFiles = insertFile(updatedFiles, fullSegments, dropped.content);
+    }
+
+    // Batch update the project
+    const projectToUpdate: Project = {
+      ...fullCurrentProject,
+      files: updatedFiles,
+      lastModified: new Date(),
+    };
+
+    setFullCurrentProject(projectToUpdate);
+    projectService.saveProject(projectToUpdate).catch(error => {
+      console.error('Failed to save project after file drop:', error);
+    });
+
+    // Expand all affected folders
+    setExpandedFolders(prev => {
+      const newSet = new Set(prev);
+      expandPaths.forEach(p => newSet.add(p));
+      return newSet;
+    });
+
+    // User feedback
+    const parts: string[] = [];
+    if (createdCount > 0) parts.push(`Added ${createdCount} file(s)`);
+    if (skippedDuplicates > 0) parts.push(`skipped ${skippedDuplicates} duplicate(s)`);
+    if (parts.length > 0) {
+      addOutputMessage('success', parts.join(', ') + '.');
+    }
+  }, [fullCurrentProject, setFullCurrentProject, setExpandedFolders, addOutputMessage]);
+
   const handleDeleteProject = async (projectId: string) => {
     if (!window.confirm('Are you sure you want to delete this project?')) {
       return Promise.resolve();
@@ -1938,6 +2100,7 @@ const AppContent = () => {
             onFileSelect={handleFileSelect}
             onUpdateTree={handleUpdateTreeAdapter}
             onNewItem={handleNewItem}
+            onFileDrop={handleFileDrop}
             onBuild={handleBuild}
             onDeploy={handleDeploy}
             isBuilding={isCompiling}
@@ -1989,6 +2152,7 @@ const AppContent = () => {
                 onFileSelect={handleFileSelect}
                 onUpdateTree={handleUpdateTreeAdapter}
                 onNewItem={handleNewItem}
+                onFileDrop={handleFileDrop}
                 onBuild={handleBuild}
                 onDeploy={handleDeploy}
                 isBuilding={isCompiling}
