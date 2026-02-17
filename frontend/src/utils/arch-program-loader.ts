@@ -56,16 +56,20 @@ declare global {
 
 
 
-const SYSTEM_PROGRAM_ID = '0000000000000000000000000000000000000000000000000000000000000001';
+/** Canonical System Program in arch-network: 00...00 (base58 "111...111"). Use for all System Program invocations. */
+const ZERO_PUBKEY_HEX = '0000000000000000000000000000000000000000000000000000000000000000';
+
+/** BPF Loader program ID (32 bytes, ASCII "BpfLoader11111111111111111111111") for Write/Deploy/Truncate. */
+const BPF_LOADER_ID = Buffer.from('BpfLoader11111111111111111111111', 'ascii');
 
 const RUNTIME_TX_SIZE_LIMIT = 10240; // Example limit from your network code
 
 function calculateMaxChunkSize(): number {
   // Simulate the transaction size
   const message = {
-    signers: [Buffer.from(SYSTEM_PROGRAM_ID, 'hex')],
+    signers: [Buffer.from(ZERO_PUBKEY_HEX, 'hex')],
     instructions: [{
-      program_id: Buffer.from(SYSTEM_PROGRAM_ID, 'hex'),
+      program_id: Buffer.from(ZERO_PUBKEY_HEX, 'hex'),
       accounts: [],
       data: Buffer.alloc(8) // Simulate 8-byte data
     }]
@@ -206,7 +210,7 @@ export class ArchProgramLoader {
     data.writeUInt32LE(vout, 33);
 
     return {
-      program_id: Buffer.from(SYSTEM_PROGRAM_ID, 'hex'),
+      program_id: Buffer.from(ZERO_PUBKEY_HEX, 'hex'),
       accounts: [
         {
           pubkey: Buffer.from(programId, 'hex'),
@@ -368,7 +372,7 @@ export class ArchProgramLoader {
     chunk.copy(data, 9); // Copy chunk data after length
 
     return {
-      program_id: Buffer.from(SYSTEM_PROGRAM_ID, 'hex'),
+      program_id: BPF_LOADER_ID,
       accounts: [
         {
           pubkey: Buffer.from(programId, 'hex'),
@@ -385,7 +389,7 @@ export class ArchProgramLoader {
     data[0] = 2; // MakeExecutable variant
 
     return {
-      program_id: Buffer.from(SYSTEM_PROGRAM_ID, 'hex'),
+      program_id: BPF_LOADER_ID,
       accounts: [
         {
           pubkey: Buffer.from(programId, 'hex'),

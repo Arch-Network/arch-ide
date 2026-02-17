@@ -6,6 +6,7 @@ type Network = 'testnet' | 'mainnet' | 'devnet';
 
 interface ExplorerUrls {
   base: string;
+  /** Build explorer transaction URL; txid must be base58 (matches explorer.arch.network API). */
   tx: (txid: string) => string;
   account: (address: string) => string;
   program: (programId: string) => string;

@@ -41,7 +41,7 @@ const ECPair = ECPairFactory(ecc);
  */
 const SYSTEM_PROGRAM_ID = Buffer.from('0000000000000000000000000000000000000000000000000000000000000001', 'hex');
 
-/** Canonical System Program in arch-network: 00...00 (program/src/system_program.rs declare_id!("111...111") → [0u8; 32]). Fee-payer accounts created by the faucet have this owner. */
+/** Canonical System Program in arch-network: 00...00 (program/src/system_program.rs declare_id!("111...111") → [0u8; 32]). Fee-payer accounts created by the faucet have this owner. Use this as program_id when invoking System Program (CreateAccount, Assign, Transfer); the runtime only recognizes 00...00. */
 const ZERO_PUBKEY = Buffer.alloc(32, 0);
 
 /** BPF Loader ID - owns and manages program accounts */
@@ -267,15 +267,15 @@ function calculateMaxChunkSize(): number {
   const dummyInstruction: Instruction = {
     program_id: BPF_LOADER_ID,
     accounts: [
-      { pubkey: SYSTEM_PROGRAM_ID, is_signer: false, is_writable: true },
-      { pubkey: SYSTEM_PROGRAM_ID, is_signer: true, is_writable: false },
+      { pubkey: ZERO_PUBKEY, is_signer: false, is_writable: true },
+      { pubkey: ZERO_PUBKEY, is_signer: true, is_writable: false },
     ],
     data: serializeWriteInstruction(0, Buffer.alloc(256)),
   };
 
   // Create a dummy message
   const dummyMessage: Message = {
-    signers: [SYSTEM_PROGRAM_ID],
+    signers: [ZERO_PUBKEY],
     instructions: [dummyInstruction],
   };
 
@@ -793,8 +793,18 @@ class ArchDeployer {
     return allTxids;
   }
 
+  /**
+   * Normalize txid for RPC/explorer: explorer.arch.network and get_processed_transaction expect base58.
+   * If the RPC returned hex (e.g. 64 hex chars), convert to base58; otherwise pass through.
+   */
+  private txidToBase58ForRpc(txid: string): string {
+    if (/^[0-9a-fA-F]{64}$/.test(txid)) return hexToBase58(txid);
+    return txid;
+  }
+
   /** Wait for a transaction to be confirmed (polling) */
   private async waitForConfirmation(txid: string, maxAttempts: number = 30): Promise<void> {
+    const txidBase58 = this.txidToBase58ForRpc(txid);
     let lastError: unknown = undefined;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       // Small linear backoff to reduce pressure on RPC/indexer while still feeling responsive.
@@ -806,7 +816,7 @@ class ArchDeployer {
           jsonrpc: '2.0',
           id: 'curlycurl',
           method: 'get_processed_transaction',
-          params: txid,
+          params: txidBase58,
         };
 
         const response = await fetch(this.smartRpcUrl, {
@@ -1360,10 +1370,10 @@ export async function deployProgram(options: DeployOptions): Promise<{
     if (accountOwnerHex !== bpfLoaderIdHex) {
       onMessage('info', `Account has wrong owner (${hexToBase58(accountOwnerHex)}), assigning to BPF Loader`);
 
-      // Use SystemInstruction::Assign to change the owner
+      // Use SystemInstruction::Assign to change the owner (invoke System Program = ZERO_PUBKEY)
       const recentBlockhash = await deployer.getBestBlockHash();
       const assignIx: Instruction = {
-        program_id: SYSTEM_PROGRAM_ID,
+        program_id: ZERO_PUBKEY,
         accounts: [
           { pubkey: programPubkey, is_signer: true, is_writable: true },
         ],
@@ -1409,7 +1419,7 @@ export async function deployProgram(options: DeployOptions): Promise<{
     console.log('[CreateAccount] BPF_LOADER_ID in instruction:', BPF_LOADER_ID.toString('hex'));
 
     const createAccountIx: Instruction = {
-      program_id: SYSTEM_PROGRAM_ID,
+      program_id: ZERO_PUBKEY,
       accounts: [
         { pubkey: authorityPubkey, is_signer: true, is_writable: true },
         { pubkey: programPubkey, is_signer: true, is_writable: true },
@@ -1552,7 +1562,7 @@ async function deployProgramElf(
       onMessage('info', `Transferring ${missingLamports} lamports for rent`);
 
       const transferIx: Instruction = {
-        program_id: SYSTEM_PROGRAM_ID,
+        program_id: ZERO_PUBKEY,
         accounts: [
           { pubkey: authorityPubkey, is_signer: true, is_writable: true },
           { pubkey: programPubkey, is_signer: false, is_writable: true },
