@@ -44,9 +44,10 @@ const SYSTEM_PROGRAM_ID = Buffer.from('00000000000000000000000000000000000000000
 /** Canonical System Program in arch-network: 00...00 (program/src/system_program.rs declare_id!("111...111") → [0u8; 32]). Fee-payer accounts created by the faucet have this owner. Use this as program_id when invoking System Program (CreateAccount, Assign, Transfer); the runtime only recognizes 00...00. */
 const ZERO_PUBKEY = Buffer.alloc(32, 0);
 
-/** BPF Loader ID - owns and manages program accounts */
-// "BpfLoader11111111111111111111111" as ASCII bytes (matches Rust: Pubkey(*b"BpfLoader11111111111111111111111"))
-const BPF_LOADER_ID = Buffer.from('BpfLoader11111111111111111111111', 'ascii');
+/** BPF Loader ID - owns and manages program accounts. Must be exactly 32 bytes to match program/src/bpf_loader.rs declare_id! */
+const BPF_LOADER_ID_STR = 'BpfLoader1111111111111111111111111111111111'; // 32 chars
+const BPF_LOADER_ID = Buffer.alloc(32, 0);
+BPF_LOADER_ID.write(BPF_LOADER_ID_STR, 0, 'ascii');
 
 // Verify BPF_LOADER_ID is correct (32 bytes)
 console.log('[Constants] BPF_LOADER_ID:', BPF_LOADER_ID.toString('hex'), `(${BPF_LOADER_ID.length} bytes)`);
