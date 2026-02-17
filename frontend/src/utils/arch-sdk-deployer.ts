@@ -793,18 +793,10 @@ class ArchDeployer {
     return allTxids;
   }
 
-  /**
-   * Normalize txid for RPC/explorer: explorer.arch.network and get_processed_transaction expect base58.
-   * If the RPC returned hex (e.g. 64 hex chars), convert to base58; otherwise pass through.
-   */
-  private txidToBase58ForRpc(txid: string): string {
-    if (/^[0-9a-fA-F]{64}$/.test(txid)) return hexToBase58(txid);
-    return txid;
-  }
-
   /** Wait for a transaction to be confirmed (polling) */
   private async waitForConfirmation(txid: string, maxAttempts: number = 30): Promise<void> {
-    const txidBase58 = this.txidToBase58ForRpc(txid);
+    // Pass txid as-is: arch-network validator expects hex (Hash::from_str uses hex::decode).
+    // Explorer links use hexToBase58(txid) when building URLs; do not convert here.
     let lastError: unknown = undefined;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       // Small linear backoff to reduce pressure on RPC/indexer while still feeling responsive.
@@ -816,7 +808,7 @@ class ArchDeployer {
           jsonrpc: '2.0',
           id: 'curlycurl',
           method: 'get_processed_transaction',
-          params: txidBase58,
+          params: txid,
         };
 
         const response = await fetch(this.smartRpcUrl, {
