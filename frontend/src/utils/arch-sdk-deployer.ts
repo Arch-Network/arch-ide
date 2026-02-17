@@ -366,6 +366,21 @@ class ArchDeployer {
     this.onMessage = onMessage || (() => {});
   }
 
+  /** Ensure raw bytes from account; RPC may return data as base64 string. */
+  private static toDataBuffer(data: unknown): Buffer {
+    if (Buffer.isBuffer(data)) return data;
+    if (data instanceof Uint8Array) return Buffer.from(data);
+    if (typeof data === 'string') {
+      try {
+        return Buffer.from(data, 'base64');
+      } catch {
+        return Buffer.from(data, 'utf8');
+      }
+    }
+    if (Array.isArray(data)) return Buffer.from(data as number[]);
+    return Buffer.from(data as ArrayBuffer);
+  }
+
   /** Read account info from the network */
   async readAccountInfo(pubkey: Buffer): Promise<AccountInfo | null> {
     try {
@@ -373,8 +388,8 @@ class ArchDeployer {
 
       return {
         lamports: accountInfo.lamports,
-        owner: Buffer.from(accountInfo.owner),
-        data: Buffer.from(accountInfo.data),
+        owner: Buffer.isBuffer(accountInfo.owner) ? accountInfo.owner : Buffer.from(accountInfo.owner as ArrayBuffer),
+        data: ArchDeployer.toDataBuffer(accountInfo.data),
         is_executable: accountInfo.is_executable,
         utxo: accountInfo.utxo,
       };
@@ -1463,19 +1478,44 @@ export async function deployProgram(options: DeployOptions): Promise<{
   // ========== STEP 4: Verify deployment ==========
 
   onMessage('info', 'Verifying deployed program');
-  const finalAccountInfo = await deployer.readAccountInfo(programPubkey);
+  // Allow indexer/RPC a moment to reflect the last write; retry in case of read lag
+  await new Promise((r) => setTimeout(r, 2000));
+  const maxVerifyAttempts = 3;
+  let finalAccountInfo: AccountInfo | null = null;
+  for (let attempt = 1; attempt <= maxVerifyAttempts; attempt++) {
+    finalAccountInfo = await deployer.readAccountInfo(programPubkey);
+    if (!finalAccountInfo) {
+      if (attempt < maxVerifyAttempts) await new Promise((r) => setTimeout(r, 1500));
+      continue;
+    }
+    const deployedElf = finalAccountInfo.data.slice(LOADER_STATE_SIZE);
+    if (deployedElf.length >= programBinary.length && deployedElf.subarray(0, programBinary.length).equals(programBinary)) {
+      onMessage('success', 'ELF verification successful');
+      break;
+    }
+    if (attempt < maxVerifyAttempts) {
+      onMessage('info', `Verification attempt ${attempt}/${maxVerifyAttempts} mismatch, retrying...`);
+      await new Promise((r) => setTimeout(r, 1500));
+    } else {
+      let firstDiff = -1;
+      const len = Math.min(programBinary.length, deployedElf.length);
+      for (let i = 0; i < len; i++) {
+        if (programBinary[i] !== deployedElf[i]) {
+          firstDiff = i;
+          break;
+        }
+      }
+      if (firstDiff < 0 && programBinary.length !== deployedElf.length) firstDiff = len;
+      const msg = firstDiff >= 0
+        ? `ELF verification failed - mismatch at offset ${firstDiff} (expected ${programBinary.length} bytes, got ${deployedElf.length})`
+        : 'ELF verification failed - deployed binary does not match';
+      throw new Error(msg);
+    }
+  }
 
   if (!finalAccountInfo) {
     throw new Error('Program account disappeared after deployment');
   }
-
-  const deployedElf = finalAccountInfo.data.slice(LOADER_STATE_SIZE);
-  // Compare only the expected length (account may have trailing zeros from allocation)
-  if (deployedElf.length < programBinary.length || !deployedElf.subarray(0, programBinary.length).equals(programBinary)) {
-    throw new Error('ELF verification failed - deployed binary does not match');
-  }
-
-  onMessage('success', 'ELF verification successful');
 
   // ========== STEP 5: Make executable ==========
 
