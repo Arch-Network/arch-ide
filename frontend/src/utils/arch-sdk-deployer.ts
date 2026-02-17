@@ -150,13 +150,13 @@ interface AccountInfo {
 
 /** Serialize LoaderInstruction::Write { offset: u32, bytes: Vec<u8> } */
 function serializeWriteInstruction(offset: number, bytes: Buffer): Buffer {
-  // Bincode 1.x serializes enum variants as u32 regardless of #[repr(u8)]
-  const data = Buffer.alloc(4 + 4 + 8 + bytes.length); // variant(u32) + offset(u32) + length(u64) + data
+  // program/loader_instruction.rs: #[repr(u8)] enum → bincode uses 1 byte for variant index (is_write_instruction checks instruction_data[0] == 0)
+  const data = Buffer.alloc(1 + 4 + 8 + bytes.length); // variant(u8) + offset(u32) + length(u64) + data
   let pos = 0;
 
-  // Write variant tag (u32 - bincode ignores #[repr(u8)])
-  data.writeUInt32LE(LoaderInstruction.Write, pos);
-  pos += 4;
+  // Write variant tag (u8 - must match Rust #[repr(u8)] so offset is read at bytes 1-4)
+  data.writeUInt8(LoaderInstruction.Write, pos);
+  pos += 1;
 
   // Write offset (u32 little-endian)
   data.writeUInt32LE(offset, pos);
@@ -178,26 +178,26 @@ function serializeWriteInstruction(offset: number, bytes: Buffer): Buffer {
 
 /** Serialize LoaderInstruction::Truncate { new_size: u32 } */
 function serializeTruncateInstruction(newSize: number): Buffer {
-  // Bincode 1.x serializes enum variants as u32 regardless of #[repr(u8)]
-  const data = Buffer.alloc(4 + 4); // variant(u32) + new_size(u32)
-  data.writeUInt32LE(LoaderInstruction.Truncate, 0);
-  data.writeUInt32LE(newSize, 4);
+  // program/loader_instruction.rs: #[repr(u8)] → 1 byte variant so new_size is at bytes 1-4
+  const data = Buffer.alloc(1 + 4); // variant(u8) + new_size(u32)
+  data.writeUInt8(LoaderInstruction.Truncate, 0);
+  data.writeUInt32LE(newSize, 1);
   return data;
 }
 
 /** Serialize LoaderInstruction::Deploy */
 function serializeDeployInstruction(): Buffer {
-  // Bincode 1.x serializes enum variants as u32 regardless of #[repr(u8)]
-  const data = Buffer.alloc(4); // variant(u32)
-  data.writeUInt32LE(LoaderInstruction.Deploy, 0);
+  // program/loader_instruction.rs: #[repr(u8)] → 1 byte variant
+  const data = Buffer.alloc(1); // variant(u8)
+  data.writeUInt8(LoaderInstruction.Deploy, 0);
   return data;
 }
 
 /** Serialize LoaderInstruction::Retract */
 function serializeRetractInstruction(): Buffer {
-  // Bincode 1.x serializes enum variants as u32 regardless of #[repr(u8)]
-  const data = Buffer.alloc(4); // variant(u32)
-  data.writeUInt32LE(LoaderInstruction.Retract, 0);
+  // program/loader_instruction.rs: #[repr(u8)] → 1 byte variant
+  const data = Buffer.alloc(1); // variant(u8)
+  data.writeUInt8(LoaderInstruction.Retract, 0);
   return data;
 }
 
@@ -296,7 +296,7 @@ function calculateMaxChunkSize(): number {
   // - Recent blockhash: 32 bytes
   // - Instructions count: 4 bytes (u32)
   // - Instruction: program_id_index (1) + accounts_count (4) + accounts (2) + data_length (4)
-  // - Write instruction data overhead: variant(4) + offset(4) + vec_length(8) = 16 bytes
+  // - Write instruction data overhead: variant(1) + offset(4) + vec_length(8) = 13 bytes (Rust #[repr(u8)])
 
   const versionSize = 1;
   const sigCountSize = 4;
@@ -307,7 +307,7 @@ function calculateMaxChunkSize(): number {
   const blockhashSize = 32;
   const instructionsCountSize = 4;
   const instructionMetadataSize = 1 + 4 + 2 + 4; // program_id_index + accounts_count + accounts + data_length
-  const writeInstructionOverhead = 4 + 4 + 8; // variant (u32 - bincode ignores #[repr(u8)]) + offset (u32) + length (u64)
+  const writeInstructionOverhead = 1 + 4 + 8; // variant (u8) + offset (u32) + length (u64)
 
   const txOverhead = versionSize + sigCountSize + signatureSize + headerSize +
                      accountKeysCountSize + accountKeysSize + blockhashSize +
@@ -1470,7 +1470,8 @@ export async function deployProgram(options: DeployOptions): Promise<{
   }
 
   const deployedElf = finalAccountInfo.data.slice(LOADER_STATE_SIZE);
-  if (!deployedElf.equals(programBinary)) {
+  // Compare only the expected length (account may have trailing zeros from allocation)
+  if (deployedElf.length < programBinary.length || !deployedElf.subarray(0, programBinary.length).equals(programBinary)) {
     throw new Error('ELF verification failed - deployed binary does not match');
   }
 
