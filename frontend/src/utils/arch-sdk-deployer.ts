@@ -366,30 +366,67 @@ class ArchDeployer {
     this.onMessage = onMessage || (() => {});
   }
 
-  /** Ensure raw bytes from account; RPC may return data as base64 string. */
+  /** Ensure raw bytes from account; RPC/SDK may return data as base64, hex, array, or Node-style Buffer. */
   private static toDataBuffer(data: unknown): Buffer {
     if (Buffer.isBuffer(data)) return data;
     if (data instanceof Uint8Array) return Buffer.from(data);
     if (typeof data === 'string') {
-      try {
-        return Buffer.from(data, 'base64');
-      } catch {
-        return Buffer.from(data, 'utf8');
+      // hex (even length, 0-9a-fA-F) is common for binary in JSON-RPC
+      if (/^[0-9a-fA-F]*$/.test(data) && data.length % 2 === 0 && data.length > 0) {
+        return Buffer.from(data, 'hex');
       }
+      try {
+        const b64 = Buffer.from(data, 'base64');
+        if (b64.length > 0 || data.length === 0) return b64;
+      } catch {
+        // not valid base64
+      }
+      return Buffer.from(data, 'utf8');
     }
     if (Array.isArray(data)) return Buffer.from(data as number[]);
-    return Buffer.from(data as ArrayBuffer);
+    if (data && typeof data === 'object' && 'type' in data && (data as { type: string }).type === 'Buffer' && Array.isArray((data as { data: number[] }).data)) {
+      return Buffer.from((data as { data: number[] }).data);
+    }
+    if (data && typeof data === 'object' && 'data' in data) return ArchDeployer.toDataBuffer((data as { data: unknown }).data);
+    if (data && typeof data === 'object' && 'value' in data) return ArchDeployer.toDataBuffer((data as { value: unknown }).value);
+    return Buffer.from((data as ArrayBuffer) || []);
   }
 
-  /** Read account info from the network */
+  /** Read account info via direct JSON-RPC (bypasses SDK); use when SDK returns empty account data. */
+  async readAccountInfoDirectRpc(pubkey: Buffer): Promise<AccountInfo | null> {
+    try {
+      // Server expects Pubkey as 32-byte array (serde serialization of [u8; 32])
+      const pubkeyArr = Array.from(pubkey);
+      const result = await this.rpcCall<{ lamports: number; owner: number[]; data: unknown; utxo: string; is_executable: boolean }>('read_account_info', pubkeyArr);
+      if (!result) return null;
+      const dataBuf = ArchDeployer.toDataBuffer(result.data);
+      return {
+        lamports: result.lamports,
+        owner: Buffer.from(result.owner),
+        data: dataBuf,
+        is_executable: result.is_executable,
+        utxo: result.utxo,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Read account info from the network (SDK); fallback to direct RPC if data is empty. */
   async readAccountInfo(pubkey: Buffer): Promise<AccountInfo | null> {
     try {
       const accountInfo = await this.connection.readAccountInfo(pubkey);
 
+      const data = ArchDeployer.toDataBuffer(accountInfo.data);
+      if (data.length === 0) {
+        const direct = await this.readAccountInfoDirectRpc(pubkey);
+        if (direct) return direct;
+      }
+
       return {
         lamports: accountInfo.lamports,
         owner: Buffer.isBuffer(accountInfo.owner) ? accountInfo.owner : Buffer.from(accountInfo.owner as ArrayBuffer),
-        data: ArchDeployer.toDataBuffer(accountInfo.data),
+        data,
         is_executable: accountInfo.is_executable,
         utxo: accountInfo.utxo,
       };
