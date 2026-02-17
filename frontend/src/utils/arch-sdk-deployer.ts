@@ -33,8 +33,16 @@ const ECPair = ECPairFactory(ecc);
 // CONSTANTS (matching arch-network/program/src)
 // ============================================================================
 
-/** System Program ID - handles account creation and transfers */
+/**
+ * System Program ID - handles account creation and transfers.
+ * arch-network uses base58 "11111111111111111111111111111111", which decodes to 32 zero bytes
+ * (program/src/pubkey.rs: "In base58, '1' represents a leading zero byte. 32 bytes of zeros = 32 '1's in base58.").
+ * We keep 00...01 as a legacy alias; the canonical value in arch-network is 00...00 (ZERO_PUBKEY below).
+ */
 const SYSTEM_PROGRAM_ID = Buffer.from('0000000000000000000000000000000000000000000000000000000000000001', 'hex');
+
+/** Canonical System Program in arch-network: 00...00 (program/src/system_program.rs declare_id!("111...111") → [0u8; 32]). Fee-payer accounts created by the faucet have this owner. */
+const ZERO_PUBKEY = Buffer.alloc(32, 0);
 
 /** BPF Loader ID - owns and manages program accounts */
 // "BpfLoader11111111111111111111111" as ASCII bytes (matches Rust: Pubkey(*b"BpfLoader11111111111111111111111"))
@@ -459,19 +467,21 @@ class ArchDeployer {
         console.log('[Authority] Is executable:', accountInfo.is_executable);
         console.log('[Authority] Data length:', accountInfo.data.length);
 
-        // CRITICAL: Check if account is owned by System Program
-        // Fee payers MUST be system-owned accounts
-        const isSystemOwned = accountInfo.owner.toString('hex') === SYSTEM_PROGRAM_ID.toString('hex');
+        // CRITICAL: Check if account is owned by System Program. Fee payers MUST be system-owned.
+        // arch-network defines System Program as 00...00 (base58 "111...111", see program/src/pubkey.rs + system_program.rs).
+        // We accept both 00...00 (canonical) and 00...01 (legacy) for compatibility.
+        const ownerHex = accountInfo.owner.toString('hex');
+        const isSystemOwned =
+          ownerHex === SYSTEM_PROGRAM_ID.toString('hex') || ownerHex === ZERO_PUBKEY.toString('hex');
 
         if (!isSystemOwned) {
-          const ownerHex = accountInfo.owner.toString('hex');
           const ownerName = ownerHex === BPF_LOADER_ID.toString('hex') ? 'BPF Loader' : 'Unknown Program';
 
           throw new Error(
             `❌ CANNOT USE THIS KEYPAIR AS FEE PAYER!\n\n` +
             `The account already exists but is owned by ${ownerName}.\n` +
             `Fee payers MUST be owned by the System Program.\n\n` +
-            `Expected owner: ${SYSTEM_PROGRAM_ID.toString('hex')}\n` +
+            `Expected owner: ${SYSTEM_PROGRAM_ID.toString('hex')} or ${ZERO_PUBKEY.toString('hex')}\n` +
             `Actual owner:   ${ownerHex}\n\n` +
             `SOLUTION: Please generate a NEW keypair for deployment.`
           );
