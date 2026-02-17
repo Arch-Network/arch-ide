@@ -19,6 +19,7 @@ import { signMessage } from './bitcoin-signer';
 import { bitcoinRpcRequest } from '../api/bitcoin/rpc';
 import { getSmartRpcUrl } from './smartRpcConnection';
 import { hexToBase58 } from './base58';
+import bs58 from 'bs58';
 import { getExplorerUrls } from './explorerLinks';
 import { sha256 } from 'js-sha256';
 import * as bitcoin from 'bitcoinjs-lib';
@@ -44,14 +45,12 @@ const SYSTEM_PROGRAM_ID = Buffer.from('00000000000000000000000000000000000000000
 /** Canonical System Program in arch-network: 00...00 (program/src/system_program.rs declare_id!("111...111") → [0u8; 32]). Fee-payer accounts created by the faucet have this owner. Use this as program_id when invoking System Program (CreateAccount, Assign, Transfer); the runtime only recognizes 00...00. */
 const ZERO_PUBKEY = Buffer.alloc(32, 0);
 
-/** BPF Loader ID - owns and manages program accounts. Must be exactly 32 bytes to match program/src/bpf_loader.rs declare_id! */
-const BPF_LOADER_ID_STR = 'BpfLoader1111111111111111111111111111111111'; // 32 chars
-const BPF_LOADER_ID = Buffer.alloc(32, 0);
-BPF_LOADER_ID.write(BPF_LOADER_ID_STR, 0, 'ascii');
+/** BPF Loader ID - declare_id! uses Pubkey::from_str_const (base58 decode), not raw ASCII. program/src/bpf_loader.rs */
+const BPF_LOADER_ID_B58 = 'BpfLoader1111111111111111111111111111111111';
+const BPF_LOADER_ID = Buffer.from(bs58.decode(BPF_LOADER_ID_B58));
 
 // Verify BPF_LOADER_ID is correct (32 bytes)
 console.log('[Constants] BPF_LOADER_ID:', BPF_LOADER_ID.toString('hex'), `(${BPF_LOADER_ID.length} bytes)`);
-console.log('[Constants] BPF_LOADER_ID as ASCII:', BPF_LOADER_ID.toString('ascii'));
 
 /**
  * Size of LoaderState header
@@ -78,7 +77,9 @@ const LOADER_STATE_SIZE = 40;
 const RUNTIME_TX_SIZE_LIMIT = 10240; // 10KB per transaction (binary)
 
 // ============================================================================
-// LOADER INSTRUCTION VARIANTS (bincode serialization)
+// LOADER INSTRUCTION VARIANTS (bincode 1.3 serialization)
+// Chain uses program_utils::deserialize_syscall_instruction → bincode::deserialize.
+// Bincode 1.3 encodes enum variant index as u32 (4 bytes), not u8.
 // ============================================================================
 
 enum LoaderInstruction {
@@ -151,21 +152,20 @@ interface AccountInfo {
 
 /** Serialize LoaderInstruction::Write { offset: u32, bytes: Vec<u8> } */
 function serializeWriteInstruction(offset: number, bytes: Buffer): Buffer {
-  // program/loader_instruction.rs: #[repr(u8)] enum → bincode uses 1 byte for variant index (is_write_instruction checks instruction_data[0] == 0)
-  const data = Buffer.alloc(1 + 4 + 8 + bytes.length); // variant(u8) + offset(u32) + length(u64) + data
+  // program/loader_instruction.rs: bincode 1.3 encodes enum variant as u32 (4 bytes) by default
+  const data = Buffer.alloc(4 + 4 + 8 + bytes.length); // variant(u32) + offset(u32) + length(u64) + data
   let pos = 0;
 
-  // Write variant tag (u8 - must match Rust #[repr(u8)] so offset is read at bytes 1-4)
-  data.writeUInt8(LoaderInstruction.Write, pos);
-  pos += 1;
+  // Variant tag (u32 LE) - Write = 0
+  data.writeUInt32LE(LoaderInstruction.Write, pos);
+  pos += 4;
 
   // Write offset (u32 little-endian)
   data.writeUInt32LE(offset, pos);
   pos += 4;
 
   // Write bytes length (u64 little-endian for Vec length - bincode 1.x default)
-  // Split u64 into two u32 writes to avoid BigInt issues
-  const lengthLow = bytes.length & 0xFFFFFFFF;
+  const lengthLow = bytes.length & 0xffffffff;
   const lengthHigh = Math.floor(bytes.length / 0x100000000);
   data.writeUInt32LE(lengthLow, pos);
   data.writeUInt32LE(lengthHigh, pos + 4);
@@ -179,26 +179,26 @@ function serializeWriteInstruction(offset: number, bytes: Buffer): Buffer {
 
 /** Serialize LoaderInstruction::Truncate { new_size: u32 } */
 function serializeTruncateInstruction(newSize: number): Buffer {
-  // program/loader_instruction.rs: #[repr(u8)] → 1 byte variant so new_size is at bytes 1-4
-  const data = Buffer.alloc(1 + 4); // variant(u8) + new_size(u32)
-  data.writeUInt8(LoaderInstruction.Truncate, 0);
-  data.writeUInt32LE(newSize, 1);
+  // bincode 1.3: variant u32 (4 bytes) + new_size u32 (4 bytes)
+  const data = Buffer.alloc(4 + 4);
+  data.writeUInt32LE(LoaderInstruction.Truncate, 0);
+  data.writeUInt32LE(newSize, 4);
   return data;
 }
 
 /** Serialize LoaderInstruction::Deploy */
 function serializeDeployInstruction(): Buffer {
-  // program/loader_instruction.rs: #[repr(u8)] → 1 byte variant
-  const data = Buffer.alloc(1); // variant(u8)
-  data.writeUInt8(LoaderInstruction.Deploy, 0);
+  // bincode 1.3: enum variant encoded as u32 (4 bytes)
+  const data = Buffer.alloc(4);
+  data.writeUInt32LE(LoaderInstruction.Deploy, 0);
   return data;
 }
 
 /** Serialize LoaderInstruction::Retract */
 function serializeRetractInstruction(): Buffer {
-  // program/loader_instruction.rs: #[repr(u8)] → 1 byte variant
-  const data = Buffer.alloc(1); // variant(u8)
-  data.writeUInt8(LoaderInstruction.Retract, 0);
+  // bincode 1.3: enum variant encoded as u32 (4 bytes)
+  const data = Buffer.alloc(4);
+  data.writeUInt32LE(LoaderInstruction.Retract, 0);
   return data;
 }
 
@@ -800,12 +800,13 @@ class ArchDeployer {
         // Convert all transactions to plain arrays (removes Buffer objects)
         const batchPlain = batch.map(tx => this.bufferToArray(tx));
 
-        // send_transactions expects params to be the array of transactions directly
+        // send_transactions: match Rust SDK (post_data(method, transactions) → "params": [tx1, tx2, ...]).
+        // If the RPC returns parse/deserialize errors, try params: [batchPlain] (single positional arg).
         const payload = {
           jsonrpc: '2.0',
           id: 'curlycurl',
           method: 'send_transactions',
-          params: batchPlain,  // Array of transactions
+          params: batchPlain,
         };
 
         const response = await fetch(this.smartRpcUrl, {
