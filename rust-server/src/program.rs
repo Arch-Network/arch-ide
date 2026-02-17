@@ -1,6 +1,7 @@
 use std::{fs, path::Path, process::Command, sync::OnceLock, env};
 use anyhow::anyhow;
 use regex::Regex;
+use tokio::sync::mpsc;
 use tokio::sync::OnceCell;
 use cloud_storage::Client;
 use tracing::info;
@@ -11,7 +12,8 @@ use axum::http::{header, HeaderValue};
 use axum::response::IntoResponse;
 
 const PROGRAMS_DIR: &str = "programs";
-const MAX_FILE_AMOUNT: usize = 64;
+/// Maximum number of source files per build (raised to support larger dropped projects e.g. Whirlpool-style).
+const MAX_FILE_AMOUNT: usize = 256;
 const MAX_PATH_LENGTH: usize = 128;
 
 /// Arch crate version used by the compilation server: 0.6.0
@@ -49,7 +51,8 @@ fn find_solana_rustc_path() -> Option<String> {
     None
 }
 
-const CARGO_TOML_TEMPLATE: &str = r#"[package]
+/// Cargo.toml template for Satellite framework: arch_program 0.5.15 (matches satellite-lang ^0.5.15).
+const CARGO_TOML_TEMPLATE_SATELLITE: &str = r#"[package]
 name = "__PROGRAM_NAME__"
 version = "0.1.0"
 edition = "2021"
@@ -58,16 +61,16 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-arch_program = "0.6.0"
-apl-associated-token-account = { version = "0.6.0", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.0", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.0", features = ["no-entrypoint"] }
+arch_program = "0.5.15"
+apl-associated-token-account = { version = "0.5.15", features = ["no-entrypoint"] }
+apl-token = { version = "0.5.15", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.5.15", features = ["no-entrypoint"] }
 
-# Satellite framework (pre-compiled in parent Cargo.toml)
+# Satellite framework (requires arch_program 0.5.x)
 satellite-lang = "0.31.5"
 satellite-apl = "0.31.4"
 
-# Core serialization/encoding
+# Core serialization/encoding (use "borsh" in code, not "borsh09")
 borsh = "^1.5.3"
 base64 = { version = "=0.22.1", default-features = false, features = ["alloc"] }
 hex = { version = "=0.4.3", default-features = false }
@@ -81,6 +84,10 @@ serde = { version = "^1.0.216", features = ["derive"], default-features = false 
 
 # Memory casting utilities
 bytemuck = { version = "^1.20.0", features = ["derive"] }
+
+# Big-integer (U256 via construct_uint!) and array reference (for bn.rs / sparse_swap-style code)
+uint = "0.9"
+arrayref = "0.3"
 
 [profile.release]
 overflow-checks = true
@@ -96,6 +103,67 @@ incremental = true
 codegen-units = 256
 "#;
 
+/// Cargo.toml template for native / latest: arch_program 0.6.0 (no satellite-lang version yet).
+const CARGO_TOML_TEMPLATE_NATIVE: &str = r#"[package]
+name = "__PROGRAM_NAME__"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+arch_program = "0.6.0"
+apl-associated-token-account = { version = "0.6.0", features = ["no-entrypoint"] }
+apl-token = { version = "0.6.0", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.6.0", features = ["no-entrypoint"] }
+
+# Satellite framework
+satellite-lang = "0.31.5"
+satellite-apl = "0.31.4"
+
+# Core serialization/encoding (use "borsh" in code, not "borsh09")
+borsh = "^1.5.3"
+base64 = { version = "=0.22.1", default-features = false, features = ["alloc"] }
+hex = { version = "=0.4.3", default-features = false }
+sha256 = { version = "=1.5.0", default-features = false }
+
+# Error handling
+thiserror = "^1.0.57"
+
+# Serialization
+serde = { version = "^1.0.216", features = ["derive"], default-features = false }
+
+# Memory casting utilities
+bytemuck = { version = "^1.20.0", features = ["derive"] }
+
+# Big-integer (U256 via construct_uint!) and array reference (for bn.rs / sparse_swap-style code)
+uint = "0.9"
+arrayref = "0.3"
+
+[profile.release]
+overflow-checks = true
+incremental = true
+codegen-units = 256
+opt-level = 1
+lto = false
+debug = false
+
+[profile.release.build-override]
+opt-level = 1
+incremental = true
+codegen-units = 256
+"#;
+
+/// Framework / SDK version selector. Used to pick the right Cargo.toml dependency set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BuildFramework {
+    /// Satellite framework: arch_program 0.5.15 (matches satellite-lang).
+    Satellite,
+    /// Native / latest: arch_program 0.6.0.
+    Native,
+}
+
 fn build_diagnostics_enabled() -> bool {
     // Off by default to preserve caching + keep builds fast.
     // Enable ad-hoc with BUILD_DIAGNOSTICS=1 in the server environment.
@@ -104,9 +172,12 @@ fn build_diagnostics_enabled() -> bool {
         .unwrap_or(false)
 }
 
-fn render_program_cargo_toml(program_name: &str) -> String {
-    CARGO_TOML_TEMPLATE
-        .replace("__PROGRAM_NAME__", program_name)
+fn render_program_cargo_toml(program_name: &str, framework: BuildFramework) -> String {
+    let template = match framework {
+        BuildFramework::Satellite => CARGO_TOML_TEMPLATE_SATELLITE,
+        BuildFramework::Native => CARGO_TOML_TEMPLATE_NATIVE,
+    };
+    template.replace("__PROGRAM_NAME__", program_name)
 }
 
 pub async fn init() -> anyhow::Result<()> {
@@ -195,7 +266,7 @@ pub async fn warmup() -> anyhow::Result<()> {
     fs::create_dir_all(&src_dir)?;
 
     // Create minimal Cargo.toml with all dependencies
-    let cargo_toml = render_program_cargo_toml("warmup");
+    let cargo_toml = render_program_cargo_toml("warmup", BuildFramework::Satellite);
     fs::write(warmup_dir.join("Cargo.toml"), cargo_toml)?;
 
     // Create minimal lib.rs that uses the dependencies
@@ -261,8 +332,10 @@ pub async fn build(
     uuid: &str,
     program_name: &str,
     files: &Files,
+    framework: BuildFramework,
+    output_tx: Option<mpsc::Sender<String>>, // if present, each line is sent for live UI updates
 ) -> anyhow::Result<(String, String)> {
-    println!("Starting build for program: {}", program_name);
+    println!("Starting build for program: {} (framework: {:?})", program_name, framework);
 
     // Check file count
     if files.len() > MAX_FILE_AMOUNT {
@@ -306,7 +379,7 @@ pub async fn build(
     // Create program-specific Cargo.toml with sanitized name
     println!("Creating Cargo.toml...");
     let safe_program_name = program_name.replace(|c: char| !c.is_alphanumeric(), "_");
-    let cargo_toml = render_program_cargo_toml(&safe_program_name);
+    let cargo_toml = render_program_cargo_toml(&safe_program_name, framework);
     let manifest_path = program_path.join("Cargo.toml");
 
     // Debug output for Cargo.toml creation
@@ -603,6 +676,8 @@ pub async fn build(
     // If we read sequentially, the child process can hang if one buffer fills up
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
+    let stdout_tx = output_tx.clone();
+    let stderr_tx = output_tx;
 
     let stdout_handle = tokio::spawn(async move {
         let mut lines = String::new();
@@ -610,6 +685,9 @@ pub async fn build(
             let mut reader = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 println!("stdout: {}", line);
+                if let Some(ref tx) = stdout_tx {
+                    let _ = tx.send(line.clone()).await;
+                }
                 lines.push_str(&line);
                 lines.push('\n');
             }
@@ -623,6 +701,9 @@ pub async fn build(
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
                 println!("stderr: {}", line);
+                if let Some(ref tx) = stderr_tx {
+                    let _ = tx.send(line.clone()).await;
+                }
                 lines.push_str(&line);
                 lines.push('\n');
             }

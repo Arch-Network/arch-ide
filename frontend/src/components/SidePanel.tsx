@@ -21,10 +21,11 @@ interface SidePanelProps {
   files: FileNode[];
   onFileSelect: (file: FileNode) => void;
   onUpdateTree: (
-    operation: 'create' | 'delete' | 'rename',
+    operation: 'create' | 'delete' | 'rename' | 'move',
     path: string[],
     type?: 'file' | 'directory',
-    newName?: string
+    newName?: string,
+    targetParentPath?: string[]
   ) => void;
   onNewItem: (path: string[], type: 'file' | 'directory') => void;
   onFileDrop?: (files: DroppedFile[]) => void;

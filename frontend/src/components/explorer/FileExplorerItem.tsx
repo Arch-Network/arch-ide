@@ -7,13 +7,14 @@ import { getFileIcon, getNodePath } from './fileIcons';
 import type { FileNode } from '../../types';
 
 const INDENT_PX = 16;
+const TREE_MOVE_MIME = 'application/x-arch-ide-tree-move';
 
 interface FileExplorerItemProps {
   node: FileNode;
   path?: string[];
   depth?: number;
   onSelect: (file: FileNode) => void;
-  onUpdateTree: (operation: 'create' | 'delete' | 'rename', path: string[], type?: 'file' | 'directory', newName?: string) => void;
+  onUpdateTree: (operation: 'create' | 'delete' | 'rename' | 'move', path: string[], type?: 'file' | 'directory', newName?: string, targetParentPath?: string[]) => void;
   onNewItem: (path: string[], type: 'file' | 'directory', fileName?: string, content?: string) => void;
   expandedFolders: Set<string>;
   onExpandedFoldersChange: (folders: Set<string>) => void;
@@ -34,12 +35,79 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
   searchQuery,
 }) => {
   const nodePath = getNodePath(node, path);
+  const fullPath = [...path, node.name];
   const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
+  const [isDropTarget, setIsDropTarget] = useState(false);
   const isExpanded = expandedFolders.has(nodePath);
   const isSelected = currentFile?.path === nodePath;
   const isDirectory = node.type === 'directory';
+
+  const isInvalidDropTarget = useCallback(
+    (sourcePath: string[]): boolean => {
+      const sourceStr = sourcePath.join('/');
+      const targetStr = fullPath.join('/');
+      if (sourceStr === targetStr) return true;
+      if (targetStr.startsWith(sourceStr + '/')) return true;
+      return false;
+    },
+    [fullPath]
+  );
+
+  const handleDragStart = useCallback(
+    (e: React.DragEvent) => {
+      e.dataTransfer.setData(TREE_MOVE_MIME, JSON.stringify({ sourcePath: fullPath }));
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', node.name);
+    },
+    [fullPath, node.name]
+  );
+
+  const handleDragOver = useCallback(
+    (e: React.DragEvent) => {
+      if (!isDirectory || !e.dataTransfer.types.includes(TREE_MOVE_MIME)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        const raw = e.dataTransfer.getData(TREE_MOVE_MIME);
+        const { sourcePath } = JSON.parse(raw) as { sourcePath: string[] };
+        if (isInvalidDropTarget(sourcePath)) {
+          e.dataTransfer.dropEffect = 'none';
+          setIsDropTarget(false);
+          return;
+        }
+        e.dataTransfer.dropEffect = 'move';
+        setIsDropTarget(true);
+      } catch {
+        setIsDropTarget(false);
+      }
+    },
+    [isDirectory, isInvalidDropTarget]
+  );
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.stopPropagation();
+    setIsDropTarget(false);
+  }, []);
+
+  const handleDrop = useCallback(
+    (e: React.DragEvent) => {
+      if (!isDirectory || !e.dataTransfer.types.includes(TREE_MOVE_MIME)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDropTarget(false);
+      try {
+        const raw = e.dataTransfer.getData(TREE_MOVE_MIME);
+        const { sourcePath } = JSON.parse(raw) as { sourcePath: string[] };
+        if (isInvalidDropTarget(sourcePath)) return;
+        onUpdateTree('move', sourcePath, undefined, undefined, fullPath);
+      } catch {
+        // ignore
+      }
+    },
+    [isDirectory, isInvalidDropTarget, fullPath, onUpdateTree]
+  );
 
   const handleClick = () => {
     if (isDirectory) {
@@ -102,8 +170,14 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
           isSelected
             ? "bg-[#F7931A]/10 border-l-2 border-[#F7931A]"
             : "border-l-2 border-transparent hover:bg-gray-700/40",
+          isDropTarget && "bg-[#F7931A]/20 border-l-2 border-[#F7931A]/80",
         )}
         style={{ paddingLeft: `${depth * INDENT_PX + 8}px` }}
+        draggable
+        onDragStart={handleDragStart}
+        onDragOver={isDirectory ? handleDragOver : undefined}
+        onDragLeave={isDirectory ? handleDragLeave : undefined}
+        onDrop={isDirectory ? handleDrop : undefined}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}

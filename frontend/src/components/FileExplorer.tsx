@@ -24,7 +24,7 @@ interface FileExplorerProps {
   hasProjects: boolean;
   files: FileNode[];
   onFileSelect: (file: FileNode) => void;
-  onUpdateTree: (operation: 'create' | 'delete' | 'rename', path: string[], type?: 'file' | 'directory', newName?: string) => void;
+  onUpdateTree: (operation: 'create' | 'delete' | 'rename' | 'move', path: string[], type?: 'file' | 'directory', newName?: string, targetParentPath?: string[]) => void;
   onNewItem: (path: string[], type: 'file' | 'directory', fileName?: string, content?: string) => void;
   onFileDrop?: (files: DroppedFile[]) => void;
   expandedFolders: Set<string>;
@@ -229,6 +229,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     setIsDragOver(false);
     dragCounterRef.current = 0;
 
+    if (e.dataTransfer.types.includes('application/x-arch-ide-tree-move')) return;
     if (!onFileDrop || !hasProjects) return;
 
     try {
