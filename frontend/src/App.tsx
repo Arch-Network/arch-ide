@@ -1150,7 +1150,7 @@ const AppContent = () => {
           program_name: fullCurrentProject.name,
           files: rsFiles,
           uuid: fullCurrentProject.id, // Send existing UUID for consistent builds
-          framework: fullCurrentProject.framework ?? 'satellite' // satellite → arch 0.5.15, native → 0.6.0
+          framework: fullCurrentProject.framework ?? 'satellite' // satellite → arch 0.5.15, native → 0.6.1
         })
       });
 

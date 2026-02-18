@@ -11,7 +11,7 @@ pub struct BuildRequest {
     program_name: String,
     files: Files,
     uuid: Option<String>,
-    /// "satellite" → arch_program 0.5.15 (satellite-lang compatible). "native" → arch_program 0.6.0. Default: "satellite".
+    /// "satellite" → arch_program 0.5.15 (satellite-lang compatible). "native" → arch_program 0.6.1. Default: "satellite".
     #[serde(default)]
     framework: Option<String>,
     /// When set, substitute declare_id! placeholder with declare_id!(program_id_hex) in lib.rs. Satellite/Solana BPF expects 64 hex chars, not base58.
