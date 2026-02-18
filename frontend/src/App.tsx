@@ -286,17 +286,24 @@ const AppContent = () => {
   const [projects, setProjects] = useState<Project[]>([]);
   const [fullCurrentProjectRaw, setFullCurrentProjectRaw] = useState<Project | null>(null);
 
-  // Wrap setFullCurrentProject to log all calls
   const setFullCurrentProject = useCallback((project: Project | null | ((prev: Project | null) => Project | null)) => {
-    const newProject = typeof project === 'function' ? project(fullCurrentProjectRaw) : project;
-    console.log('🔄 setFullCurrentProject called:', {
-      name: newProject?.name,
-      description: newProject?.description,
-      hasDescription: !!newProject?.description,
-      stack: new Error().stack?.split('\n').slice(2, 5).join('\n')
-    });
-    setFullCurrentProjectRaw(newProject);
-  }, [fullCurrentProjectRaw]);
+    if (typeof project === 'function') {
+      setFullCurrentProjectRaw(prev => {
+        const result = project(prev);
+        console.log('🔄 setFullCurrentProject called (fn):', {
+          name: result?.name,
+          hasAccount: !!result?.account,
+        });
+        return result;
+      });
+    } else {
+      console.log('🔄 setFullCurrentProject called:', {
+        name: project?.name,
+        hasAccount: !!project?.account,
+      });
+      setFullCurrentProjectRaw(project);
+    }
+  }, []);
 
   const fullCurrentProject = fullCurrentProjectRaw;
   const [currentFile, setCurrentFile] = useState<FileNode | null>(null);
@@ -1579,56 +1586,32 @@ const AppContent = () => {
   };
 
   const handleSaveFile = useCallback(async (newContent: string) => {
-    console.group('handleSaveFile');
-
     if (!currentFile || !fullCurrentProject) {
-      console.warn('No current file or project');
-      console.groupEnd();
       return;
     }
 
     try {
-      // Even if content is unchanged, we need to ensure tab state is preserved
       const updatedFiles = updateFileContent(fullCurrentProject.files, currentFile, newContent);
+      const now = new Date();
 
-      // Preserve keypairs across saves, even if local state is briefly stale
-      let preservedProgramAccount = fullCurrentProject.account || currentAccount || undefined;
-      let preservedAuthorityAccount = fullCurrentProject.authorityAccount || undefined;
-
-      // As a last resort, read from storage to avoid wiping accounts
-      if (!preservedProgramAccount) {
-        try {
-          const persisted = await projectService.getProject(fullCurrentProject.id);
-          preservedProgramAccount = persisted?.account || undefined;
-          preservedAuthorityAccount = preservedAuthorityAccount || persisted?.authorityAccount || undefined;
-        } catch {}
-      }
-
-      const updatedProject = {
+      // Persist to IndexedDB (include the full project with all fields intact)
+      const projectToSave = {
         ...fullCurrentProject,
         files: updatedFiles,
-        lastModified: new Date(),
-        account: preservedProgramAccount,
-        authorityAccount: preservedAuthorityAccount
+        lastModified: now,
       };
+      await projectService.saveProject(projectToSave);
 
-      // Save project
-      await projectService.saveProject(updatedProject);
-
-      // Create a copy of the current file with updated content
       const updatedCurrentFile = {
         ...currentFile,
         content: newContent,
-        // Explicitly preserve these critical properties
         path: currentFile.path,
         name: currentFile.name,
         type: currentFile.type
       };
 
-      // Update current file state
       setCurrentFile(updatedCurrentFile);
 
-      // Update open files array - use path for matching if available, otherwise use name
       setOpenFiles(prev => {
         return prev.map(f => {
           if ((currentFile.path && f.path === currentFile.path) ||
@@ -1639,12 +1622,18 @@ const AppContent = () => {
         });
       });
 
-      // Update project state WITHOUT triggering Build panel reset
-      setFullCurrentProject(updatedProject);
+      // Use functional updater so we only touch files/lastModified,
+      // preserving account and authorityAccount by reference.
+      setFullCurrentProject(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          files: updatedFiles,
+          lastModified: now,
+        };
+      });
 
-      console.log('File saved successfully (Build panel state preserved)');
-
-      // Force save tab state to localStorage
+      // Persist tab state to localStorage
       if (openFiles.length > 0) {
         localStorage.setItem('editorTabs', JSON.stringify(openFiles.map(f => f.path || f.name)));
         if (currentFile) {
@@ -1654,9 +1643,7 @@ const AppContent = () => {
     } catch (error) {
       console.error('Save failed:', error);
     }
-
-    console.groupEnd();
-  }, [currentFile, fullCurrentProject, openFiles, currentAccount]);
+  }, [currentFile, fullCurrentProject, openFiles]);
 
   useEffect(() => {
     console.group('Connection Status Change Debug');

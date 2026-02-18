@@ -304,11 +304,8 @@ try {
 // Call the Satellite Counter Program
 // ============================================================================
 
-// System program pubkey (all zeros with 1 at end)
-const systemProgramPubkey = new Uint8Array([
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1
-]);
+// System program pubkey via SDK (avoids cross-realm Uint8Array issues with iframe execution)
+const systemProgramPubkey = PubkeyUtil.systemProgram();
 
 // Satellite programs use discriminators for instruction routing
 // discriminator = first 8 bytes of sha256("global:<function_name>")

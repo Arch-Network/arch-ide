@@ -686,9 +686,31 @@ export class ArchPgClient {
           signAndSendTransaction: async function(conn, message, useWallet) {
             const MessageUtil = window.MessageUtil;
             const SanitizedMessageUtil = window.SanitizedMessageUtil;
+            const PubkeyUtil = window.PubkeyUtil;
             const walletProxy = window.walletProxy;
             const SignatureUtil = window.SignatureUtil;
             const Bip322Signer = window.Bip322Signer;
+
+            // Normalize pubkeys: iframe-realm Uint8Arrays can fail instanceof checks
+            // in the parent-realm SDK. Round-trip through hex to get parent-realm Uint8Arrays.
+            const normPk = (pk) => {
+              try {
+                return PubkeyUtil.fromHex(PubkeyUtil.toHex(pk));
+              } catch (_) {
+                const hex = Array.from(pk).map(b => b.toString(16).padStart(2, '0')).join('');
+                return PubkeyUtil.fromHex(hex);
+              }
+            };
+            const normalizedInstructions = message.instructions.map(ix => ({
+              program_id: normPk(ix.program_id),
+              accounts: ix.accounts.map(acc => ({
+                pubkey: normPk(acc.pubkey),
+                is_signer: acc.is_signer,
+                is_writable: acc.is_writable
+              })),
+              data: ix.data
+            }));
+            const normalizedSigners = (message.signers || []).map(s => normPk(s));
 
             // Build sanitized message with SDK utilities
             const bestBlockHash = await conn.getBestBlockHash();
@@ -696,9 +718,9 @@ export class ArchPgClient {
             for (let i = 0; i < 32; i++) {
               blockhashBytes[i] = parseInt(bestBlockHash.slice(i * 2, i * 2 + 2), 16);
             }
-            const payer = Array.isArray(message.signers) && message.signers.length > 0 ? message.signers[0] : null;
+            const payer = normalizedSigners.length > 0 ? normalizedSigners[0] : null;
             const sanitizedOrError = SanitizedMessageUtil.createSanitizedMessage(
-              message.instructions,
+              normalizedInstructions,
               payer,
               blockhashBytes
             );

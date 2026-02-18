@@ -110,7 +110,11 @@ export const StepCard: React.FC<StepCardProps> = ({
               )}
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
-              {actions}
+              {actions && (
+                <div onClick={e => e.stopPropagation()}>
+                  {actions}
+                </div>
+              )}
               {collapsible && (
                 <ChevronDown
                   className={cn(
