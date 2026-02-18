@@ -14,6 +14,9 @@ pub struct BuildRequest {
     /// "satellite" → arch_program 0.5.15 (satellite-lang compatible). "native" → arch_program 0.6.0. Default: "satellite".
     #[serde(default)]
     framework: Option<String>,
+    /// When set, substitute declare_id! placeholder with declare_id!(program_id_hex) in lib.rs. Satellite/Solana BPF expects 64 hex chars, not base58.
+    #[serde(default)]
+    program_id_hex: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -71,7 +74,15 @@ pub async fn build(
             }
         });
 
-        let result = program::build(&uuid_clone, &program_name, &files, framework, Some(tx)).await;
+        let result = program::build(
+            &uuid_clone,
+            &program_name,
+            &files,
+            framework,
+            payload.program_id_hex.as_deref(),
+            Some(tx),
+        )
+        .await;
         // tx moved into build(); when build returns it's dropped, so rx.recv() yields None and receiver exits
         let _ = receiver_handle.await;
 

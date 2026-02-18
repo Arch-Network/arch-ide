@@ -328,11 +328,16 @@ pub fn process_instruction(
 
 pub type Files = Vec<[String; 2]>;
 
+/// Placeholder program id in Satellite/counter template; substituted at build time when program_id_hex is provided.
+/// Satellite/Solana BPF declare_id! expects 64 hex chars (error: "program id must be 64 hex chars").
+const DECLARE_ID_PLACEHOLDER: &str = "declare_id!(\"1111111111111111111111111111111111111111111111111111111111111111\")";
+
 pub async fn build(
     uuid: &str,
     program_name: &str,
     files: &Files,
     framework: BuildFramework,
+    program_id_hex: Option<&str>,
     output_tx: Option<mpsc::Sender<String>>, // if present, each line is sent for live UI updates
 ) -> anyhow::Result<(String, String)> {
     println!("Starting build for program: {} (framework: {:?})", program_name, framework);
@@ -364,7 +369,7 @@ pub async fn build(
     fs::create_dir_all(program_path.join("src"))?;
     fs::create_dir_all(program_path.join("target/deploy"))?;
 
-    // Write source files
+    // Write source files (substitute declare_id! in lib.rs when program_id_base58 is set)
     println!("Writing source files...");
     for [path, content] in files {
         let relative_path = path.trim_start_matches('/');
@@ -373,7 +378,23 @@ pub async fn build(
 
         let parent = file_path.parent().expect("Should have parent");
         fs::create_dir_all(parent)?;
-        fs::write(&file_path, content)?;
+        let content_to_write: String = if relative_path == "src/lib.rs" {
+            match program_id_hex {
+                Some(hex) if content.contains(DECLARE_ID_PLACEHOLDER) => {
+                    let hex_trim = hex.trim_start_matches("0x");
+                    if hex_trim.len() != 64 || !hex_trim.chars().all(|c| c.is_ascii_hexdigit()) {
+                        println!("Warning: program_id_hex should be 64 hex chars, got {} chars; substituting anyway", hex_trim.len());
+                    }
+                    let replacement = format!("declare_id!(\"{}\")", hex_trim);
+                    println!("Substituting declare_id! with program id (hex) in lib.rs");
+                    content.replace(DECLARE_ID_PLACEHOLDER, &replacement)
+                }
+                _ => content.clone(),
+            }
+        } else {
+            content.clone()
+        };
+        fs::write(&file_path, &content_to_write)?;
     }
 
     // Create program-specific Cargo.toml with sanitized name
