@@ -13,12 +13,13 @@
  */
 
 import { Buffer } from 'buffer/';
-import { RpcConnection, Instruction, RuntimeTransaction, Message } from '@saturnbtcio/arch-sdk';
-import { MessageUtil } from '@saturnbtcio/arch-sdk';
+import { RpcConnection, Instruction, RuntimeTransaction, Message } from '@arch-network/arch-sdk';
+import { MessageUtil } from '@arch-network/arch-sdk';
 import { signMessage } from './bitcoin-signer';
 import { bitcoinRpcRequest } from '../api/bitcoin/rpc';
 import { getSmartRpcUrl } from './smartRpcConnection';
 import { hexToBase58 } from './base58';
+import bs58 from 'bs58';
 import { getExplorerUrls } from './explorerLinks';
 import { sha256 } from 'js-sha256';
 import * as bitcoin from 'bitcoinjs-lib';
@@ -33,16 +34,23 @@ const ECPair = ECPairFactory(ecc);
 // CONSTANTS (matching arch-network/program/src)
 // ============================================================================
 
-/** System Program ID - handles account creation and transfers */
+/**
+ * System Program ID - handles account creation and transfers.
+ * arch-network uses base58 "11111111111111111111111111111111", which decodes to 32 zero bytes
+ * (program/src/pubkey.rs: "In base58, '1' represents a leading zero byte. 32 bytes of zeros = 32 '1's in base58.").
+ * We keep 00...01 as a legacy alias; the canonical value in arch-network is 00...00 (ZERO_PUBKEY below).
+ */
 const SYSTEM_PROGRAM_ID = Buffer.from('0000000000000000000000000000000000000000000000000000000000000001', 'hex');
 
-/** BPF Loader ID - owns and manages program accounts */
-// "BpfLoader11111111111111111111111" as ASCII bytes (matches Rust: Pubkey(*b"BpfLoader11111111111111111111111"))
-const BPF_LOADER_ID = Buffer.from('BpfLoader11111111111111111111111', 'ascii');
+/** Canonical System Program in arch-network: 00...00 (program/src/system_program.rs declare_id!("111...111") → [0u8; 32]). Fee-payer accounts created by the faucet have this owner. Use this as program_id when invoking System Program (CreateAccount, Assign, Transfer); the runtime only recognizes 00...00. */
+const ZERO_PUBKEY = Buffer.alloc(32, 0);
+
+/** BPF Loader ID - declare_id! uses Pubkey::from_str_const (base58 decode), not raw ASCII. program/src/bpf_loader.rs */
+const BPF_LOADER_ID_B58 = 'BpfLoader1111111111111111111111111111111111';
+const BPF_LOADER_ID = Buffer.from(bs58.decode(BPF_LOADER_ID_B58));
 
 // Verify BPF_LOADER_ID is correct (32 bytes)
 console.log('[Constants] BPF_LOADER_ID:', BPF_LOADER_ID.toString('hex'), `(${BPF_LOADER_ID.length} bytes)`);
-console.log('[Constants] BPF_LOADER_ID as ASCII:', BPF_LOADER_ID.toString('ascii'));
 
 /**
  * Size of LoaderState header
@@ -69,7 +77,9 @@ const LOADER_STATE_SIZE = 40;
 const RUNTIME_TX_SIZE_LIMIT = 10240; // 10KB per transaction (binary)
 
 // ============================================================================
-// LOADER INSTRUCTION VARIANTS (bincode serialization)
+// LOADER INSTRUCTION VARIANTS (bincode 1.3 serialization)
+// Chain uses program_utils::deserialize_syscall_instruction → bincode::deserialize.
+// Bincode 1.3 encodes enum variant index as u32 (4 bytes), not u8.
 // ============================================================================
 
 enum LoaderInstruction {
@@ -142,11 +152,11 @@ interface AccountInfo {
 
 /** Serialize LoaderInstruction::Write { offset: u32, bytes: Vec<u8> } */
 function serializeWriteInstruction(offset: number, bytes: Buffer): Buffer {
-  // Bincode 1.x serializes enum variants as u32 regardless of #[repr(u8)]
+  // program/loader_instruction.rs: bincode 1.3 encodes enum variant as u32 (4 bytes) by default
   const data = Buffer.alloc(4 + 4 + 8 + bytes.length); // variant(u32) + offset(u32) + length(u64) + data
   let pos = 0;
 
-  // Write variant tag (u32 - bincode ignores #[repr(u8)])
+  // Variant tag (u32 LE) - Write = 0
   data.writeUInt32LE(LoaderInstruction.Write, pos);
   pos += 4;
 
@@ -155,8 +165,7 @@ function serializeWriteInstruction(offset: number, bytes: Buffer): Buffer {
   pos += 4;
 
   // Write bytes length (u64 little-endian for Vec length - bincode 1.x default)
-  // Split u64 into two u32 writes to avoid BigInt issues
-  const lengthLow = bytes.length & 0xFFFFFFFF;
+  const lengthLow = bytes.length & 0xffffffff;
   const lengthHigh = Math.floor(bytes.length / 0x100000000);
   data.writeUInt32LE(lengthLow, pos);
   data.writeUInt32LE(lengthHigh, pos + 4);
@@ -170,8 +179,8 @@ function serializeWriteInstruction(offset: number, bytes: Buffer): Buffer {
 
 /** Serialize LoaderInstruction::Truncate { new_size: u32 } */
 function serializeTruncateInstruction(newSize: number): Buffer {
-  // Bincode 1.x serializes enum variants as u32 regardless of #[repr(u8)]
-  const data = Buffer.alloc(4 + 4); // variant(u32) + new_size(u32)
+  // bincode 1.3: variant u32 (4 bytes) + new_size u32 (4 bytes)
+  const data = Buffer.alloc(4 + 4);
   data.writeUInt32LE(LoaderInstruction.Truncate, 0);
   data.writeUInt32LE(newSize, 4);
   return data;
@@ -179,16 +188,16 @@ function serializeTruncateInstruction(newSize: number): Buffer {
 
 /** Serialize LoaderInstruction::Deploy */
 function serializeDeployInstruction(): Buffer {
-  // Bincode 1.x serializes enum variants as u32 regardless of #[repr(u8)]
-  const data = Buffer.alloc(4); // variant(u32)
+  // bincode 1.3: enum variant encoded as u32 (4 bytes)
+  const data = Buffer.alloc(4);
   data.writeUInt32LE(LoaderInstruction.Deploy, 0);
   return data;
 }
 
 /** Serialize LoaderInstruction::Retract */
 function serializeRetractInstruction(): Buffer {
-  // Bincode 1.x serializes enum variants as u32 regardless of #[repr(u8)]
-  const data = Buffer.alloc(4); // variant(u32)
+  // bincode 1.3: enum variant encoded as u32 (4 bytes)
+  const data = Buffer.alloc(4);
   data.writeUInt32LE(LoaderInstruction.Retract, 0);
   return data;
 }
@@ -259,15 +268,15 @@ function calculateMaxChunkSize(): number {
   const dummyInstruction: Instruction = {
     program_id: BPF_LOADER_ID,
     accounts: [
-      { pubkey: SYSTEM_PROGRAM_ID, is_signer: false, is_writable: true },
-      { pubkey: SYSTEM_PROGRAM_ID, is_signer: true, is_writable: false },
+      { pubkey: ZERO_PUBKEY, is_signer: false, is_writable: true },
+      { pubkey: ZERO_PUBKEY, is_signer: true, is_writable: false },
     ],
     data: serializeWriteInstruction(0, Buffer.alloc(256)),
   };
 
   // Create a dummy message
   const dummyMessage: Message = {
-    signers: [SYSTEM_PROGRAM_ID],
+    signers: [ZERO_PUBKEY],
     instructions: [dummyInstruction],
   };
 
@@ -288,7 +297,7 @@ function calculateMaxChunkSize(): number {
   // - Recent blockhash: 32 bytes
   // - Instructions count: 4 bytes (u32)
   // - Instruction: program_id_index (1) + accounts_count (4) + accounts (2) + data_length (4)
-  // - Write instruction data overhead: variant(4) + offset(4) + vec_length(8) = 16 bytes
+  // - Write instruction data overhead: variant(1) + offset(4) + vec_length(8) = 13 bytes (Rust #[repr(u8)])
 
   const versionSize = 1;
   const sigCountSize = 4;
@@ -299,7 +308,7 @@ function calculateMaxChunkSize(): number {
   const blockhashSize = 32;
   const instructionsCountSize = 4;
   const instructionMetadataSize = 1 + 4 + 2 + 4; // program_id_index + accounts_count + accounts + data_length
-  const writeInstructionOverhead = 4 + 4 + 8; // variant (u32 - bincode ignores #[repr(u8)]) + offset (u32) + length (u64)
+  const writeInstructionOverhead = 1 + 4 + 8; // variant (u8) + offset (u32) + length (u64)
 
   const txOverhead = versionSize + sigCountSize + signatureSize + headerSize +
                      accountKeysCountSize + accountKeysSize + blockhashSize +
@@ -358,15 +367,67 @@ class ArchDeployer {
     this.onMessage = onMessage || (() => {});
   }
 
-  /** Read account info from the network */
+  /** Ensure raw bytes from account; RPC/SDK may return data as base64, hex, array, or Node-style Buffer. */
+  private static toDataBuffer(data: unknown): Buffer {
+    if (Buffer.isBuffer(data)) return data;
+    if (data instanceof Uint8Array) return Buffer.from(data);
+    if (typeof data === 'string') {
+      // hex (even length, 0-9a-fA-F) is common for binary in JSON-RPC
+      if (/^[0-9a-fA-F]*$/.test(data) && data.length % 2 === 0 && data.length > 0) {
+        return Buffer.from(data, 'hex');
+      }
+      try {
+        const b64 = Buffer.from(data, 'base64');
+        if (b64.length > 0 || data.length === 0) return b64;
+      } catch {
+        // not valid base64
+      }
+      return Buffer.from(data, 'utf8');
+    }
+    if (Array.isArray(data)) return Buffer.from(data as number[]);
+    if (data && typeof data === 'object' && 'type' in data && (data as { type: string }).type === 'Buffer' && Array.isArray((data as { data: number[] }).data)) {
+      return Buffer.from((data as { data: number[] }).data);
+    }
+    if (data && typeof data === 'object' && 'data' in data) return ArchDeployer.toDataBuffer((data as { data: unknown }).data);
+    if (data && typeof data === 'object' && 'value' in data) return ArchDeployer.toDataBuffer((data as { value: unknown }).value);
+    return Buffer.from((data as ArrayBuffer) || []);
+  }
+
+  /** Read account info via direct JSON-RPC (bypasses SDK); use when SDK returns empty account data. */
+  async readAccountInfoDirectRpc(pubkey: Buffer): Promise<AccountInfo | null> {
+    try {
+      // Server expects Pubkey as 32-byte array (serde serialization of [u8; 32])
+      const pubkeyArr = Array.from(pubkey);
+      const result = await this.rpcCall<{ lamports: number; owner: number[]; data: unknown; utxo: string; is_executable: boolean }>('read_account_info', pubkeyArr);
+      if (!result) return null;
+      const dataBuf = ArchDeployer.toDataBuffer(result.data);
+      return {
+        lamports: result.lamports,
+        owner: Buffer.from(result.owner),
+        data: dataBuf,
+        is_executable: result.is_executable,
+        utxo: result.utxo,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** Read account info from the network (SDK); fallback to direct RPC if data is empty. */
   async readAccountInfo(pubkey: Buffer): Promise<AccountInfo | null> {
     try {
       const accountInfo = await this.connection.readAccountInfo(pubkey);
 
+      const data = ArchDeployer.toDataBuffer(accountInfo.data);
+      if (data.length === 0) {
+        const direct = await this.readAccountInfoDirectRpc(pubkey);
+        if (direct) return direct;
+      }
+
       return {
         lamports: accountInfo.lamports,
-        owner: Buffer.from(accountInfo.owner),
-        data: Buffer.from(accountInfo.data),
+        owner: Buffer.isBuffer(accountInfo.owner) ? accountInfo.owner : Buffer.from(accountInfo.owner as ArrayBuffer),
+        data,
         is_executable: accountInfo.is_executable,
         utxo: accountInfo.utxo,
       };
@@ -459,19 +520,21 @@ class ArchDeployer {
         console.log('[Authority] Is executable:', accountInfo.is_executable);
         console.log('[Authority] Data length:', accountInfo.data.length);
 
-        // CRITICAL: Check if account is owned by System Program
-        // Fee payers MUST be system-owned accounts
-        const isSystemOwned = accountInfo.owner.toString('hex') === SYSTEM_PROGRAM_ID.toString('hex');
+        // CRITICAL: Check if account is owned by System Program. Fee payers MUST be system-owned.
+        // arch-network defines System Program as 00...00 (base58 "111...111", see program/src/pubkey.rs + system_program.rs).
+        // We accept both 00...00 (canonical) and 00...01 (legacy) for compatibility.
+        const ownerHex = accountInfo.owner.toString('hex');
+        const isSystemOwned =
+          ownerHex === SYSTEM_PROGRAM_ID.toString('hex') || ownerHex === ZERO_PUBKEY.toString('hex');
 
         if (!isSystemOwned) {
-          const ownerHex = accountInfo.owner.toString('hex');
           const ownerName = ownerHex === BPF_LOADER_ID.toString('hex') ? 'BPF Loader' : 'Unknown Program';
 
           throw new Error(
             `❌ CANNOT USE THIS KEYPAIR AS FEE PAYER!\n\n` +
             `The account already exists but is owned by ${ownerName}.\n` +
             `Fee payers MUST be owned by the System Program.\n\n` +
-            `Expected owner: ${SYSTEM_PROGRAM_ID.toString('hex')}\n` +
+            `Expected owner: ${SYSTEM_PROGRAM_ID.toString('hex')} or ${ZERO_PUBKEY.toString('hex')}\n` +
             `Actual owner:   ${ownerHex}\n\n` +
             `SOLUTION: Please generate a NEW keypair for deployment.`
           );
@@ -737,12 +800,13 @@ class ArchDeployer {
         // Convert all transactions to plain arrays (removes Buffer objects)
         const batchPlain = batch.map(tx => this.bufferToArray(tx));
 
-        // send_transactions expects params to be the array of transactions directly
+        // send_transactions: match Rust SDK (post_data(method, transactions) → "params": [tx1, tx2, ...]).
+        // If the RPC returns parse/deserialize errors, try params: [batchPlain] (single positional arg).
         const payload = {
           jsonrpc: '2.0',
           id: 'curlycurl',
           method: 'send_transactions',
-          params: batchPlain,  // Array of transactions
+          params: batchPlain,
         };
 
         const response = await fetch(this.smartRpcUrl, {
@@ -785,6 +849,8 @@ class ArchDeployer {
 
   /** Wait for a transaction to be confirmed (polling) */
   private async waitForConfirmation(txid: string, maxAttempts: number = 30): Promise<void> {
+    // Pass txid as-is: arch-network validator expects hex (Hash::from_str uses hex::decode).
+    // Explorer links use hexToBase58(txid) when building URLs; do not convert here.
     let lastError: unknown = undefined;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       // Small linear backoff to reduce pressure on RPC/indexer while still feeling responsive.
@@ -1350,10 +1416,10 @@ export async function deployProgram(options: DeployOptions): Promise<{
     if (accountOwnerHex !== bpfLoaderIdHex) {
       onMessage('info', `Account has wrong owner (${hexToBase58(accountOwnerHex)}), assigning to BPF Loader`);
 
-      // Use SystemInstruction::Assign to change the owner
+      // Use SystemInstruction::Assign to change the owner (invoke System Program = ZERO_PUBKEY)
       const recentBlockhash = await deployer.getBestBlockHash();
       const assignIx: Instruction = {
-        program_id: SYSTEM_PROGRAM_ID,
+        program_id: ZERO_PUBKEY,
         accounts: [
           { pubkey: programPubkey, is_signer: true, is_writable: true },
         ],
@@ -1399,7 +1465,7 @@ export async function deployProgram(options: DeployOptions): Promise<{
     console.log('[CreateAccount] BPF_LOADER_ID in instruction:', BPF_LOADER_ID.toString('hex'));
 
     const createAccountIx: Instruction = {
-      program_id: SYSTEM_PROGRAM_ID,
+      program_id: ZERO_PUBKEY,
       accounts: [
         { pubkey: authorityPubkey, is_signer: true, is_writable: true },
         { pubkey: programPubkey, is_signer: true, is_writable: true },
@@ -1451,18 +1517,44 @@ export async function deployProgram(options: DeployOptions): Promise<{
   // ========== STEP 4: Verify deployment ==========
 
   onMessage('info', 'Verifying deployed program');
-  const finalAccountInfo = await deployer.readAccountInfo(programPubkey);
+  // Allow indexer/RPC a moment to reflect the last write; retry in case of read lag
+  await new Promise((r) => setTimeout(r, 2000));
+  const maxVerifyAttempts = 3;
+  let finalAccountInfo: AccountInfo | null = null;
+  for (let attempt = 1; attempt <= maxVerifyAttempts; attempt++) {
+    finalAccountInfo = await deployer.readAccountInfo(programPubkey);
+    if (!finalAccountInfo) {
+      if (attempt < maxVerifyAttempts) await new Promise((r) => setTimeout(r, 1500));
+      continue;
+    }
+    const deployedElf = finalAccountInfo.data.slice(LOADER_STATE_SIZE);
+    if (deployedElf.length >= programBinary.length && deployedElf.subarray(0, programBinary.length).equals(programBinary)) {
+      onMessage('success', 'ELF verification successful');
+      break;
+    }
+    if (attempt < maxVerifyAttempts) {
+      onMessage('info', `Verification attempt ${attempt}/${maxVerifyAttempts} mismatch, retrying...`);
+      await new Promise((r) => setTimeout(r, 1500));
+    } else {
+      let firstDiff = -1;
+      const len = Math.min(programBinary.length, deployedElf.length);
+      for (let i = 0; i < len; i++) {
+        if (programBinary[i] !== deployedElf[i]) {
+          firstDiff = i;
+          break;
+        }
+      }
+      if (firstDiff < 0 && programBinary.length !== deployedElf.length) firstDiff = len;
+      const msg = firstDiff >= 0
+        ? `ELF verification failed - mismatch at offset ${firstDiff} (expected ${programBinary.length} bytes, got ${deployedElf.length})`
+        : 'ELF verification failed - deployed binary does not match';
+      throw new Error(msg);
+    }
+  }
 
   if (!finalAccountInfo) {
     throw new Error('Program account disappeared after deployment');
   }
-
-  const deployedElf = finalAccountInfo.data.slice(LOADER_STATE_SIZE);
-  if (!deployedElf.equals(programBinary)) {
-    throw new Error('ELF verification failed - deployed binary does not match');
-  }
-
-  onMessage('success', 'ELF verification successful');
 
   // ========== STEP 5: Make executable ==========
 
@@ -1542,7 +1634,7 @@ async function deployProgramElf(
       onMessage('info', `Transferring ${missingLamports} lamports for rent`);
 
       const transferIx: Instruction = {
-        program_id: SYSTEM_PROGRAM_ID,
+        program_id: ZERO_PUBKEY,
         accounts: [
           { pubkey: authorityPubkey, is_signer: true, is_writable: true },
           { pubkey: programPubkey, is_signer: false, is_writable: true },

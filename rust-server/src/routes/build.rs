@@ -1,6 +1,7 @@
 use anyhow::anyhow;
 use axum::{extract::{Json, Path, State}, response::IntoResponse, http::{StatusCode, HeaderMap, header}};
 use serde::{Deserialize, Serialize};
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::{build_tracker::BuildTracker, error::Result, program::{self, Files}};
@@ -10,6 +11,12 @@ pub struct BuildRequest {
     program_name: String,
     files: Files,
     uuid: Option<String>,
+    /// "satellite" → arch_program 0.5.15 (satellite-lang compatible). "native" → arch_program 0.6.0. Default: "satellite".
+    #[serde(default)]
+    framework: Option<String>,
+    /// When set, substitute declare_id! placeholder with declare_id!(program_id_hex) in lib.rs. Satellite/Solana BPF expects 64 hex chars, not base58.
+    #[serde(default)]
+    program_id_hex: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -46,15 +53,39 @@ pub async fn build(
     let program_name = payload.program_name.clone();
     let uuid_clone = uuid.clone();
     let tracker_clone = tracker.clone();
+    let framework = match payload.framework.as_deref() {
+        Some("native") => program::BuildFramework::Native,
+        _ => program::BuildFramework::Satellite, // "satellite" or missing → Satellite (0.5.15)
+    };
 
     // Start tracking the build
     tracker.start_build(uuid.clone(), program_name.clone()).await;
 
     // Spawn the build task in the background
     tokio::spawn(async move {
-        println!("[BUILD] Starting background build task for UUID: {}", uuid_clone);
+        println!("[BUILD] Starting background build task for UUID: {} (framework: {:?})", uuid_clone, framework);
 
-        let result = program::build(&uuid_clone, &program_name, &files).await;
+        let (tx, mut rx) = mpsc::channel::<String>(256);
+        let tracker_for_rx = tracker_clone.clone();
+        let uuid_for_rx = uuid_clone.clone();
+        let receiver_handle = tokio::spawn(async move {
+            while let Some(line) = rx.recv().await {
+                tracker_for_rx.append_build_output(&uuid_for_rx, &line).await;
+            }
+        });
+
+        let result = program::build(
+            &uuid_clone,
+            &program_name,
+            &files,
+            framework,
+            payload.program_id_hex.as_deref(),
+            Some(tx),
+        )
+        .await;
+        // tx moved into build(); when build returns it's dropped, so rx.recv() yields None and receiver exits
+        let _ = receiver_handle.await;
+
         println!("[BUILD] Build function returned for UUID: {}", uuid_clone);
 
         match result {

@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { Button } from './ui/button';
 import { Loader2 } from 'lucide-react';
-import { RpcConnection } from '@saturnbtcio/arch-sdk';
+import { RpcConnection } from '@arch-network/arch-sdk';
 import { ConnectionErrorModal } from './ConnectionErrorModal';
 import { getSmartRpcUrl } from '../utils/smartRpcConnection';
 

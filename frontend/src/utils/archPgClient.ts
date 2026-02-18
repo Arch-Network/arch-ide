@@ -1,5 +1,5 @@
 import { transpile, ScriptTarget, ModuleKind } from "typescript";
-import { RpcConnection, ArchConnection, PubkeyUtil, MessageUtil, UtxoMetaUtil, SignatureUtil, SanitizedMessageUtil, TransactionUtil } from "@saturnbtcio/arch-sdk";
+import { RpcConnection, ArchConnection, PubkeyUtil, MessageUtil, UtxoMetaUtil, SignatureUtil, SanitizedMessageUtil, TransactionUtil } from "@arch-network/arch-sdk";
 import { base16, base58, base58check } from '@scure/base';
 import { sha256 } from '@noble/hashes/sha256';
 import { Signer as Bip322Signer } from 'bip322-js';

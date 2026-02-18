@@ -40,9 +40,12 @@ import { Toaster } from './components/ui/toaster';
 import { HomeScreen } from './components/HomeScreen';
 import { exampleProjectsService } from './services/exampleProjectsService';
 import { createHomeTab, isHomeTab, addHomeTabIfNotExists } from './utils/homeTab';
+import { type DroppedFile, getTargetRoot, stripLeadingRoot } from './utils/fileDropUtils';
 
 const queryClient = new QueryClient();
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
+/** Must match rust-server MAX_FILE_AMOUNT; build fails above this. */
+const MAX_PROGRAM_FILES = 256;
 
 interface Config {
   network: 'mainnet' | 'devnet' | 'testnet';
@@ -55,13 +58,11 @@ interface Config {
 }
 
 // Types
-type FileOperation = {
-  type: 'create' | 'delete' | 'rename';
-  path: string[];
-  fileType?: 'file' | 'directory';
-  newName?: string;
-  content?: string;
-};
+type FileOperation =
+  | { type: 'create'; path: string[]; fileType?: 'file' | 'directory'; content?: string }
+  | { type: 'delete'; path: string[] }
+  | { type: 'rename'; path: string[]; newName?: string }
+  | { type: 'move'; sourcePath: string[]; targetParentPath: string[] };
 
 // Separate path utilities
 const pathUtils = {
@@ -130,7 +131,40 @@ const fileTreeOperations = {
       name: newName,
       path: fullPath
     }));
-  }
+  },
+
+  /** Clone a node and all descendants with paths under newPathPrefix (e.g. "src/util") */
+  cloneWithNewPaths: (node: FileNode, newPathPrefix: string): FileNode => {
+    const fullPath = newPathPrefix ? `${newPathPrefix}/${node.name}` : node.name;
+    return {
+      ...node,
+      path: fullPath,
+      children: node.children?.map((c) => fileTreeOperations.cloneWithNewPaths(c, fullPath)),
+    };
+  },
+
+  move: (nodes: FileNode[], sourcePath: string[], targetParentPath: string[]): FileNode[] => {
+    const node = findNodeByPath(nodes, sourcePath);
+    if (!node) return nodes;
+    if (sourcePath.length === 1 && (sourcePath[0] === 'src' || sourcePath[0] === 'client')) return nodes;
+
+    const sourceStr = sourcePath.join('/');
+    const targetStr = targetParentPath.join('/');
+    if (targetStr === sourceStr || sourceStr.startsWith(targetStr + '/')) return nodes;
+
+    const newPathPrefix = targetParentPath.length > 0 ? targetStr : '';
+    const cloned = fileTreeOperations.cloneWithNewPaths(node, newPathPrefix);
+
+    const withoutSource = fileTreeOperations.delete(nodes, sourcePath);
+    if (targetParentPath.length === 0) {
+      return [...withoutSource, cloned];
+    }
+    return updateNodeInTree(withoutSource, targetParentPath, (parent) => {
+      const existing = (parent.children || []).find((c) => c.name === cloned.name);
+      if (existing) return parent;
+      return { ...parent, children: [...(parent.children || []), cloned] };
+    });
+  },
 };
 
 const findNodeByPath = (nodes: FileNode[], targetPath: string[]): FileNode | null => {
@@ -960,32 +994,25 @@ const AppContent = () => {
           operation.content
         );
         break;
-      case 'delete':
+      case 'delete': {
         updatedFiles = fileTreeOperations.delete(fullCurrentProject.files, operation.path);
-
-        // Get the full path of the deleted item
         const deletedPath = operation.path.join('/');
-
-        // Close any open files that were in the deleted path
         setOpenFiles(prevFiles => {
           const remainingFiles = prevFiles.filter(file => {
             const filePath = file.path || constructFullPath(file, fullCurrentProject.files);
             return !filePath.startsWith(deletedPath);
           });
-
-          // If current file was in deleted path, set to last remaining file or null
           if (currentFile) {
             const currentFilePath = currentFile.path ||
               constructFullPath(currentFile, fullCurrentProject.files);
-
             if (currentFilePath.startsWith(deletedPath)) {
               setCurrentFile(remainingFiles.length > 0 ? remainingFiles[remainingFiles.length - 1] : null);
             }
           }
-
           return remainingFiles;
         });
         break;
+      }
       case 'rename':
         updatedFiles = fileTreeOperations.rename(
           fullCurrentProject.files,
@@ -993,6 +1020,45 @@ const AppContent = () => {
           operation.newName || ''
         );
         break;
+      case 'move': {
+        const { sourcePath, targetParentPath } = operation;
+        updatedFiles = fileTreeOperations.move(
+          fullCurrentProject.files,
+          sourcePath,
+          targetParentPath
+        );
+        if (updatedFiles === fullCurrentProject.files) break;
+        const sourceStr = sourcePath.join('/');
+        const movedNode = findNodeByPath(fullCurrentProject.files, sourcePath);
+        if (movedNode) {
+          const newPathPrefix = targetParentPath.length > 0 ? targetParentPath.join('/') : '';
+          const newPathForMoved = newPathPrefix ? `${newPathPrefix}/${movedNode.name}` : movedNode.name;
+          const pathMap = new Map<string, string>();
+          const buildPathMap = (node: FileNode, oldPathToNode: string, newPathToNode: string) => {
+            pathMap.set(oldPathToNode, newPathToNode);
+            node.children?.forEach((c) =>
+              buildPathMap(c, `${oldPathToNode}/${c.name}`, `${newPathToNode}/${c.name}`)
+            );
+          };
+          buildPathMap(movedNode, sourceStr, newPathForMoved);
+          setOpenFiles((prevFiles) =>
+            prevFiles.map((file) => {
+              const filePath = file.path || constructFullPath(file, fullCurrentProject.files);
+              const newPath = pathMap.get(filePath);
+              if (!newPath) return file;
+              return { ...file, path: newPath };
+            })
+          );
+          setCurrentFile((prev) => {
+            if (!prev) return null;
+            const filePath = prev.path || constructFullPath(prev, fullCurrentProject.files);
+            const newPath = pathMap.get(filePath);
+            if (!newPath) return prev;
+            return { ...prev, path: newPath };
+          });
+        }
+        break;
+      }
     }
 
     projectToUpdate = {
@@ -1058,6 +1124,12 @@ const AppContent = () => {
         throw new Error('No non-empty Rust source files found in src directory');
       }
 
+      if (rsFiles.length > MAX_PROGRAM_FILES) {
+        throw new Error(
+          `Too many source files (${rsFiles.length}). Build supports up to ${MAX_PROGRAM_FILES} files. Remove some files from the Program (src) section or split the project.`
+        );
+      }
+
       console.log('Sending Rust files to compile server:', rsFiles.map(([path]) => path));
 
       // Start the build (returns immediately)
@@ -1070,7 +1142,8 @@ const AppContent = () => {
         body: JSON.stringify({
           program_name: fullCurrentProject.name,
           files: rsFiles,
-          uuid: fullCurrentProject.id // Send existing UUID for consistent builds
+          uuid: fullCurrentProject.id, // Send existing UUID for consistent builds
+          framework: fullCurrentProject.framework ?? 'satellite' // satellite → arch 0.5.15, native → 0.6.0
         })
       });
 
@@ -1098,12 +1171,12 @@ const AppContent = () => {
 
       // Poll for build status
       let pollCount = 0;
-      const maxPolls = 180; // 6 minutes max (180 * 2 seconds)
+      const maxPolls = 450; // 15 minutes max (450 * 2 seconds)
       const pollInterval = 2000; // 2 seconds
 
       const pollBuildStatus = async (): Promise<void> => {
         if (pollCount >= maxPolls) {
-          throw new Error('Build timeout: exceeded maximum wait time (6 minutes)');
+          throw new Error('Build timeout: exceeded maximum wait time (15 minutes)');
         }
 
         pollCount++;
@@ -1128,8 +1201,11 @@ const AppContent = () => {
         console.log(`Build status poll #${pollCount}:`, statusResult.status);
 
         if (statusResult.status === 'building') {
-          // Show progress update every 10 polls (20 seconds)
-          if (pollCount % 10 === 0) {
+          // Live build output: show stderr (Compiling ..., etc.) when present
+          if (statusResult.stderr) {
+            const formatted = formatBuildError(statusResult.stderr);
+            updateBuildLogContent(formatted);
+          } else if (pollCount % 10 === 0) {
             const elapsed = Math.floor((pollCount * pollInterval) / 1000);
             addOutputMessage('info', `Still building... (${elapsed}s elapsed)`);
           }
@@ -1138,7 +1214,8 @@ const AppContent = () => {
           await new Promise(resolve => setTimeout(resolve, pollInterval));
           return pollBuildStatus();
         } else if (statusResult.status === 'success') {
-          // Build completed successfully
+          // Build completed successfully; replace live log with final output to avoid duplicate
+          setOutputMessages(prev => prev.filter(m => m.id !== 'build-log'));
           if (statusResult.stderr) {
             const formattedError = formatBuildError(statusResult.stderr);
             addOutputMessage('info', formattedError);
@@ -1168,7 +1245,8 @@ const AppContent = () => {
             addOutputMessage('error', `Failed to retrieve program binary: ${error.message}`);
           }
         } else if (statusResult.status === 'failed') {
-          // Build failed
+          // Build failed; replace live log with final error output
+          setOutputMessages(prev => prev.filter(m => m.id !== 'build-log'));
           if (statusResult.stderr) {
             const formattedError = formatBuildError(statusResult.stderr);
             addOutputMessage('error', formattedError);
@@ -1268,9 +1346,186 @@ const AppContent = () => {
     });
   };
 
+  /** Update or add the live build log message (id: 'build-log') so the console shows compiling output while building. */
+  const updateBuildLogContent = (content: string) => {
+    setOutputMessages(prev => {
+      const normalized = content.replace(/\\n/g, '\n');
+      const newMsg: OutputMessage = {
+        type: 'info',
+        content: normalized,
+        timestamp: new Date(),
+        id: 'build-log',
+      };
+      const idx = prev.findIndex(m => m.id === 'build-log');
+      if (idx >= 0) return prev.map((m, i) => (i === idx ? newMsg : m));
+      return [...prev, newMsg];
+    });
+  };
+
   const clearOutputMessages = () => {
     setOutputMessages([]);
   };
+
+  // ── Handle file drops from Finder/OS ──────────────────────
+  const handleFileDrop = useCallback((droppedFiles: DroppedFile[]) => {
+    if (!fullCurrentProject || droppedFiles.length === 0) return;
+
+    let updatedFiles = [...fullCurrentProject.files];
+    let createdCount = 0;
+    let skippedDuplicates = 0;
+    const expandPaths = new Set<string>();
+
+    // Helper: ensure a directory node exists at the given path segments in the tree
+    const ensureDirectory = (nodes: FileNode[], pathSegments: string[], parentPath: string = ''): FileNode[] => {
+      if (pathSegments.length === 0) return nodes;
+
+      const [current, ...rest] = pathSegments;
+      const existing = nodes.find(n => n.name === current);
+      const dirPath = parentPath ? `${parentPath}/${current}` : current;
+
+      if (existing) {
+        if (rest.length === 0) return nodes;
+        // Recurse into existing directory
+        return nodes.map(n => {
+          if (n.name !== current) return n;
+          return {
+            ...n,
+            children: ensureDirectory(n.children || [], rest, dirPath),
+          };
+        });
+      }
+
+      // Create the directory node
+      expandPaths.add(dirPath);
+
+      const newDir: FileNode = {
+        name: current,
+        type: 'directory',
+        children: [],
+        path: dirPath,
+      };
+
+      if (rest.length > 0) {
+        newDir.children = ensureDirectory([], rest, dirPath);
+      }
+
+      return [...nodes, newDir];
+    };
+
+    // Helper: insert a file at a specific path in the tree
+    const insertFile = (nodes: FileNode[], pathSegments: string[], content: string, parentPath: string = ''): FileNode[] => {
+      if (pathSegments.length === 0) return nodes;
+
+      if (pathSegments.length === 1) {
+        const fileName = pathSegments[0];
+        // Check for duplicates
+        const exists = nodes.some(n => n.name === fileName);
+        if (exists) {
+          skippedDuplicates++;
+          return nodes;
+        }
+
+        const filePath = parentPath ? `${parentPath}/${fileName}` : fileName;
+        const newFile: FileNode = {
+          name: fileName,
+          type: 'file',
+          content,
+          path: filePath,
+        };
+        createdCount++;
+        return [...nodes, newFile];
+      }
+
+      const [current, ...rest] = pathSegments;
+      const dirPath = parentPath ? `${parentPath}/${current}` : current;
+      const existing = nodes.find(n => n.name === current);
+
+      if (existing && existing.type === 'directory') {
+        return nodes.map(n => {
+          if (n.name !== current) return n;
+          return {
+            ...n,
+            children: insertFile(n.children || [], rest, content, dirPath),
+          };
+        });
+      }
+
+      // Directory doesn't exist yet -- create it
+      expandPaths.add(dirPath);
+
+      const newDir: FileNode = {
+        name: current,
+        type: 'directory',
+        children: insertFile([], rest, content, dirPath),
+        path: dirPath,
+      };
+      return [...nodes, newDir];
+    };
+
+    for (const dropped of droppedFiles) {
+      const targetRoot = getTargetRoot(dropped.fileName);
+
+      // Strip leading root prefix to avoid duplication (e.g. src/src/...)
+      const strippedPath = stripLeadingRoot(dropped.relativePath, targetRoot);
+
+      // Build full path segments: [targetRoot, ...intermediate dirs, fileName]
+      const segments = strippedPath.split('/').filter(Boolean);
+      const fullSegments = [targetRoot, ...segments];
+
+      // Ensure the root directory exists (src or client)
+      const rootExists = updatedFiles.some(n => n.name === targetRoot && n.type === 'directory');
+      if (!rootExists) {
+        updatedFiles = [
+          ...updatedFiles,
+          { name: targetRoot, type: 'directory', children: [], path: targetRoot },
+        ];
+      }
+
+      // Ensure intermediate directories exist and insert the file
+      const parentSegments = fullSegments.slice(0, -1);
+      if (parentSegments.length > 1) {
+        // Ensure all intermediate directories beyond the root
+        updatedFiles = ensureDirectory(updatedFiles, parentSegments);
+      }
+
+      // Track expand paths for all parent segments
+      let pathSoFar = '';
+      for (const segment of parentSegments) {
+        pathSoFar = pathSoFar ? `${pathSoFar}/${segment}` : segment;
+        expandPaths.add(pathSoFar);
+      }
+
+      // Insert the file into the tree
+      updatedFiles = insertFile(updatedFiles, fullSegments, dropped.content);
+    }
+
+    // Batch update the project
+    const projectToUpdate: Project = {
+      ...fullCurrentProject,
+      files: updatedFiles,
+      lastModified: new Date(),
+    };
+
+    setFullCurrentProject(projectToUpdate);
+    projectService.saveProject(projectToUpdate).catch(error => {
+      console.error('Failed to save project after file drop:', error);
+    });
+
+    // Expand all affected folders
+    setExpandedFolders(prev => {
+      const newSet = new Set(prev);
+      expandPaths.forEach(p => newSet.add(p));
+      return newSet;
+    });
+
+    // User feedback
+    const parts: string[] = [];
+    if (createdCount > 0) parts.push(`Added ${createdCount} file(s)`);
+    if (skippedDuplicates > 0) parts.push(`skipped ${skippedDuplicates} duplicate(s)`);
+    if (parts.length > 0) {
+      addOutputMessage('success', parts.join(', ') + '.');
+    }
+  }, [fullCurrentProject, setFullCurrentProject, setExpandedFolders, addOutputMessage]);
 
   const handleDeleteProject = async (projectId: string) => {
     if (!window.confirm('Are you sure you want to delete this project?')) {
@@ -1424,8 +1679,18 @@ const AppContent = () => {
     console.groupEnd();
   }, [isConnected, config.network, config.rpcUrl]);
 
-  const handleUpdateTreeAdapter = (operation: 'create' | 'delete' | 'rename', path: string[], type?: 'file' | 'directory', newName?: string) => {
-    handleUpdateTree({ type: operation, path, fileType: type, newName });
+  const handleUpdateTreeAdapter = (
+    operation: 'create' | 'delete' | 'rename' | 'move',
+    path: string[],
+    type?: 'file' | 'directory',
+    newName?: string,
+    targetParentPath?: string[]
+  ) => {
+    if (operation === 'move' && targetParentPath) {
+      handleUpdateTree({ type: 'move', sourcePath: path, targetParentPath });
+    } else {
+      handleUpdateTree({ type: operation as 'create' | 'delete' | 'rename', path, fileType: type, newName });
+    }
   };
 
   const handleProgramIdChange = (newProgramId: string) => {
@@ -1938,6 +2203,7 @@ const AppContent = () => {
             onFileSelect={handleFileSelect}
             onUpdateTree={handleUpdateTreeAdapter}
             onNewItem={handleNewItem}
+            onFileDrop={handleFileDrop}
             onBuild={handleBuild}
             onDeploy={handleDeploy}
             isBuilding={isCompiling}
@@ -1989,6 +2255,7 @@ const AppContent = () => {
                 onFileSelect={handleFileSelect}
                 onUpdateTree={handleUpdateTreeAdapter}
                 onNewItem={handleNewItem}
+                onFileDrop={handleFileDrop}
                 onBuild={handleBuild}
                 onDeploy={handleDeploy}
                 isBuilding={isCompiling}

@@ -9,6 +9,8 @@ export interface OutputMessage {
   isLoading?: boolean;
   commandId?: string;
   link?: string; // Optional explorer link
+  /** Optional id for replacing in place (e.g. live build log) */
+  id?: string;
 }
 
 interface OutputProps {

@@ -1,7 +1,7 @@
 import { Plus, Import, Save, Loader2, Upload, Check, Circle, Rocket } from 'lucide-react';
 import { Button } from './ui/button';
 import { useState, useCallback, useRef } from 'react';
-import { ArchConnection, RpcConnection } from '@saturnbtcio/arch-sdk';
+import { ArchConnection, RpcConnection } from '@arch-network/arch-sdk';
 import {
     Tooltip,
     TooltipContent,

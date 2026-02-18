@@ -9,7 +9,7 @@ import {
 } from './ui/dropdown-menu';
 import { ProjectAccount, Project } from '../types';
 import { generateArchKeypair, downloadKeypairJSON, formatAddress, formatPubkey } from '../utils/keypairGenerator';
-import { RpcConnection } from '@saturnbtcio/arch-sdk';
+import { RpcConnection } from '@arch-network/arch-sdk';
 import { getSmartRpcUrl } from '../utils/smartRpcConnection';
 import { getExplorerUrls } from '../utils/explorerLinks';
 import { hexToBase58 } from '../utils/base58';

@@ -32,8 +32,8 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --de
     cargo --version && \
     rustc --version"
 
-# Install Solana (installer method for 2.2.x)
-ARG SOLANA_VERSION="2.2.14"
+# Install Solana / Agave toolchain (Anza source; agave-install update no longer supported)
+ARG SOLANA_VERSION="3.1.8"
 RUN set -e; \
     curl --retry 5 --retry-all-errors --retry-delay 3 --http1.1 -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install -o /tmp/install.sh && \
     sh /tmp/install.sh && \
@@ -71,8 +71,8 @@ ENV PATH="/root/.cargo/bin:${PATH}"
 ENV RUSTUP_HOME="/root/.rustup"
 ENV CARGO_HOME="/root/.cargo"
 
-# Install Solana (installer method for 2.2.x)
-ARG SOLANA_VERSION="2.2.14"
+# Install Solana / Agave toolchain (Anza source; agave-install update no longer supported)
+ARG SOLANA_VERSION="3.1.8"
 RUN set -e; \
     curl --retry 5 --retry-all-errors --retry-delay 3 --http1.1 -sSfL https://release.anza.xyz/v${SOLANA_VERSION}/install -o /tmp/install.sh && \
     sh /tmp/install.sh && \

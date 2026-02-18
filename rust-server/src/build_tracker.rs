@@ -49,6 +49,24 @@ impl BuildTracker {
         );
     }
 
+    /// Append a line to the build's stderr while status is still Building. Used for live output.
+    pub async fn append_build_output(&self, uuid: &str, line: &str) {
+        let mut builds = self.builds.write().await;
+        if let Some(info) = builds.get_mut(uuid) {
+            if matches!(info.status, BuildStatus::Building) {
+                match &mut info.stderr {
+                    Some(s) => {
+                        s.push_str(line);
+                        s.push('\n');
+                    }
+                    None => {
+                        info.stderr = Some(format!("{line}\n"));
+                    }
+                }
+            }
+        }
+    }
+
     pub async fn complete_build(&self, uuid: &str, stderr: String, program_name: String, success: bool) {
         println!("[TRACKER] complete_build called for UUID: {}, success: {}", uuid, success);
         let mut builds = self.builds.write().await;

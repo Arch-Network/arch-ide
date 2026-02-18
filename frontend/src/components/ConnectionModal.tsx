@@ -46,23 +46,23 @@
             <div className="space-y-6">
               <div>
                 <h3 className="text-white font-mono mb-2">
-                  1. Install Solana toolchain(MacOS)
+                  1. Install Solana / Agave toolchain (macOS / Linux)
                 </h3>
                 <p className="text-gray-400 mb-2">
-                  Run the following command in your terminal:
+                  Install from source (required; <code className="text-gray-500">agave-install update</code> is no longer supported). Run in your terminal:
                 </p>
                 <pre className="bg-[#0d0d0d] p-4 rounded-md font-mono text-sm">
                   <code>
                     <span className="text-green-400">sh</span>{" "}
                     <span className="text-white">-c</span>{" "}
                     <span className="text-green-400">
-                      "$(curl -sSfL https://release.solana.com/stable/install)"
+                      "$(curl -sSfL https://release.anza.xyz/v3.1.8/install)"
                     </span>
                   </code>
                 </pre>
-                <button className="text-purple-400 text-sm mt-2">
-                  Other installation methods
-                </button>
+                <p className="text-gray-500 text-xs mt-2">
+                  If builds fail after updating your program dependencies, update your solana-tools to the latest using the command above.
+                </p>
               </div>
   
               <div>
