@@ -386,7 +386,7 @@ pub async fn build(
                         println!("Warning: program_id_hex should be 64 hex chars, got {} chars; substituting anyway", hex_trim.len());
                     }
                     let replacement = format!("declare_id!(\"{}\")", hex_trim);
-                    println!("Substituting declare_id! with program id (hex) in lib.rs");
+                    println!("Substituting declare_id! placeholder with program id (hex) in lib.rs");
                     content.replace(DECLARE_ID_PLACEHOLDER, &replacement)
                 }
                 _ => content.clone(),

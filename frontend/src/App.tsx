@@ -1149,8 +1149,8 @@ const AppContent = () => {
         body: JSON.stringify({
           program_name: fullCurrentProject.name,
           files: rsFiles,
-          uuid: fullCurrentProject.id, // Send existing UUID for consistent builds
-          framework: fullCurrentProject.framework ?? 'satellite' // satellite → arch 0.5.15, native → 0.6.1
+          uuid: fullCurrentProject.id,
+          framework: fullCurrentProject.framework ?? 'satellite'
         })
       });
 
