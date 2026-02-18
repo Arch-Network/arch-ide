@@ -1,4 +1,4 @@
-import { RpcConnection, ArchConnection, PubkeyUtil } from "@saturnbtcio/arch-sdk";
+import { RpcConnection, ArchConnection, PubkeyUtil } from "@arch-network/arch-sdk";
 
 self.onmessage = async (event) => {
     const { clientCode } = event.data;

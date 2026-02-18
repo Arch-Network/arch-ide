@@ -7,7 +7,7 @@ import { Input } from './ui/input';
 import type { Config } from '../types';
 import { bitcoinRpcRequest } from '../api/bitcoin/rpc';
 import { getSmartRpcUrl } from '../utils/smartRpcConnection';
-import { RpcConnection } from '@saturnbtcio/arch-sdk';
+import { RpcConnection } from '@arch-network/arch-sdk';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/tooltip';
 
 interface ConfigPanelProps {

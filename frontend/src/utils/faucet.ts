@@ -8,7 +8,7 @@
  * transaction automatically.
  */
 
-import { RpcConnection } from '@saturnbtcio/arch-sdk';
+import { RpcConnection } from '@arch-network/arch-sdk';
 
 export interface FaucetRequestOptions {
   pubkey: string; // Hex string

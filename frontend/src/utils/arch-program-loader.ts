@@ -5,8 +5,8 @@ if (typeof window !== 'undefined') {
   window.Buffer = window.Buffer || Buffer;
 }
 
-import { RpcConnection, Message, Instruction, RuntimeTransaction } from '@saturnbtcio/arch-sdk';
-import { MessageUtil } from '@saturnbtcio/arch-sdk';
+import { RpcConnection, Message, Instruction, RuntimeTransaction } from '@arch-network/arch-sdk';
+import { MessageUtil } from '@arch-network/arch-sdk';
 import { signMessage } from './bitcoin-signer';
 import { bitcoinRpcRequest } from '../api/bitcoin/rpc';
 import { getSmartRpcUrl } from '../utils/smartRpcConnection';

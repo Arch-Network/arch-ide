@@ -4,7 +4,7 @@ export const initTypeScriptDeclarations = (): monaco.IDisposable[] => {
   const disposables = [
     // Declare the module
     monaco.languages.typescript.typescriptDefaults.addExtraLib(
-      `declare module "@saturnbtcio/arch-sdk" {
+      `declare module "@arch-network/arch-sdk" {
         export type Pubkey = Uint8Array;
         // ... rest of your module declarations
       }`,
@@ -14,11 +14,11 @@ export const initTypeScriptDeclarations = (): monaco.IDisposable[] => {
     // Declare globals
     monaco.languages.typescript.typescriptDefaults.addExtraLib(
       `declare global {
-        const RpcConnection: typeof import("@saturnbtcio/arch-sdk").RpcConnection;
-        const PubkeyUtil: typeof import("@saturnbtcio/arch-sdk").PubkeyUtil;
-        const MessageUtil: typeof import("@saturnbtcio/arch-sdk").MessageUtil;
-        const UtxoMetaUtil: typeof import("@saturnbtcio/arch-sdk").UtxoMetaUtil;
-        const SignatureUtil: typeof import("@saturnbtcio/arch-sdk").SignatureUtil;
+        const RpcConnection: typeof import("@arch-network/arch-sdk").RpcConnection;
+        const PubkeyUtil: typeof import("@arch-network/arch-sdk").PubkeyUtil;
+        const MessageUtil: typeof import("@arch-network/arch-sdk").MessageUtil;
+        const UtxoMetaUtil: typeof import("@arch-network/arch-sdk").UtxoMetaUtil;
+        const SignatureUtil: typeof import("@arch-network/arch-sdk").SignatureUtil;
       }`,
       "file:///globals.d.ts"
     )

@@ -1,5 +1,5 @@
 // src/utils/smartRpcConnection.ts
-import { RpcConnection } from '@saturnbtcio/arch-sdk';
+import { RpcConnection } from '@arch-network/arch-sdk';
 
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 

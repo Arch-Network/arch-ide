@@ -13,8 +13,8 @@
  */
 
 import { Buffer } from 'buffer/';
-import { RpcConnection, Instruction, RuntimeTransaction, Message } from '@saturnbtcio/arch-sdk';
-import { MessageUtil } from '@saturnbtcio/arch-sdk';
+import { RpcConnection, Instruction, RuntimeTransaction, Message } from '@arch-network/arch-sdk';
+import { MessageUtil } from '@arch-network/arch-sdk';
 import { signMessage } from './bitcoin-signer';
 import { bitcoinRpcRequest } from '../api/bitcoin/rpc';
 import { getSmartRpcUrl } from './smartRpcConnection';

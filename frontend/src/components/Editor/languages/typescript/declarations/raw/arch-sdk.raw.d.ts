@@ -1,4 +1,4 @@
-declare module "@saturnbtcio/arch-sdk" {
+declare module "@arch-network/arch-sdk" {
     export type Pubkey = Uint8Array;
     export const PubkeySchema: Schema;
 
@@ -216,12 +216,12 @@ declare module "@saturnbtcio/arch-sdk" {
 }
 
 declare global {
-    const RpcConnection: typeof import("@saturnbtcio/arch-sdk").RpcConnection;
-    const ArchConnection: typeof import("@saturnbtcio/arch-sdk").ArchConnection;
-    const PubkeyUtil: typeof import("@saturnbtcio/arch-sdk").PubkeyUtil;
-    const MessageUtil: typeof import("@saturnbtcio/arch-sdk").MessageUtil;
-    const UtxoMetaUtil: typeof import("@saturnbtcio/arch-sdk").UtxoMetaUtil;
-    const SignatureUtil: typeof import("@saturnbtcio/arch-sdk").SignatureUtil;
+    const RpcConnection: typeof import("@arch-network/arch-sdk").RpcConnection;
+    const ArchConnection: typeof import("@arch-network/arch-sdk").ArchConnection;
+    const PubkeyUtil: typeof import("@arch-network/arch-sdk").PubkeyUtil;
+    const MessageUtil: typeof import("@arch-network/arch-sdk").MessageUtil;
+    const UtxoMetaUtil: typeof import("@arch-network/arch-sdk").UtxoMetaUtil;
+    const SignatureUtil: typeof import("@arch-network/arch-sdk").SignatureUtil;
 
     /**
      * Decode a base58 string to a Uint8Array (Pubkey)

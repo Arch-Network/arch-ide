@@ -1,9 +1,9 @@
-import type { RpcConnection, PubkeyUtil, MessageUtil } from "@saturnbtcio/arch-sdk";
+import type { RpcConnection, PubkeyUtil, MessageUtil } from "@arch-network/arch-sdk";
 
 declare global {
-  const RpcConnection: typeof import("@saturnbtcio/arch-sdk").RpcConnection;
-  const PubkeyUtil: typeof import("@saturnbtcio/arch-sdk").PubkeyUtil;
-  const MessageUtil: typeof import("@saturnbtcio/arch-sdk").MessageUtil;
+  const RpcConnection: typeof import("@arch-network/arch-sdk").RpcConnection;
+  const PubkeyUtil: typeof import("@arch-network/arch-sdk").PubkeyUtil;
+  const MessageUtil: typeof import("@arch-network/arch-sdk").MessageUtil;
 
   interface Window {
     archSdk: {
@@ -18,7 +18,7 @@ export {};
 
 const declareArchSdkTypes = () => {
   return monaco.languages.typescript.typescriptDefaults.addExtraLib(`
-    declare module "@saturnbtcio/arch-sdk" {
+    declare module "@arch-network/arch-sdk" {
       export class RpcConnection {
         constructor(endpoint: string);
         sendTransaction(transaction: RuntimeTransaction): Promise<string>;
@@ -40,9 +40,9 @@ const declareArchSdkTypes = () => {
     }
 
     declare global {
-      const RpcConnection: typeof import("@saturnbtcio/arch-sdk").RpcConnection;
-      const PubkeyUtil: typeof import("@saturnbtcio/arch-sdk").PubkeyUtil;
-      const MessageUtil: typeof import("@saturnbtcio/arch-sdk").MessageUtil;
+      const RpcConnection: typeof import("@arch-network/arch-sdk").RpcConnection;
+      const PubkeyUtil: typeof import("@arch-network/arch-sdk").PubkeyUtil;
+      const MessageUtil: typeof import("@arch-network/arch-sdk").MessageUtil;
     }
   `, "file:///node_modules/@types/arch-sdk/index.d.ts");
 };

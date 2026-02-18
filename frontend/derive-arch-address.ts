@@ -1,4 +1,4 @@
-import { RpcConnection, PubkeyUtil } from "@saturnbtcio/arch-sdk";
+import { RpcConnection, PubkeyUtil } from "@arch-network/arch-sdk";
 import { base58 } from "@scure/base";
 
 async function main() {
