@@ -11,10 +11,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-arch_program = "0.6.1"
-apl-associated-token-account = "0.6.1"
-apl-token = "0.6.1"
-apl-token-metadata = "0.6.1"
+arch_program = "0.6.2"
+apl-associated-token-account = "0.6.2"
+apl-token = "0.6.2"
+apl-token-metadata = "0.6.2"
 borsh = { version = "1.5.1", features = ["derive"] }
 
 [lib]

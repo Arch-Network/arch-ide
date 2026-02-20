@@ -16,7 +16,7 @@ const PROGRAMS_DIR: &str = "programs";
 const MAX_FILE_AMOUNT: usize = 256;
 const MAX_PATH_LENGTH: usize = 128;
 
-/// Arch crate version used by the compilation server: 0.6.1
+/// Arch crate version used by the compilation server: 0.6.2
 /// All arch_program, apl-token, apl-associated-token-account, and apl-token-metadata
 /// crates are pulled from crates.io at this version.
 
@@ -103,7 +103,7 @@ incremental = true
 codegen-units = 256
 "#;
 
-/// Cargo.toml template for native / latest: arch_program 0.6.1 (no satellite-lang version yet).
+/// Cargo.toml template for native / latest: arch_program 0.6.2 (no satellite-lang version yet).
 const CARGO_TOML_TEMPLATE_NATIVE: &str = r#"[package]
 name = "__PROGRAM_NAME__"
 version = "0.1.0"
@@ -113,10 +113,10 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-arch_program = "0.6.1"
-apl-associated-token-account = { version = "0.6.1", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.1", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.1", features = ["no-entrypoint"] }
+arch_program = "0.6.2"
+apl-associated-token-account = { version = "0.6.2", features = ["no-entrypoint"] }
+apl-token = { version = "0.6.2", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.6.2", features = ["no-entrypoint"] }
 
 # Satellite framework
 satellite-lang = "0.31.5"
@@ -160,7 +160,7 @@ codegen-units = 256
 pub enum BuildFramework {
     /// Satellite framework: arch_program 0.5.15 (matches satellite-lang).
     Satellite,
-    /// Native / latest: arch_program 0.6.1.
+    /// Native / latest: arch_program 0.6.2.
     Native,
 }
 
@@ -201,10 +201,10 @@ overflow-checks = true
 incremental = true
 
 [dependencies]
-arch_program = "0.6.1"
-apl-associated-token-account = { version = "0.6.1", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.1", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.1", features = ["no-entrypoint"] }
+arch_program = "0.6.2"
+apl-associated-token-account = { version = "0.6.2", features = ["no-entrypoint"] }
+apl-token = { version = "0.6.2", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.6.2", features = ["no-entrypoint"] }
 
 # Satellite framework (published crate)
 satellite-lang = "0.31.5"
