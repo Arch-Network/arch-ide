@@ -51,7 +51,7 @@ fn find_solana_rustc_path() -> Option<String> {
     None
 }
 
-/// Cargo.toml template for Satellite framework: arch_program 0.5.15 (matches satellite-lang ^0.5.15).
+/// Cargo.toml template for Satellite framework: arch_program 0.6.2 + satellite-lang 0.31.5.
 const CARGO_TOML_TEMPLATE_SATELLITE: &str = r#"[package]
 name = "__PROGRAM_NAME__"
 version = "0.1.0"
@@ -61,14 +61,14 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-arch_program = "0.5.15"
-apl-associated-token-account = { version = "0.5.15", features = ["no-entrypoint"] }
-apl-token = { version = "0.5.15", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.5.15", features = ["no-entrypoint"] }
+arch_program = "0.6.2"
+apl-associated-token-account = { version = "0.6.2", features = ["no-entrypoint"] }
+apl-token = { version = "0.6.2", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.6.2", features = ["no-entrypoint"] }
 
-# Satellite framework (requires arch_program 0.5.x)
+# Satellite framework
 satellite-lang = "0.31.5"
-satellite-apl = "0.31.4"
+satellite-apl = "0.31.5"
 
 # Core serialization/encoding (use "borsh" in code, not "borsh09")
 borsh = "^1.5.3"
@@ -120,7 +120,7 @@ apl-token-metadata = { version = "0.6.2", features = ["no-entrypoint"] }
 
 # Satellite framework
 satellite-lang = "0.31.5"
-satellite-apl = "0.31.4"
+satellite-apl = "0.31.5"
 
 # Core serialization/encoding (use "borsh" in code, not "borsh09")
 borsh = "^1.5.3"
@@ -158,7 +158,7 @@ codegen-units = 256
 /// Framework / SDK version selector. Used to pick the right Cargo.toml dependency set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuildFramework {
-    /// Satellite framework: arch_program 0.5.15 (matches satellite-lang).
+    /// Satellite framework: arch_program 0.6.2 + satellite-lang 0.31.5.
     Satellite,
     /// Native / latest: arch_program 0.6.2.
     Native,
@@ -208,7 +208,7 @@ apl-token-metadata = { version = "0.6.2", features = ["no-entrypoint"] }
 
 # Satellite framework (published crate)
 satellite-lang = "0.31.5"
-satellite-apl = "0.31.4"
+satellite-apl = "0.31.5"
 
 # Core serialization/encoding
 borsh = { version = "1.5.1", features = ["derive"] }

@@ -11,7 +11,7 @@ pub struct BuildRequest {
     program_name: String,
     files: Files,
     uuid: Option<String>,
-    /// "satellite" → arch_program 0.5.15 (satellite-lang compatible). "native" → arch_program 0.6.2. Default: "satellite".
+    /// "satellite" → arch_program 0.6.2 + satellite-lang 0.31.5. "native" → arch_program 0.6.2. Default: "satellite".
     #[serde(default)]
     framework: Option<String>,
     /// When set, substitute declare_id! placeholder with declare_id!(program_id_hex) in lib.rs. Satellite/Solana BPF expects 64 hex chars, not base58.
@@ -55,7 +55,7 @@ pub async fn build(
     let tracker_clone = tracker.clone();
     let framework = match payload.framework.as_deref() {
         Some("native") => program::BuildFramework::Native,
-        _ => program::BuildFramework::Satellite, // "satellite" or missing → Satellite (0.5.15)
+        _ => program::BuildFramework::Satellite, // "satellite" or missing → Satellite (0.6.2)
     };
 
     // Start tracking the build
