@@ -89,6 +89,10 @@ bytemuck = { version = "^1.20.0", features = ["derive"] }
 uint = "0.9"
 arrayref = "0.3"
 
+# Pin proc-macro-crate below 3.5 to avoid toml_edit >=0.25 which requires edition2024 / Cargo 1.85+.
+# The SBF toolchain ships Cargo 1.84.1 and cannot parse edition2024 manifests.
+proc-macro-crate = ">=1.0.0, <3.5.0"
+
 [profile.release]
 overflow-checks = true
 incremental = true
@@ -140,6 +144,10 @@ bytemuck = { version = "^1.20.0", features = ["derive"] }
 # Big-integer (U256 via construct_uint!) and array reference (for bn.rs / sparse_swap-style code)
 uint = "0.9"
 arrayref = "0.3"
+
+# Pin proc-macro-crate below 3.5 to avoid toml_edit >=0.25 which requires edition2024 / Cargo 1.85+.
+# The SBF toolchain ships Cargo 1.84.1 and cannot parse edition2024 manifests.
+proc-macro-crate = ">=1.0.0, <3.5.0"
 
 [profile.release]
 overflow-checks = true
@@ -229,6 +237,9 @@ serde = { version = "1.0.136", features = ["derive"], default-features = false }
 
 # Memory casting utilities
 bytemuck = { version = "^1.20.0", features = ["derive"] }
+
+# Pin proc-macro-crate below 3.5 to avoid toml_edit >=0.25 (edition2024 / Cargo 1.85+)
+proc-macro-crate = ">=1.0.0, <3.5.0"
 
 # Testing
 [dev-dependencies]
@@ -461,21 +472,28 @@ pub async fn build(
     let lock_file = program_path.join("Cargo.lock");
     if lock_file.exists() {
         println!("Found existing Cargo.lock file.");
-        // Instead of removing it, try to modify it to fix the bytemuck_derive version
         let lock_content = fs::read_to_string(&lock_file)?;
 
-        // If the lock file contains bytemuck_derive with version 1.9.2, replace it with 1.5.0
-        let modified_content = lock_content.replace(
-            "name = \"bytemuck_derive\"\nversion = \"1.9.2\"",
-            "name = \"bytemuck_derive\"\nversion = \"1.5.0\""
-        );
-
-        if modified_content != lock_content {
-            println!("Updating bytemuck_derive version in Cargo.lock...");
-            fs::write(&lock_file, modified_content)?;
+        // If the lock file contains toml_edit 0.25+ or proc-macro-crate 3.5+, the
+        // resolution is incompatible with the SBF toolchain (Cargo 1.84). Remove the
+        // lockfile so Cargo re-resolves with the new pins.
+        if lock_content.contains("name = \"toml_edit\"\nversion = \"0.25") ||
+           lock_content.contains("name = \"proc-macro-crate\"\nversion = \"3.5") {
+            println!("Removing Cargo.lock: contains toml_edit >=0.25 or proc-macro-crate >=3.5 (incompatible with Cargo 1.84 SBF toolchain).");
+            fs::remove_file(&lock_file)?;
         } else {
-            // Keep Cargo.lock to maximize iterative build caching and avoid re-resolving dependencies.
-            println!("No bytemuck_derive 1.9.2 found in Cargo.lock; keeping lockfile for caching.");
+            // Patch bytemuck_derive if needed
+            let modified_content = lock_content.replace(
+                "name = \"bytemuck_derive\"\nversion = \"1.9.2\"",
+                "name = \"bytemuck_derive\"\nversion = \"1.5.0\""
+            );
+
+            if modified_content != lock_content {
+                println!("Updating bytemuck_derive version in Cargo.lock...");
+                fs::write(&lock_file, modified_content)?;
+            } else {
+                println!("Cargo.lock is clean; keeping for caching.");
+            }
         }
     } else {
         println!("No existing Cargo.lock file found.");
