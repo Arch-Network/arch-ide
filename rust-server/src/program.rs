@@ -89,12 +89,18 @@ bytemuck = { version = "^1.20.0", features = ["derive"] }
 uint = "0.9"
 arrayref = "0.3"
 
-# SBF toolchain compatibility: Cargo 1.84 cannot parse edition2024 manifests.
-# Cap transitive build-deps so the resolver never selects incompatible versions.
-# borsh-derive -> proc-macro-crate -> toml_edit chain is the culprit.
-proc-macro-crate = ">=1.0, <3.5"
-toml_edit = ">=0.1, <0.25"
-toml_datetime = ">=0.1, <1.0"
+# SBF toolchain compatibility: Cargo 1.84 cannot parse crates that use
+# edition = "2024" in their Cargo.toml manifest. Many crates in the toml-rs
+# ecosystem shipped 1.1.0 / 0.25.6+ releases with edition2024 that Cargo 1.84
+# cannot process. These pins cap EVERY affected semver range so the resolver
+# never selects an unparseable version. Remove when the SBF toolchain ships
+# Cargo >= 1.85.
+toml_edit = ">=0.25.0, <0.25.6"
+toml_datetime = ">=1.0.0, <1.1.0"
+toml_parser = ">=1.0.0, <1.1.0"
+toml_writer = ">=1.0.0, <1.1.0"
+serde_spanned = ">=1.0.0, <1.1.0"
+unicode-segmentation = ">=1.0.0, <1.13.0"
 
 [profile.release]
 overflow-checks = true
@@ -148,11 +154,13 @@ bytemuck = { version = "^1.20.0", features = ["derive"] }
 uint = "0.9"
 arrayref = "0.3"
 
-# SBF toolchain compatibility: Cargo 1.84 cannot parse edition2024 manifests.
-# Cap transitive build-deps so the resolver never selects incompatible versions.
-proc-macro-crate = ">=1.0, <3.5"
-toml_edit = ">=0.1, <0.25"
-toml_datetime = ">=0.1, <1.0"
+# SBF toolchain compatibility: see satellite template for explanation
+toml_edit = ">=0.25.0, <0.25.6"
+toml_datetime = ">=1.0.0, <1.1.0"
+toml_parser = ">=1.0.0, <1.1.0"
+toml_writer = ">=1.0.0, <1.1.0"
+serde_spanned = ">=1.0.0, <1.1.0"
+unicode-segmentation = ">=1.0.0, <1.13.0"
 
 [profile.release]
 overflow-checks = true
@@ -243,10 +251,13 @@ serde = { version = "1.0.136", features = ["derive"], default-features = false }
 # Memory casting utilities
 bytemuck = { version = "^1.20.0", features = ["derive"] }
 
-# SBF toolchain compatibility: cap transitive build-deps (edition2024 / Cargo 1.84)
-proc-macro-crate = ">=1.0, <3.5"
-toml_edit = ">=0.1, <0.25"
-toml_datetime = ">=0.1, <1.0"
+# SBF toolchain compatibility: cap edition2024 crates (Cargo 1.84)
+toml_edit = ">=0.25.0, <0.25.6"
+toml_datetime = ">=1.0.0, <1.1.0"
+toml_parser = ">=1.0.0, <1.1.0"
+toml_writer = ">=1.0.0, <1.1.0"
+serde_spanned = ">=1.0.0, <1.1.0"
+unicode-segmentation = ">=1.0.0, <1.13.0"
 
 # Testing
 [dev-dependencies]
