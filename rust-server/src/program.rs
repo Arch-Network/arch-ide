@@ -89,9 +89,12 @@ bytemuck = { version = "^1.20.0", features = ["derive"] }
 uint = "0.9"
 arrayref = "0.3"
 
-# Pin proc-macro-crate below 3.5 to avoid toml_edit >=0.25 which requires edition2024 / Cargo 1.85+.
-# The SBF toolchain ships Cargo 1.84.1 and cannot parse edition2024 manifests.
-proc-macro-crate = ">=1.0.0, <3.5.0"
+# SBF toolchain compatibility: Cargo 1.84 cannot parse edition2024 manifests.
+# Cap transitive build-deps so the resolver never selects incompatible versions.
+# borsh-derive -> proc-macro-crate -> toml_edit chain is the culprit.
+proc-macro-crate = ">=1.0, <3.5"
+toml_edit = ">=0.1, <0.25"
+toml_datetime = ">=0.1, <1.0"
 
 [profile.release]
 overflow-checks = true
@@ -145,9 +148,11 @@ bytemuck = { version = "^1.20.0", features = ["derive"] }
 uint = "0.9"
 arrayref = "0.3"
 
-# Pin proc-macro-crate below 3.5 to avoid toml_edit >=0.25 which requires edition2024 / Cargo 1.85+.
-# The SBF toolchain ships Cargo 1.84.1 and cannot parse edition2024 manifests.
-proc-macro-crate = ">=1.0.0, <3.5.0"
+# SBF toolchain compatibility: Cargo 1.84 cannot parse edition2024 manifests.
+# Cap transitive build-deps so the resolver never selects incompatible versions.
+proc-macro-crate = ">=1.0, <3.5"
+toml_edit = ">=0.1, <0.25"
+toml_datetime = ">=0.1, <1.0"
 
 [profile.release]
 overflow-checks = true
@@ -238,8 +243,10 @@ serde = { version = "1.0.136", features = ["derive"], default-features = false }
 # Memory casting utilities
 bytemuck = { version = "^1.20.0", features = ["derive"] }
 
-# Pin proc-macro-crate below 3.5 to avoid toml_edit >=0.25 (edition2024 / Cargo 1.85+)
-proc-macro-crate = ">=1.0.0, <3.5.0"
+# SBF toolchain compatibility: cap transitive build-deps (edition2024 / Cargo 1.84)
+proc-macro-crate = ">=1.0, <3.5"
+toml_edit = ">=0.1, <0.25"
+toml_datetime = ">=0.1, <1.0"
 
 # Testing
 [dev-dependencies]
@@ -468,35 +475,12 @@ pub async fn build(
         .ok_or_else(|| anyhow!("Failed to convert cargo home path to string"))?
         .to_string();
 
-    // Clean up any existing Cargo.lock
+    // Always remove any existing Cargo.lock so Cargo re-resolves with the
+    // version caps in [dependencies] (proc-macro-crate, toml_edit, toml_datetime).
     let lock_file = program_path.join("Cargo.lock");
     if lock_file.exists() {
-        println!("Found existing Cargo.lock file.");
-        let lock_content = fs::read_to_string(&lock_file)?;
-
-        // If the lock file contains toml_edit 0.25+ or proc-macro-crate 3.5+, the
-        // resolution is incompatible with the SBF toolchain (Cargo 1.84). Remove the
-        // lockfile so Cargo re-resolves with the new pins.
-        if lock_content.contains("name = \"toml_edit\"\nversion = \"0.25") ||
-           lock_content.contains("name = \"proc-macro-crate\"\nversion = \"3.5") {
-            println!("Removing Cargo.lock: contains toml_edit >=0.25 or proc-macro-crate >=3.5 (incompatible with Cargo 1.84 SBF toolchain).");
-            fs::remove_file(&lock_file)?;
-        } else {
-            // Patch bytemuck_derive if needed
-            let modified_content = lock_content.replace(
-                "name = \"bytemuck_derive\"\nversion = \"1.9.2\"",
-                "name = \"bytemuck_derive\"\nversion = \"1.5.0\""
-            );
-
-            if modified_content != lock_content {
-                println!("Updating bytemuck_derive version in Cargo.lock...");
-                fs::write(&lock_file, modified_content)?;
-            } else {
-                println!("Cargo.lock is clean; keeping for caching.");
-            }
-        }
-    } else {
-        println!("No existing Cargo.lock file found.");
+        println!("Removing existing Cargo.lock to allow fresh dependency resolution with SBF-compatible pins.");
+        fs::remove_file(&lock_file)?;
     }
 
     // Check if cargo is installed
