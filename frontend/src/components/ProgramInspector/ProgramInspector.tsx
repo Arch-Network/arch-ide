@@ -1,12 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { Eye, Database, Send } from 'lucide-react';
+import { Eye, Database, Send, History as HistoryIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import IdlImporter from './IdlImporter';
 import OverviewTab from './sections/OverviewTab';
 import AccountsTab from './sections/AccountsTab';
 import InvokeTab from './sections/InvokeTab';
+import HistoryTab from './sections/HistoryTab';
 import { hexToBase58 } from '../../utils/base58';
-import type { ArchIdl, Project } from '../../types';
+import type { ArchIdl, InvokeHistoryEntry, Project } from '../../types';
 import type { Config } from '../../types/config';
 import type { ProjectMutations } from './projectMutations';
 
@@ -17,7 +18,7 @@ interface ProgramInspectorProps {
   mutations: ProjectMutations;
 }
 
-type InspectorTab = 'overview' | 'accounts' | 'invoke';
+type InspectorTab = 'overview' | 'accounts' | 'invoke' | 'history';
 
 interface TabSpec {
   id: InspectorTab;
@@ -29,6 +30,7 @@ const TABS: TabSpec[] = [
   { id: 'overview', label: 'Overview', icon: <Eye className="h-3 w-3" aria-hidden="true" /> },
   { id: 'accounts', label: 'Accounts', icon: <Database className="h-3 w-3" aria-hidden="true" /> },
   { id: 'invoke', label: 'Invoke', icon: <Send className="h-3 w-3" aria-hidden="true" /> },
+  { id: 'history', label: 'History', icon: <HistoryIcon className="h-3 w-3" aria-hidden="true" /> },
 ];
 
 /**
@@ -47,6 +49,16 @@ export const ProgramInspector: React.FC<ProgramInspectorProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<InspectorTab>('overview');
   const [showReplaceImporter, setShowReplaceImporter] = useState(false);
+
+  /**
+   * Pending replay payload — set when the user clicks "Re-run" on a
+   * history entry. The Invoke tab consumes it on next render to
+   * rehydrate its form state, then clears it so the same entry isn't
+   * applied twice. We keep the value here (rather than in InvokeTab's
+   * own state) so the tab can be unmounted between renders without
+   * losing the queued replay.
+   */
+  const [pendingReplay, setPendingReplay] = useState<InvokeHistoryEntry | null>(null);
 
   const idl = project?.idl ?? null;
 
@@ -151,6 +163,19 @@ export const ProgramInspector: React.FC<ProgramInspectorProps> = ({
             project={project}
             config={config}
             mutations={mutations}
+            replayEntry={pendingReplay}
+            onReplayConsumed={() => setPendingReplay(null)}
+          />
+        )}
+        {activeTab === 'history' && (
+          <HistoryTab
+            idl={idl}
+            project={project}
+            mutations={mutations}
+            onReplay={(entry) => {
+              setPendingReplay(entry);
+              setActiveTab('invoke');
+            }}
           />
         )}
       </div>

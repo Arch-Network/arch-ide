@@ -56,6 +56,44 @@ export interface SavedKeypair {
   createdAt: Date;
 }
 
+/**
+ * Snapshot of a single instruction submission attempt.
+ *
+ * We store the *form payload* (account values, raw arg-value tree)
+ * rather than just the resolved tx because the snapshot's primary job
+ * is to power "Re-run" — clicking it should rehydrate the Invoke form
+ * exactly as it was when the user first submitted, even if the IDL has
+ * since been re-ingested with different defaults.
+ *
+ * The encoded data and resolved accounts are kept for debug viewing
+ * but aren't required to replay.
+ */
+export interface InvokeHistoryEntry {
+  id: string;
+  /** Instruction name (matches `ArchInstruction.name`). */
+  instruction: string;
+  /** Submission timestamp (epoch ms). */
+  submittedAt: number;
+  /** The user's account inputs, keyed by IDL account name. */
+  accountValues: Record<string, string>;
+  /**
+   * Raw `ArgValue` tree from the form. Stored as `unknown` here to
+   * avoid pulling the InvokeTab-specific union into the persistence
+   * layer; the Invoke form casts on rehydration.
+   */
+  argValues: Record<string, unknown>;
+  /** Network the tx was submitted to (mainnet/testnet/devnet). */
+  network: 'mainnet' | 'testnet' | 'devnet';
+  /** Tx outcome — only `txid` for success, `error` for failure. */
+  outcome:
+    | { kind: 'success'; txid: string }
+    | { kind: 'error'; message: string };
+  /** Hex-encoded instruction data, when the encoder produced it. */
+  encodedDataHex?: string;
+  /** Resolved account metas at submission time. */
+  accounts?: { name: string; pubkey: string; isSigner: boolean; isMut: boolean }[];
+}
+
 export type ProjectFramework = 'native' | 'satellite';
 
 export interface Project {
@@ -83,6 +121,11 @@ export interface Project {
    */
   addressBook?: AddressBookEntry[];
   savedKeypairs?: SavedKeypair[];
+  /**
+   * Recent Invoke submissions (most-recent first). Capped at 50 entries
+   * by the persistence layer to keep IndexedDB writes bounded.
+   */
+  invokeHistory?: InvokeHistoryEntry[];
 }
 
 // IDL type definitions live in `./idl.ts`. This barrel re-exports them so

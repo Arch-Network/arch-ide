@@ -1793,6 +1793,24 @@ const AppContent = () => {
         const fresh = await projectService.getProject(fullCurrentProject.id);
         if (fresh) setFullCurrentProject(fresh);
       },
+      appendInvokeHistory: async (entry) => {
+        if (!fullCurrentProject) return;
+        await projectService.appendInvokeHistory(fullCurrentProject.id, entry);
+        const fresh = await projectService.getProject(fullCurrentProject.id);
+        if (fresh) setFullCurrentProject(fresh);
+      },
+      removeInvokeHistoryEntry: async (id) => {
+        if (!fullCurrentProject) return;
+        await projectService.removeInvokeHistoryEntry(fullCurrentProject.id, id);
+        const fresh = await projectService.getProject(fullCurrentProject.id);
+        if (fresh) setFullCurrentProject(fresh);
+      },
+      clearInvokeHistory: async () => {
+        if (!fullCurrentProject) return;
+        await projectService.clearInvokeHistory(fullCurrentProject.id);
+        const fresh = await projectService.getProject(fullCurrentProject.id);
+        if (fresh) setFullCurrentProject(fresh);
+      },
     }),
     [fullCurrentProject?.id],
   );

@@ -43,6 +43,7 @@ import type {
   ArchIdl,
   ArchInstruction,
   ArchInstructionAccount,
+  InvokeHistoryEntry,
   Project,
 } from '../../../types';
 import type { Config } from '../../../types/config';
@@ -52,6 +53,14 @@ interface InvokeTabProps {
   project: Project | null;
   config: Config;
   mutations: ProjectMutations;
+  /**
+   * When set, the form rehydrates from this history entry on next
+   * render and calls `onReplayConsumed` so the parent can clear it.
+   * We use a "queued payload + ack" pattern (rather than a key bump)
+   * so the replay survives tab remounts.
+   */
+  replayEntry?: InvokeHistoryEntry | null;
+  onReplayConsumed?: () => void;
 }
 
 /**
@@ -90,6 +99,8 @@ export const InvokeTab: React.FC<InvokeTabProps> = ({
   project,
   config,
   mutations,
+  replayEntry,
+  onReplayConsumed,
 }) => {
   const {
     account: walletAccount,
@@ -156,6 +167,50 @@ export const InvokeTab: React.FC<InvokeTabProps> = ({
     setArgValues(seeded);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIxName]);
+
+  /**
+   * History replay rehydrator.
+   *
+   * When the user clicks "Re-run" on a History entry, the inspector
+   * passes the snapshot in via `replayEntry`. We do this in two
+   * steps to avoid racing with the instruction-reset effect above:
+   *
+   *   1. If the entry's instruction differs from the current pick,
+   *      flip `selectedIxName` and exit. The reset effect will fire,
+   *      and the next render hits step 2.
+   *   2. If the instruction already matches, paint the saved
+   *      accounts + args directly and ack the parent.
+   *
+   * The argValues are stored as `unknown` in the history entry; we
+   * cast on rehydration since the InvokeTab is the only producer of
+   * that shape and we'd rather keep the persistence layer ignorant.
+   */
+  useEffect(() => {
+    if (!replayEntry || !idl) return;
+    if (replayEntry.instruction !== selectedIxName) {
+      const ix = idl.instructions.find((i) => i.name === replayEntry.instruction);
+      if (!ix) {
+        // Instruction no longer in the IDL; surface an error and ack
+        // so the parent doesn't re-fire the same payload.
+        setSubmitState({
+          kind: 'error',
+          result: {
+            ok: false,
+            errors: [`Instruction "${replayEntry.instruction}" no longer exists in this IDL.`],
+          },
+        });
+        onReplayConsumed?.();
+        return;
+      }
+      setSelectedIxName(replayEntry.instruction);
+      return; // Wait for the next render — selectedIxName effect resets state first.
+    }
+    setAccounts({ ...replayEntry.accountValues });
+    setArgValues({ ...replayEntry.argValues } as Record<string, ArgValue>);
+    setSubmitState({ kind: 'idle' });
+    onReplayConsumed?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [replayEntry, selectedIxName, idl]);
 
   /**
    * Quick-fill suggestions surfaced in every `AccountInput` dropdown.
@@ -436,6 +491,7 @@ export const InvokeTab: React.FC<InvokeTabProps> = ({
             walletSigner={walletSigner}
             state={submitState}
             onStateChange={setSubmitState}
+            mutations={mutations}
           />
         </>
       )}
@@ -654,6 +710,7 @@ interface SubmitPanelProps {
   walletSigner?: WalletSigner;
   state: SubmitState;
   onStateChange: (s: SubmitState) => void;
+  mutations: ProjectMutations;
 }
 
 const SubmitPanel: React.FC<SubmitPanelProps> = ({
@@ -666,6 +723,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
   walletSigner,
   state,
   onStateChange,
+  mutations,
 }) => {
   const argsValid = instruction.args.every((a) =>
     isArgValueValid(argValues[a.name] ?? emptyArgValue(a.type)),
@@ -687,6 +745,30 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
       walletSigner,
     });
     onStateChange({ kind: result.ok ? 'success' : 'error', result });
+
+    // Persist a history entry regardless of outcome — failed attempts
+    // are at least as useful as successes for debugging. We record a
+    // best-effort error message, so a transient RPC failure shows up
+    // with enough context to retry. We deliberately swallow append
+    // errors: a corrupt IDB write shouldn't kill the submit feedback.
+    try {
+      const entry: InvokeHistoryEntry = {
+        id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+        instruction: instruction.name,
+        submittedAt: Date.now(),
+        accountValues: accounts,
+        argValues,
+        network: config.network,
+        outcome: result.ok && result.txid
+          ? { kind: 'success', txid: result.txid }
+          : { kind: 'error', message: result.errors.join(' • ') || 'Unknown error' },
+        encodedDataHex: result.encodedDataHex,
+        accounts: result.accounts,
+      };
+      await mutations.appendInvokeHistory(entry);
+    } catch (e) {
+      console.warn('[InvokeTab] failed to append history entry', e);
+    }
   };
 
   return (

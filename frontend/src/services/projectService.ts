@@ -1249,6 +1249,43 @@ export class ProjectService {
     }));
   }
 
+  /**
+   * Push a single Invoke submission onto the project's history log.
+   *
+   * Capped at 50 entries (most-recent first) so the project record
+   * stays small enough that re-saving the entire blob on every commit
+   * doesn't bloat IndexedDB writes. Callers don't need to dedupe —
+   * resubmitting an identical instruction creates a fresh entry, which
+   * is what users expect when re-running tests.
+   */
+  async appendInvokeHistory(
+    projectId: string,
+    entry: import('../types').InvokeHistoryEntry,
+  ): Promise<void> {
+    const HISTORY_CAP = 50;
+    await this.updateProject(projectId, (project) => {
+      const next = [entry, ...(project.invokeHistory ?? [])];
+      return {
+        ...project,
+        invokeHistory: next.slice(0, HISTORY_CAP),
+      };
+    });
+  }
+
+  async clearInvokeHistory(projectId: string): Promise<void> {
+    await this.updateProject(projectId, (project) => ({
+      ...project,
+      invokeHistory: [],
+    }));
+  }
+
+  async removeInvokeHistoryEntry(projectId: string, id: string): Promise<void> {
+    await this.updateProject(projectId, (project) => ({
+      ...project,
+      invokeHistory: (project.invokeHistory ?? []).filter((e) => e.id !== id),
+    }));
+  }
+
   async addHistoricalAuthorityAccount(
     projectId: string,
     account: ProjectAccount,
