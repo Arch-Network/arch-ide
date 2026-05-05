@@ -7,6 +7,7 @@ import AccountsTab from './sections/AccountsTab';
 import InvokeTab from './sections/InvokeTab';
 import HistoryTab from './sections/HistoryTab';
 import { hexToBase58 } from '../../utils/base58';
+import { useArchWebSocket, type WsStatus } from '../../hooks/useArchWebSocket';
 import type { ArchIdl, InvokeHistoryEntry, Project } from '../../types';
 import type { Config } from '../../types/config';
 import type { ProjectMutations } from './projectMutations';
@@ -49,6 +50,11 @@ export const ProgramInspector: React.FC<ProgramInspectorProps> = ({
 }) => {
   const [activeTab, setActiveTab] = useState<InspectorTab>('overview');
   const [showReplaceImporter, setShowReplaceImporter] = useState(false);
+  // Subscribe at the inspector level too so the header indicator
+  // reflects the same connection that the tabs use — without it,
+  // the header would show "idle" until the user opened a tab that
+  // actually called `useArchWebSocket`.
+  const ws = useArchWebSocket(config.rpcUrl);
 
   /**
    * Pending replay payload — set when the user clicks "Re-run" on a
@@ -87,7 +93,7 @@ export const ProgramInspector: React.FC<ProgramInspectorProps> = ({
   if (!idl && !showReplaceImporter) {
     return (
       <div className="flex flex-col h-full">
-        <Header onReplace={null} />
+        <Header onReplace={null} wsStatus={ws.status} />
         <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-6">
           <IdlImporter onImport={(parsed) => onIdlChange(parsed)} />
         </div>
@@ -98,7 +104,7 @@ export const ProgramInspector: React.FC<ProgramInspectorProps> = ({
   if (showReplaceImporter) {
     return (
       <div className="flex flex-col h-full">
-        <Header onReplace={null} title="Replace IDL" />
+        <Header onReplace={null} title="Replace IDL" wsStatus={ws.status} />
         <div className="flex-1 overflow-y-auto custom-scrollbar px-4 py-4">
           <IdlImporter
             compact
@@ -115,7 +121,7 @@ export const ProgramInspector: React.FC<ProgramInspectorProps> = ({
 
   return (
     <div className="flex flex-col h-full">
-      <Header onReplace={() => setShowReplaceImporter(true)} />
+      <Header onReplace={() => setShowReplaceImporter(true)} wsStatus={ws.status} />
 
       <div
         role="tablist"
@@ -171,6 +177,7 @@ export const ProgramInspector: React.FC<ProgramInspectorProps> = ({
           <HistoryTab
             idl={idl}
             project={project}
+            config={config}
             mutations={mutations}
             onReplay={(entry) => {
               setPendingReplay(entry);
@@ -183,14 +190,18 @@ export const ProgramInspector: React.FC<ProgramInspectorProps> = ({
   );
 };
 
-const Header: React.FC<{ onReplace: (() => void) | null; title?: string }> = ({
-  onReplace,
-  title,
-}) => (
+const Header: React.FC<{
+  onReplace: (() => void) | null;
+  title?: string;
+  wsStatus: WsStatus;
+}> = ({ onReplace, title, wsStatus }) => (
   <div className="flex items-center justify-between px-3 py-2 border-b border-border">
-    <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-      {title ?? 'Program Inspector'}
-    </h2>
+    <div className="flex items-center gap-2 min-w-0">
+      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        {title ?? 'Program Inspector'}
+      </h2>
+      <WsDot status={wsStatus} />
+    </div>
     {onReplace && (
       <button
         type="button"
@@ -202,5 +213,49 @@ const Header: React.FC<{ onReplace: (() => void) | null; title?: string }> = ({
     )}
   </div>
 );
+
+/**
+ * Single-pixel status dot that telegraphs the live event-stream
+ * connection state at the top of the inspector. We deliberately
+ * keep it small (no label) so it doesn't compete with the
+ * connection pill inside the History tab — that one is the
+ * authoritative readout, and this is just a glance.
+ */
+const WsDot: React.FC<{ status: WsStatus }> = ({ status }) => {
+  const tone = wsDotTone(status);
+  if (!tone) return null;
+  return (
+    <span
+      className="inline-flex items-center"
+      title={tone.title}
+      aria-label={tone.title}
+    >
+      <span
+        className={cn('h-1.5 w-1.5 rounded-full', tone.cls)}
+        aria-hidden="true"
+      />
+    </span>
+  );
+};
+
+const wsDotTone = (status: WsStatus): { cls: string; title: string } | null => {
+  switch (status) {
+    case 'connected':
+      return {
+        cls: 'bg-success animate-pulse',
+        title: 'Live: connected to validator event stream',
+      };
+    case 'connecting':
+      return { cls: 'bg-warning animate-pulse', title: 'Live: connecting\u2026' };
+    case 'disconnected':
+      return { cls: 'bg-warning', title: 'Live: reconnecting\u2026' };
+    case 'error':
+      return { cls: 'bg-danger', title: 'Live: connection error' };
+    case 'unsupported':
+    case 'idle':
+    default:
+      return null;
+  }
+};
 
 export default ProgramInspector;

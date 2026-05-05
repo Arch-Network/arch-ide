@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Buffer } from 'buffer/';
 import {
   Search,
@@ -11,6 +11,7 @@ import {
   Hash,
   CircleDollarSign,
   Wallet,
+  Radio,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '../../ui/button';
@@ -31,6 +32,7 @@ import {
   type DecodedValue,
 } from '../../../utils/idl/decode';
 import { hexToBase58 } from '../../../utils/base58';
+import { useArchWebSocket } from '../../../hooks/useArchWebSocket';
 import type { ArchIdl } from '../../../types';
 import type { Config } from '../../../types/config';
 
@@ -59,7 +61,15 @@ type FetchState =
   | { status: 'idle' }
   | { status: 'loading' }
   | { status: 'error'; message: string }
-  | { status: 'success'; account: FetchedAccount; decoded: DecodedAccount | null };
+  | {
+      status: 'success';
+      account: FetchedAccount;
+      decoded: DecodedAccount | null;
+      /** Wall-clock ms when this snapshot was loaded (or last refreshed). */
+      fetchedAt: number;
+      /** Source of the latest update — surfaced in the UI as "manual" vs "live". */
+      source: 'manual' | 'live';
+    };
 
 /**
  * Account Inspector.
@@ -77,57 +87,118 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({ idl, config, suggestio
   const [address, setAddress] = useState('');
   const [accountTypeName, setAccountTypeName] = useState<string>('auto');
   const [state, setState] = useState<FetchState>({ status: 'idle' });
+  const [live, setLive] = useState(false);
+  /**
+   * Brief flash applied after a live update lands so the user can
+   * see *something* changed even when the new bytes look very
+   * similar to the old ones.
+   */
+  const [updatePulse, setUpdatePulse] = useState(0);
+
+  const ws = useArchWebSocket(config.rpcUrl);
+
+  /**
+   * Refs so the WS subscription callback always sees the latest
+   * IDL/account-type without re-subscribing on every keystroke.
+   */
+  const idlRef = useRef(idl);
+  idlRef.current = idl;
+  const accountTypeRef = useRef(accountTypeName);
+  accountTypeRef.current = accountTypeName;
 
   const accountTypeOptions = useMemo(() => {
     if (!idl) return [] as string[];
     return idl.accounts.map((a) => a.name);
   }, [idl]);
 
-  const fetchAccount = async () => {
-    const parsed = parseAddress(address);
-    if ('error' in parsed) {
-      setState({ status: 'error', message: parsed.error });
-      return;
-    }
-    setState({ status: 'loading' });
-
-    try {
-      // Direct JSON-RPC because the SDK's `readAccountInfo` occasionally returns
-      // empty data for accounts whose contents come through the alternate
-      // serialization path; the raw RPC response is the source of truth.
-      const rpc = new RpcConnection(getSmartRpcUrl(config.rpcUrl));
-      const raw = await rpc.request('read_account_info', Array.from(parsed.pubkey));
-      if (!raw) {
-        setState({ status: 'error', message: 'Account not found on this network.' });
+  /**
+   * Core fetch — used by the manual button, the WS-triggered live
+   * refresh, and the initial load. Pulled out into a callback so
+   * the WS effect can call it without going through a state ping
+   * pong.
+   *
+   * `source` is recorded on the resulting state so the UI can
+   * differentiate a manually-issued refresh from a live update
+   * (the latter triggers a brief pulse, the former takes over the
+   * spinner).
+   */
+  const fetchAccountFor = useCallback(
+    async (rawAddress: string, source: 'manual' | 'live'): Promise<void> => {
+      const parsed = parseAddress(rawAddress);
+      if ('error' in parsed) {
+        if (source === 'manual') {
+          setState({ status: 'error', message: parsed.error });
+        }
         return;
       }
+      if (source === 'manual') {
+        setState({ status: 'loading' });
+      }
 
-      const dataBuf = decodeAccountDataField(raw.data);
-      const ownerBuf = Buffer.from(raw.owner ?? []);
+      try {
+        // Direct JSON-RPC because the SDK's `readAccountInfo` occasionally returns
+        // empty data for accounts whose contents come through the alternate
+        // serialization path; the raw RPC response is the source of truth.
+        const rpc = new RpcConnection(getSmartRpcUrl(config.rpcUrl));
+        const raw = await rpc.request('read_account_info', Array.from(parsed.pubkey));
+        if (!raw) {
+          if (source === 'manual') {
+            setState({ status: 'error', message: 'Account not found on this network.' });
+          }
+          return;
+        }
 
-      const account: FetchedAccount = {
-        pubkey: parsed.pubkey,
-        lamports: raw.lamports ?? 0,
-        owner: ownerBuf,
-        data: dataBuf,
-        isExecutable: Boolean(raw.is_executable),
-        utxo: raw.utxo ?? '',
-      };
+        const dataBuf = decodeAccountDataField(raw.data);
+        const ownerBuf = Buffer.from(raw.owner ?? []);
 
-      const decoded = idl
-        ? decodeAccountData(dataBuf, idl, {
-            accountName: accountTypeName === 'auto' ? undefined : accountTypeName,
-          })
-        : null;
+        const account: FetchedAccount = {
+          pubkey: parsed.pubkey,
+          lamports: raw.lamports ?? 0,
+          owner: ownerBuf,
+          data: dataBuf,
+          isExecutable: Boolean(raw.is_executable),
+          utxo: raw.utxo ?? '',
+        };
 
-      setState({ status: 'success', account, decoded });
-    } catch (err) {
-      setState({
-        status: 'error',
-        message: err instanceof Error ? err.message : String(err),
-      });
-    }
-  };
+        const decoded = idlRef.current
+          ? decodeAccountData(dataBuf, idlRef.current, {
+              accountName:
+                accountTypeRef.current === 'auto' ? undefined : accountTypeRef.current,
+            })
+          : null;
+
+        setState({
+          status: 'success',
+          account,
+          decoded,
+          fetchedAt: Date.now(),
+          source,
+        });
+        if (source === 'live') {
+          // Bump pulse counter so the indicator can briefly glow on
+          // each update — pure UI feedback, no state coupling.
+          setUpdatePulse((n) => n + 1);
+        }
+      } catch (err) {
+        if (source === 'manual') {
+          setState({
+            status: 'error',
+            message: err instanceof Error ? err.message : String(err),
+          });
+        } else {
+          // Don't clobber a working view because of a transient RPC
+          // hiccup mid-stream; just log it. Next event will try again.
+          console.warn('[accounts] live refetch failed:', err);
+        }
+      }
+    },
+    [config.rpcUrl],
+  );
+
+  const fetchAccount = useCallback(
+    () => fetchAccountFor(address, 'manual'),
+    [fetchAccountFor, address],
+  );
 
   // Re-decode when the user changes the IDL account type without re-fetching.
   useEffect(() => {
@@ -139,6 +210,54 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({ idl, config, suggestio
       return { ...current, decoded };
     });
   }, [accountTypeName, idl]);
+
+  /**
+   * Live subscription lifecycle:
+   *   - Only active when the user has toggled "Live" AND we have
+   *     a successfully fetched account (so we know the pubkey).
+   *   - Re-subscribes when the pubkey or RPC URL changes; the
+   *     `generation` field on the WS hook bumps on URL change.
+   *   - Subscribe is async (handshake-bound), so we guard against
+   *     unmount with a `cancelled` flag and a stale-callback check.
+   */
+  useEffect(() => {
+    if (!live || state.status !== 'success') return;
+    const pubkeyHex = state.account.pubkey.toString('hex');
+    if (!pubkeyHex) return;
+
+    let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
+
+    (async () => {
+      const dispose = await ws.subscribeAccount(pubkeyHex, () => {
+        if (cancelled) return;
+        // Pubkey is stable across renders — we read it back from
+        // state by re-calling fetchAccountFor with the current
+        // address. We deliberately don't await; the fetch is
+        // fire-and-forget with its own error handling.
+        void fetchAccountFor(address, 'live');
+      });
+      if (cancelled) {
+        dispose();
+        return;
+      }
+      unsubscribe = dispose;
+    })();
+
+    return () => {
+      cancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
+    // We intentionally include `ws.generation` so re-creating the
+    // socket (e.g. on RPC switch) re-subscribes with the new client.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    live,
+    state.status === 'success' ? state.account.pubkey.toString('hex') : '',
+    ws.generation,
+    address,
+    fetchAccountFor,
+  ]);
 
   return (
     <div className="space-y-3 px-3 py-3">
@@ -227,7 +346,13 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({ idl, config, suggestio
         <ResultPanel
           account={state.account}
           decoded={state.decoded}
+          fetchedAt={state.fetchedAt}
+          source={state.source}
           onRefetch={fetchAccount}
+          live={live}
+          onToggleLive={() => setLive((v) => !v)}
+          wsStatus={ws.status}
+          updatePulse={updatePulse}
         />
       )}
 
@@ -243,29 +368,87 @@ export const AccountsTab: React.FC<AccountsTabProps> = ({ idl, config, suggestio
 interface ResultPanelProps {
   account: FetchedAccount;
   decoded: DecodedAccount | null;
+  fetchedAt: number;
+  source: 'manual' | 'live';
   onRefetch: () => void;
+  live: boolean;
+  onToggleLive: () => void;
+  wsStatus: ReturnType<typeof useArchWebSocket>['status'];
+  /** Counter that increments with each live update — drives the pulse animation. */
+  updatePulse: number;
 }
 
-const ResultPanel: React.FC<ResultPanelProps> = ({ account, decoded, onRefetch }) => {
+const ResultPanel: React.FC<ResultPanelProps> = ({
+  account,
+  decoded,
+  fetchedAt,
+  source,
+  onRefetch,
+  live,
+  onToggleLive,
+  wsStatus,
+  updatePulse,
+}) => {
   const ownerHex = account.owner.toString('hex');
   const ownerBase58 = hexToBase58(ownerHex);
   const dataHex = account.data.toString('hex');
+  const wsAvailable = wsStatus !== 'unsupported';
+  const wsConnected = wsStatus === 'connected';
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
-        <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          On-chain state
-        </h3>
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 text-[11px] px-2 text-muted-foreground hover:text-foreground"
-          onClick={onRefetch}
-        >
-          <RefreshCw className="mr-1 h-3 w-3" aria-hidden="true" />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2 min-w-0">
+          <h3 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            On-chain state
+          </h3>
+          <UpdatedAt fetchedAt={fetchedAt} source={source} pulseKey={updatePulse} />
+        </div>
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={onToggleLive}
+            disabled={!wsAvailable}
+            aria-pressed={live}
+            title={
+              !wsAvailable
+                ? 'Live updates aren\u2019t available on this RPC'
+                : live
+                  ? 'Stop streaming account updates'
+                  : 'Auto-refresh on every account update'
+            }
+            className={cn(
+              'inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium transition-colors',
+              !wsAvailable && 'border-border/40 text-muted-foreground/50 cursor-not-allowed',
+              wsAvailable && !live &&
+                'border-border text-muted-foreground hover:text-foreground hover:border-border',
+              live && wsConnected &&
+                'border-success/40 bg-success/10 text-success hover:bg-success/15',
+              live && !wsConnected &&
+                'border-warning/40 bg-warning/10 text-warning hover:bg-warning/15',
+            )}
+          >
+            <span
+              className={cn(
+                'inline-block h-1.5 w-1.5 rounded-full',
+                live && wsConnected && 'bg-success animate-pulse',
+                live && !wsConnected && 'bg-warning',
+                !live && 'bg-muted-foreground/40',
+              )}
+              aria-hidden="true"
+            />
+            Live
+          </button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 text-[11px] px-2 text-muted-foreground hover:text-foreground"
+            onClick={onRefetch}
+          >
+            <RefreshCw className="mr-1 h-3 w-3" aria-hidden="true" />
+            Refresh
+          </Button>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
@@ -594,6 +777,66 @@ const RawBytes: React.FC<{ data: string; length: number }> = ({ data, length }) 
       )}
     </div>
   );
+};
+
+/**
+ * Tiny "updated 3s ago" badge sitting next to the section header.
+ *
+ * - Re-renders itself on a 1-second interval so the relative time
+ *   stays fresh without forcing the whole tab to tick.
+ * - Briefly flashes the brand color when `pulseKey` changes (i.e.
+ *   when a live update arrived), giving the user visual confirmation
+ *   that something happened even if the new bytes look identical to
+ *   the old ones.
+ */
+const UpdatedAt: React.FC<{
+  fetchedAt: number;
+  source: 'manual' | 'live';
+  pulseKey: number;
+}> = ({ fetchedAt, source, pulseKey }) => {
+  const [, force] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => force((n) => n + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const [pulsed, setPulsed] = useState(false);
+  useEffect(() => {
+    if (!pulseKey) return;
+    setPulsed(true);
+    const id = setTimeout(() => setPulsed(false), 800);
+    return () => clearTimeout(id);
+  }, [pulseKey]);
+
+  const label = formatAge(Date.now() - fetchedAt);
+  return (
+    <span
+      className={cn(
+        'text-[10px] uppercase tracking-wider transition-colors',
+        pulsed ? 'text-brand' : 'text-muted-foreground/70',
+      )}
+      title={new Date(fetchedAt).toLocaleString()}
+    >
+      <Radio
+        className={cn(
+          'inline-block h-2.5 w-2.5 mr-1 align-[-0.075em]',
+          source === 'live' ? 'opacity-90' : 'opacity-50',
+        )}
+        aria-hidden="true"
+      />
+      {label}
+    </span>
+  );
+};
+
+const formatAge = (delta: number): string => {
+  if (delta < 1500) return 'just now';
+  const sec = Math.floor(delta / 1000);
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  return `${hr}h ago`;
 };
 
 /**

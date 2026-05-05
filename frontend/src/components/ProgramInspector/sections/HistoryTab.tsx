@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   History,
   ExternalLink,
@@ -8,21 +8,30 @@ import {
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Activity,
+  XCircle,
+  Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '../../ui/button';
 import { getExplorerUrls } from '../../../utils/explorerLinks';
 import { decodeProgramError } from '../../../utils/idl/decodeError';
+import {
+  useArchWebSocket,
+  type TransactionStreamEvent,
+} from '../../../hooks/useArchWebSocket';
 import type {
   ArchIdl,
   InvokeHistoryEntry,
   Project,
 } from '../../../types';
+import type { Config } from '../../../types/config';
 import type { ProjectMutations } from '../projectMutations';
 
 interface HistoryTabProps {
   idl: ArchIdl | null;
   project: Project | null;
+  config: Config;
   mutations: ProjectMutations;
   /**
    * Replay handler — repopulates the Invoke form with the entry's
@@ -31,6 +40,9 @@ interface HistoryTabProps {
    */
   onReplay: (entry: InvokeHistoryEntry) => void;
 }
+
+/** Cap on the in-memory live feed — old events fall off the bottom. */
+const LIVE_FEED_CAP = 25;
 
 /**
  * Per-project transaction history view.
@@ -45,10 +57,13 @@ interface HistoryTabProps {
 export const HistoryTab: React.FC<HistoryTabProps> = ({
   idl,
   project,
+  config,
   mutations,
   onReplay,
 }) => {
   const history = project?.invokeHistory ?? [];
+  const programIdHex = project?.account?.pubkey ?? null;
+  const liveFeed = useProgramTxStream(config.rpcUrl, programIdHex);
 
   if (!project) {
     return (
@@ -58,46 +73,321 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
     );
   }
 
-  if (history.length === 0) {
+  const showEmpty = history.length === 0 && liveFeed.events.length === 0;
+  if (showEmpty) {
     return (
-      <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-        <History className="h-5 w-5 text-muted-foreground/50" aria-hidden="true" />
-        <p className="text-xs text-muted-foreground">
-          No transactions yet. Submit an instruction from the Invoke tab to start tracking history.
-        </p>
+      <div className="space-y-3 px-3 py-3">
+        <LiveFeedPanel
+          status={liveFeed.status}
+          events={liveFeed.events}
+          network={config.network}
+          hasProgram={!!programIdHex}
+        />
+        <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
+          <History className="h-5 w-5 text-muted-foreground/50" aria-hidden="true" />
+          <p className="text-xs text-muted-foreground">
+            No transactions yet. Submit an instruction from the Invoke tab to start tracking history.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-2 px-3 py-3">
-      <div className="flex items-center justify-between">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {history.length} {history.length === 1 ? 'entry' : 'entries'}
-        </span>
-        <button
-          type="button"
-          onClick={() => mutations.clearInvokeHistory()}
-          className="text-[10px] text-muted-foreground hover:text-danger transition-colors"
-          aria-label="Clear all history entries"
-        >
-          Clear all
-        </button>
-      </div>
+    <div className="space-y-3 px-3 py-3">
+      <LiveFeedPanel
+        status={liveFeed.status}
+        events={liveFeed.events}
+        network={config.network}
+        hasProgram={!!programIdHex}
+      />
 
-      <ul className="space-y-1.5" role="list">
-        {history.map((entry) => (
-          <HistoryRow
-            key={entry.id}
-            entry={entry}
-            idl={idl}
-            onReplay={() => onReplay(entry)}
-            onRemove={() => mutations.removeInvokeHistoryEntry(entry.id)}
-          />
-        ))}
-      </ul>
+      <div className="space-y-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            {history.length} {history.length === 1 ? 'entry' : 'entries'}
+          </span>
+          <button
+            type="button"
+            onClick={() => mutations.clearInvokeHistory()}
+            className="text-[10px] text-muted-foreground hover:text-danger transition-colors"
+            aria-label="Clear all history entries"
+          >
+            Clear all
+          </button>
+        </div>
+
+        <ul className="space-y-1.5" role="list">
+          {history.map((entry) => (
+            <HistoryRow
+              key={entry.id}
+              entry={entry}
+              idl={idl}
+              onReplay={() => onReplay(entry)}
+              onRemove={() => mutations.removeInvokeHistoryEntry(entry.id)}
+            />
+          ))}
+        </ul>
+      </div>
     </div>
   );
+};
+
+/**
+ * Owns a tiny ring buffer of `TransactionEvent`s observed for the
+ * given program. Events come from any source (this client or
+ * anyone else hitting the network), so the panel doubles as a
+ * "live program activity" tail that's especially useful when
+ * watching a program respond to external traffic.
+ *
+ * - Buffer is in-memory only; this is intentional, since the
+ *   persisted history already records *our* submissions and we
+ *   don't want to spam IndexedDB with every observed tx.
+ * - Cancels and re-subscribes when the program ID or the WS
+ *   client itself changes (e.g. RPC switch).
+ */
+const useProgramTxStream = (
+  rpcUrl: string,
+  programIdHex: string | null,
+): {
+  status: ReturnType<typeof useArchWebSocket>['status'];
+  events: TransactionStreamEvent[];
+} => {
+  const ws = useArchWebSocket(rpcUrl);
+  const [events, setEvents] = useState<TransactionStreamEvent[]>([]);
+
+  useEffect(() => {
+    if (!programIdHex) return;
+    let unsubscribe: (() => void) | null = null;
+    let cancelled = false;
+
+    (async () => {
+      const dispose = await ws.subscribeProgramTransactions(programIdHex, (evt) => {
+        setEvents((prev) => {
+          // Dedupe by hash — the validator can publish the same tx
+          // through multiple confirmation paths under load.
+          if (prev.some((p) => p.hash === evt.hash)) return prev;
+          const next = [evt, ...prev];
+          return next.length > LIVE_FEED_CAP ? next.slice(0, LIVE_FEED_CAP) : next;
+        });
+      });
+      if (cancelled) {
+        dispose();
+        return;
+      }
+      unsubscribe = dispose;
+    })();
+
+    return () => {
+      cancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
+    // Reset on program change so an old program's tail doesn't
+    // bleed into the new one's panel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [programIdHex, ws.generation]);
+
+  // Clear the feed when the program switches, so users don't see
+  // stale events attributed to the new program.
+  useEffect(() => {
+    setEvents([]);
+  }, [programIdHex, ws.generation]);
+
+  return { status: ws.status, events };
+};
+
+interface LiveFeedPanelProps {
+  status: ReturnType<typeof useArchWebSocket>['status'];
+  events: TransactionStreamEvent[];
+  network: Config['network'];
+  hasProgram: boolean;
+}
+
+/**
+ * Live feed of transactions observed touching the open program.
+ *
+ * Always visible (so the user knows the feed exists), but renders
+ * different states depending on what the WS layer is doing:
+ *
+ *   - `connected` + events → list rolls in real time.
+ *   - `connected` + empty   → "watching" with an explainer.
+ *   - `connecting`/`disconnected`/`error` → status chip; we still
+ *     show any historical events we already received before the
+ *     drop, since they're useful to scroll back through.
+ *   - `unsupported`         → quiet hint that this network's RPC
+ *     doesn't expose a known WS endpoint, no error tone.
+ *
+ * The panel is intentionally separate from the persisted history
+ * list below it: this is a live tail (in-memory, not stored), and
+ * we don't want to mix authored vs observed entries.
+ */
+const LiveFeedPanel: React.FC<LiveFeedPanelProps> = ({
+  status,
+  events,
+  network,
+  hasProgram,
+}) => {
+  if (!hasProgram) return null;
+  const explorerUrls = getExplorerUrls(network);
+
+  return (
+    <section className="rounded-lg border border-border bg-surface-2/30">
+      <header className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/60">
+        <div className="flex items-center gap-2 min-w-0">
+          <Activity className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Live program activity
+          </span>
+        </div>
+        <ConnectionPill status={status} />
+      </header>
+
+      {events.length === 0 ? (
+        <div className="px-3 py-3 text-[11px] text-muted-foreground italic">
+          {liveEmptyMessage(status)}
+        </div>
+      ) : (
+        <ul role="list" className="divide-y divide-border/40">
+          {events.map((evt) => (
+            <li
+              key={evt.hash}
+              className="px-2.5 py-1.5 flex items-center gap-2 text-[11px]"
+            >
+              <StatusGlyph status={evt.status} />
+              <code
+                className="flex-1 font-mono text-foreground/85 truncate"
+                title={evt.hash}
+              >
+                {evt.hash}
+              </code>
+              <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                #{evt.blockHeight}
+              </span>
+              <span className="text-[10px] text-muted-foreground shrink-0">
+                {formatRelativeTime(evt.observedAt)}
+              </span>
+              {explorerUrls && (
+                <a
+                  href={explorerUrls.tx(evt.hash)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-brand hover:text-brand-hover shrink-0"
+                  aria-label="Open transaction in explorer"
+                >
+                  <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                </a>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+};
+
+const liveEmptyMessage = (
+  status: ReturnType<typeof useArchWebSocket>['status'],
+): string => {
+  switch (status) {
+    case 'connected':
+      return 'Watching for incoming transactions. None yet — invoke an instruction or have someone hit your program.';
+    case 'connecting':
+      return 'Connecting to the live event stream\u2026';
+    case 'disconnected':
+      return 'Live stream disconnected. Reconnecting automatically\u2026';
+    case 'error':
+      return 'Couldn\u2019t connect to the live event stream. Will retry in the background.';
+    case 'unsupported':
+      return 'Live updates aren\u2019t available on this RPC endpoint.';
+    case 'idle':
+    default:
+      return 'Live event stream is starting\u2026';
+  }
+};
+
+const ConnectionPill: React.FC<{
+  status: ReturnType<typeof useArchWebSocket>['status'];
+}> = ({ status }) => {
+  const tone = pillTone(status);
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[9px] uppercase tracking-wider',
+        tone.cls,
+      )}
+      title={tone.title}
+    >
+      <span
+        className={cn('h-1.5 w-1.5 rounded-full', tone.dot)}
+        aria-hidden="true"
+      />
+      {tone.label}
+    </span>
+  );
+};
+
+const pillTone = (
+  status: ReturnType<typeof useArchWebSocket>['status'],
+): { label: string; cls: string; dot: string; title: string } => {
+  switch (status) {
+    case 'connected':
+      return {
+        label: 'live',
+        cls: 'border-success/40 bg-success/10 text-success',
+        dot: 'bg-success animate-pulse',
+        title: 'Connected to the validator event stream',
+      };
+    case 'connecting':
+      return {
+        label: 'connecting',
+        cls: 'border-warning/40 bg-warning/10 text-warning',
+        dot: 'bg-warning animate-pulse',
+        title: 'Establishing WebSocket connection',
+      };
+    case 'disconnected':
+      return {
+        label: 'reconnecting',
+        cls: 'border-warning/40 bg-warning/10 text-warning',
+        dot: 'bg-warning',
+        title: 'Lost connection — automatic retry in progress',
+      };
+    case 'error':
+      return {
+        label: 'offline',
+        cls: 'border-danger/40 bg-danger/10 text-danger',
+        dot: 'bg-danger',
+        title: 'Failed to connect to the event stream',
+      };
+    case 'unsupported':
+      return {
+        label: 'unavailable',
+        cls: 'border-border bg-surface-1 text-muted-foreground',
+        dot: 'bg-muted-foreground/40',
+        title: 'No known WebSocket endpoint for this RPC',
+      };
+    case 'idle':
+    default:
+      return {
+        label: 'idle',
+        cls: 'border-border bg-surface-1 text-muted-foreground',
+        dot: 'bg-muted-foreground/40',
+        title: 'Live stream not yet started',
+      };
+  }
+};
+
+const StatusGlyph: React.FC<{ status: TransactionStreamEvent['status'] }> = ({
+  status,
+}) => {
+  switch (status) {
+    case 'processed':
+      return <CheckCircle2 className="h-3 w-3 text-success shrink-0" aria-hidden="true" />;
+    case 'failed':
+      return <XCircle className="h-3 w-3 text-danger shrink-0" aria-hidden="true" />;
+    case 'queued':
+    default:
+      return <Clock className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden="true" />;
+  }
 };
 
 interface HistoryRowProps {
