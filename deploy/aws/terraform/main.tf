@@ -171,8 +171,12 @@ resource "aws_ecs_task_definition" "server" {
   family                   = "${var.service_name}-server"
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
-  cpu                      = "1024"
-  memory                   = "2048"
+  # Bumped from 1024/2048 to 2048/4096 to support concurrent SBF + IDL host
+  # builds. The IDL extraction (satellite-lang-idl IdlBuilder) spawns its
+  # own host-target `cargo build` after each SBF compile, which can OOM at
+  # 2 GB when running alongside an active SBF build.
+  cpu                      = "2048"
+  memory                   = "4096"
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
 

@@ -11,7 +11,7 @@ pub struct BuildRequest {
     program_name: String,
     files: Files,
     uuid: Option<String>,
-    /// "satellite" → arch_program 0.6.2 + arch-satellite-lang 0.31.5. "native" → arch_program 0.6.2. Default: "satellite".
+    /// "satellite" → arch_program 0.6.4 + arch-satellite-lang 0.31.5. "native" → arch_program 0.6.4. Default: "satellite".
     #[serde(default)]
     framework: Option<String>,
     /// When set, substitute declare_id! placeholder with declare_id!(program_id_hex) in lib.rs. Satellite/Solana BPF expects 64 hex chars, not base58.
@@ -34,6 +34,11 @@ struct BuildStatusResponse {
     stderr: Option<String>,
     started_at: String,
     completed_at: Option<String>,
+    /// Stringified IDL JSON (or null) for satellite framework projects.
+    /// The frontend parses this and auto-imports it into the project on
+    /// successful build, so the Program Inspector lights up immediately.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    idl_json: Option<String>,
 }
 
 pub async fn build(
@@ -55,7 +60,7 @@ pub async fn build(
     let tracker_clone = tracker.clone();
     let framework = match payload.framework.as_deref() {
         Some("native") => program::BuildFramework::Native,
-        _ => program::BuildFramework::Satellite, // "satellite" or missing → Satellite (0.6.2)
+        _ => program::BuildFramework::Satellite, // "satellite" or missing → Satellite (0.6.4)
     };
 
     // Start tracking the build
@@ -89,13 +94,17 @@ pub async fn build(
         println!("[BUILD] Build function returned for UUID: {}", uuid_clone);
 
         match result {
-            Ok((stderr, final_program_name)) => {
+            Ok(outcome) => {
+                let stderr = outcome.stderr;
+                let final_program_name = outcome.program_name;
+                let idl_json = outcome.idl_json;
                 println!("[BUILD] Build Ok for UUID: {}", uuid_clone);
                 println!("[BUILD] stderr length: {} bytes", stderr.len());
                 println!("[BUILD] stderr contains 'Finished': {}", stderr.contains("Finished"));
                 println!("[BUILD] stderr contains 'release': {}", stderr.contains("release"));
                 println!("[BUILD] stderr contains '`release`': {}", stderr.contains("`release`"));
                 println!("[BUILD] stderr contains 'error: could not compile': {}", stderr.contains("error: could not compile"));
+                println!("[BUILD] idl_json present: {}", idl_json.is_some());
 
                 // Check if build actually succeeded by looking for compilation success indicators
                 let build_succeeded = stderr.contains("Finished") &&
@@ -105,14 +114,22 @@ pub async fn build(
                 println!("[BUILD] build_succeeded: {}", build_succeeded);
                 println!("[BUILD] Calling complete_build for UUID: {} with status: {}", uuid_clone, if build_succeeded { "Success" } else { "Failed" });
 
-                tracker_clone.complete_build(&uuid_clone, stderr, final_program_name, build_succeeded).await;
+                // Only attach the IDL to the tracker on a successful build —
+                // a failed build will sometimes still emit a partial IDL, but
+                // surfacing it would be misleading.
+                let attached_idl = if build_succeeded { idl_json } else { None };
+                tracker_clone
+                    .complete_build(&uuid_clone, stderr, final_program_name, build_succeeded, attached_idl)
+                    .await;
 
                 println!("[BUILD] complete_build finished for UUID: {}", uuid_clone);
             },
             Err(e) => {
                 println!("[BUILD] Build Err for UUID: {}, error: {}", uuid_clone, e);
                 let error_msg = format!("Build failed: {}", e);
-                tracker_clone.complete_build(&uuid_clone, error_msg, program_name, false).await;
+                tracker_clone
+                    .complete_build(&uuid_clone, error_msg, program_name, false, None)
+                    .await;
                 println!("[BUILD] complete_build (error) finished for UUID: {}", uuid_clone);
             }
         }
@@ -149,6 +166,7 @@ pub async fn build_status(
                 stderr: info.stderr,
                 started_at: info.started_at.to_rfc3339(),
                 completed_at: info.completed_at.map(|dt| dt.to_rfc3339()),
+                idl_json: info.idl_json,
             }),
         )),
         None => Ok((
@@ -161,6 +179,7 @@ pub async fn build_status(
                 stderr: Some("Build not found".to_string()),
                 started_at: chrono::Utc::now().to_rfc3339(),
                 completed_at: None,
+                idl_json: None,
             }),
         )),
     }

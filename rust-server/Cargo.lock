@@ -76,6 +76,7 @@ dependencies = [
  "native-tls",
  "regex",
  "reqwest",
+ "satellite-lang-idl",
  "serde",
  "serde_json",
  "socket2",
@@ -1335,6 +1336,29 @@ name = "ryu"
 version = "1.0.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ea1a2d0a644769cc99faa24c3ad26b379b786fe7c36fd3c546254801650e6dd"
+
+[[package]]
+name = "satellite-lang-idl"
+version = "0.31.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "15b8313ae1418c640abdf15a11ba8e0c0bdaf77da6da1e3c36a6d8565a6e546a"
+dependencies = [
+ "anyhow",
+ "regex",
+ "satellite-lang-idl-spec",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "satellite-lang-idl-spec"
+version = "0.31.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a8803062a340678d62c5aafecb2f164335631ab1a7b8a9bf0d83afce58589bba"
+dependencies = [
+ "anyhow",
+ "serde",
+]
 
 [[package]]
 name = "schannel"

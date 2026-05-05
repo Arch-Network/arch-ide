@@ -16,8 +16,15 @@ aws ecr describe-repositories --repository-names "$REPO_NAME" --region "$REGION"
 # Login to ECR
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com"
 
-# Buildx for linux/amd64
-docker buildx create --use >/dev/null 2>&1 || true
+# Buildx for linux/amd64. Use a named, idempotent builder so successive
+# script runs reuse the same buildkit cache (the unnamed `--use` form
+# creates a fresh throwaway builder each invocation, defeating cache).
+BUILDER_NAME=${BUILDER_NAME:-arch-ide-builder}
+if ! docker buildx inspect "$BUILDER_NAME" >/dev/null 2>&1; then
+  docker buildx create --name "$BUILDER_NAME" --use >/dev/null
+else
+  docker buildx use "$BUILDER_NAME" >/dev/null
+fi
 
 GIT_SHA=$(git rev-parse --short HEAD)
 TAGS=("latest" "$GIT_SHA")

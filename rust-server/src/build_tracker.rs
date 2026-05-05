@@ -20,6 +20,12 @@ pub struct BuildInfo {
     pub stderr: Option<String>,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// JSON-serialized IDL extracted via `satellite-lang-idl`. Populated only
+    /// for satellite-framework projects whose source actually uses the
+    /// satellite macros — `None` for native projects, programs without
+    /// `#[program]` decorators, or when extraction fails (extraction
+    /// failures are non-fatal: the SBF binary is still built).
+    pub idl_json: Option<String>,
 }
 
 #[derive(Clone)]
@@ -45,6 +51,7 @@ impl BuildTracker {
                 stderr: None,
                 started_at: chrono::Utc::now(),
                 completed_at: None,
+                idl_json: None,
             },
         );
     }
@@ -67,7 +74,14 @@ impl BuildTracker {
         }
     }
 
-    pub async fn complete_build(&self, uuid: &str, stderr: String, program_name: String, success: bool) {
+    pub async fn complete_build(
+        &self,
+        uuid: &str,
+        stderr: String,
+        program_name: String,
+        success: bool,
+        idl_json: Option<String>,
+    ) {
         println!("[TRACKER] complete_build called for UUID: {}, success: {}", uuid, success);
         let mut builds = self.builds.write().await;
         println!("[TRACKER] Got write lock for UUID: {}", uuid);
@@ -78,7 +92,13 @@ impl BuildTracker {
             info.stderr = Some(stderr);
             info.program_name = program_name;
             info.completed_at = Some(chrono::Utc::now());
-            println!("[TRACKER] Updated build info for UUID: {}, new status: {:?}", uuid, info.status);
+            info.idl_json = idl_json;
+            println!(
+                "[TRACKER] Updated build info for UUID: {}, new status: {:?}, has idl: {}",
+                uuid,
+                info.status,
+                info.idl_json.is_some()
+            );
         } else {
             println!("[TRACKER] WARNING: Build info NOT FOUND for UUID: {}", uuid);
         }

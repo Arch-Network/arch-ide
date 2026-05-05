@@ -16,7 +16,7 @@ const PROGRAMS_DIR: &str = "programs";
 const MAX_FILE_AMOUNT: usize = 256;
 const MAX_PATH_LENGTH: usize = 128;
 
-/// Arch crate version used by the compilation server: 0.6.2
+/// Arch crate version used by the compilation server: 0.6.4
 /// All arch_program, apl-token, apl-associated-token-account, and apl-token-metadata
 /// crates are pulled from crates.io at this version.
 
@@ -51,7 +51,15 @@ fn find_solana_rustc_path() -> Option<String> {
     None
 }
 
-/// Cargo.toml template for Satellite framework: arch_program 0.6.2 + arch-satellite-lang 0.31.5.
+/// Cargo.toml template for Satellite framework: arch_program 0.6.4 + arch-satellite-lang 0.31.5.
+///
+/// The `[features]` block at the bottom is required for IDL extraction. The
+/// IdlBuilder spawns a host-target `cargo build --features idl-build` which
+/// expands the satellite macros' compile-time IDL emitters; without that
+/// feature flag wired here the build is identical to a normal SBF compile.
+/// `no-entrypoint` is the canonical Anchor/satellite escape hatch for the
+/// host pass — without it, the macro-expanded entrypoint! tries to link
+/// against syscalls that don't exist off-chain.
 const CARGO_TOML_TEMPLATE_SATELLITE: &str = r#"[package]
 name = "__PROGRAM_NAME__"
 version = "0.1.0"
@@ -60,11 +68,18 @@ edition = "2021"
 [lib]
 crate-type = ["cdylib"]
 
+[features]
+default = []
+no-entrypoint = []
+no-idl = []
+cpi = ["no-entrypoint"]
+idl-build = ["arch-satellite-lang/idl-build", "arch-satellite-apl/idl-build"]
+
 [dependencies]
-arch_program = "0.6.2"
-apl-associated-token-account = { version = "0.6.2", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.2", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.2", features = ["no-entrypoint"] }
+arch_program = "0.6.4"
+apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
 
 # Satellite framework
 arch-satellite-lang = "0.31.5"
@@ -101,6 +116,8 @@ toml_parser = ">=1.0.0, <1.1.0"
 toml_writer = ">=1.0.0, <1.1.0"
 serde_spanned = ">=1.0.0, <1.1.0"
 unicode-segmentation = ">=1.0.0, <1.13.0"
+hashbrown = ">=0.14.0, <0.17.0"
+indexmap = ">=2.0.0, <2.14.0"
 
 [profile.release]
 overflow-checks = true
@@ -116,7 +133,7 @@ incremental = true
 codegen-units = 256
 "#;
 
-/// Cargo.toml template for native / latest: arch_program 0.6.2 (no arch-satellite-lang version yet).
+/// Cargo.toml template for native / latest: arch_program 0.6.4.
 const CARGO_TOML_TEMPLATE_NATIVE: &str = r#"[package]
 name = "__PROGRAM_NAME__"
 version = "0.1.0"
@@ -126,10 +143,10 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-arch_program = "0.6.2"
-apl-associated-token-account = { version = "0.6.2", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.2", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.2", features = ["no-entrypoint"] }
+arch_program = "0.6.4"
+apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
 
 # Satellite framework
 arch-satellite-lang = "0.31.5"
@@ -161,6 +178,8 @@ toml_parser = ">=1.0.0, <1.1.0"
 toml_writer = ">=1.0.0, <1.1.0"
 serde_spanned = ">=1.0.0, <1.1.0"
 unicode-segmentation = ">=1.0.0, <1.13.0"
+hashbrown = ">=0.14.0, <0.17.0"
+indexmap = ">=2.0.0, <2.14.0"
 
 [profile.release]
 overflow-checks = true
@@ -179,9 +198,9 @@ codegen-units = 256
 /// Framework / SDK version selector. Used to pick the right Cargo.toml dependency set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuildFramework {
-    /// Satellite framework: arch_program 0.6.2 + arch-satellite-lang 0.31.5.
+    /// Satellite framework: arch_program 0.6.4 + arch-satellite-lang 0.31.5.
     Satellite,
-    /// Native / latest: arch_program 0.6.2.
+    /// Native / latest: arch_program 0.6.4.
     Native,
 }
 
@@ -222,10 +241,10 @@ overflow-checks = true
 incremental = true
 
 [dependencies]
-arch_program = "0.6.2"
-apl-associated-token-account = { version = "0.6.2", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.2", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.2", features = ["no-entrypoint"] }
+arch_program = "0.6.4"
+apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
 
 # Satellite framework (published crate)
 arch-satellite-lang = "0.31.5"
@@ -258,6 +277,8 @@ toml_parser = ">=1.0.0, <1.1.0"
 toml_writer = ">=1.0.0, <1.1.0"
 serde_spanned = ">=1.0.0, <1.1.0"
 unicode-segmentation = ">=1.0.0, <1.13.0"
+hashbrown = ">=0.14.0, <0.17.0"
+indexmap = ">=2.0.0, <2.14.0"
 
 # Testing
 [dev-dependencies]
@@ -357,6 +378,20 @@ pub fn process_instruction(
 
 pub type Files = Vec<[String; 2]>;
 
+/// Output of a `program::build` call. We carry both the raw build log
+/// (stderr from `cargo-build-sbf`) and an optional IDL JSON string for
+/// satellite framework projects whose macro tree exposes the
+/// `arch-satellite-lang` IDL surface.
+///
+/// `idl_json` is intentionally optional: extraction is best-effort and a
+/// failure there must never fail the SBF build itself, since the binary
+/// is the deploy artifact and the IDL is metadata.
+pub struct BuildOutcome {
+    pub stderr: String,
+    pub program_name: String,
+    pub idl_json: Option<String>,
+}
+
 /// Placeholder program id in Satellite/counter template; substituted at build time when program_id_hex is provided.
 /// Satellite/Solana BPF declare_id! expects 64 hex chars (error: "program id must be 64 hex chars").
 const DECLARE_ID_PLACEHOLDER: &str = "declare_id!(\"1111111111111111111111111111111111111111111111111111111111111111\")";
@@ -368,7 +403,7 @@ pub async fn build(
     framework: BuildFramework,
     program_id_hex: Option<&str>,
     output_tx: Option<mpsc::Sender<String>>, // if present, each line is sent for live UI updates
-) -> anyhow::Result<(String, String)> {
+) -> anyhow::Result<BuildOutcome> {
     println!("Starting build for program: {} (framework: {:?})", program_name, framework);
 
     // Check file count
@@ -711,7 +746,7 @@ pub async fn build(
     let stdout = child.stdout.take();
     let stderr = child.stderr.take();
     let stdout_tx = output_tx.clone();
-    let stderr_tx = output_tx;
+    let stderr_tx = output_tx.clone();
 
     let stdout_handle = tokio::spawn(async move {
         let mut lines = String::new();
@@ -762,7 +797,11 @@ pub async fn build(
             stderr_lines.push('\n');
         }
         // Return the stderr output even on failure
-        return Ok((stderr_lines, safe_program_name));
+        return Ok(BuildOutcome {
+            stderr: stderr_lines,
+            program_name: safe_program_name,
+            idl_json: None,
+        });
     }
 
     println!("Build command executed successfully.");
@@ -791,7 +830,93 @@ pub async fn build(
         println!("Warning: Binary file not found at expected location");
     }
 
-    Ok((stderr_lines, safe_program_name))
+    // Best-effort IDL extraction (Satellite framework only). We run this
+    // AFTER the SBF build succeeds + the binary is present, so the deploy
+    // path is never blocked by IDL issues. Any failure here is logged and
+    // swallowed — the manual importer remains the fallback.
+    let idl_json = if matches!(framework, BuildFramework::Satellite) {
+        let canonical = program_path
+            .canonicalize()
+            .unwrap_or_else(|_| program_path.clone());
+        match extract_idl(&canonical, output_tx.clone()).await {
+            Ok(Some(json)) => {
+                println!("[IDL] Extraction succeeded ({} bytes)", json.len());
+                if let Some(ref tx) = output_tx {
+                    let _ = tx.send(format!("[IDL] Extracted IDL ({} bytes)", json.len())).await;
+                }
+                Some(json)
+            }
+            Ok(None) => {
+                println!("[IDL] No IDL produced (program may lack #[program] macros)");
+                None
+            }
+            Err(e) => {
+                println!("[IDL] Extraction failed (non-fatal): {}", e);
+                if let Some(ref tx) = output_tx {
+                    let _ = tx
+                        .send(format!("[IDL] Extraction failed (non-fatal): {}", e))
+                        .await;
+                }
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    Ok(BuildOutcome {
+        stderr: stderr_lines,
+        program_name: safe_program_name,
+        idl_json,
+    })
+}
+
+/// Best-effort IDL extraction for a satellite-framework program.
+///
+/// Strategy: hand the program's path to `satellite-lang-idl`'s public
+/// `IdlBuilder`, which:
+///   1. Spawns `cargo build --features idl-build,no-entrypoint` against a
+///      host target (NOT SBF) under a separate `target/` directory.
+///   2. Captures the macro-expanded compile-time IDL emitters' output.
+///   3. Returns a typed `Idl` struct that we serialize as JSON.
+///
+/// We run it inside `spawn_blocking` because the builder is synchronous
+/// and would otherwise pin the tokio worker thread for the duration of
+/// the (potentially minute-long) host compile.
+async fn extract_idl(
+    program_path: &Path,
+    output_tx: Option<mpsc::Sender<String>>,
+) -> anyhow::Result<Option<String>> {
+    let path = program_path.to_path_buf();
+
+    if let Some(ref tx) = output_tx {
+        let _ = tx.send(format!("[IDL] Extracting IDL from {}", path.display())).await;
+    }
+
+    let result = tokio::task::spawn_blocking(move || -> anyhow::Result<Option<String>> {
+        // `IdlBuilder::build()` returns Err when the user's program either
+        // (a) doesn't compile at all, (b) has no `#[program]` macros, or
+        // (c) the satellite tooling rejected the manifest. In all cases we
+        // want to return None rather than propagate.
+        let idl = match satellite_lang_idl::build::IdlBuilder::new()
+            .program_path(path)
+            .skip_lint(true)
+            .no_docs(false)
+            .build()
+        {
+            Ok(idl) => idl,
+            Err(e) => {
+                println!("[IDL] IdlBuilder rejected the program: {}", e);
+                return Ok(None);
+            }
+        };
+        let json = serde_json::to_string(&idl)?;
+        Ok(Some(json))
+    })
+    .await
+    .map_err(|join_err| anyhow!("IDL extraction join error: {}", join_err))?;
+
+    result
 }
 
 async fn upload_to_gcs(uuid: &str, program_name: &str, binary_data: &[u8]) -> anyhow::Result<()> {
