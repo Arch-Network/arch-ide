@@ -54,116 +54,29 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        // Function-form `manualChunks` so we can route by *path* rather
-        // than by package name. The static-form map only matched the
-        // listed entries; everything else (lucide icons, Radix
-        // primitives, the Arch SDK, Borsh, @scure/@noble crypto, idb,
-        // bs58, Bitcoin signing libs, etc.) all collapsed into the
-        // 8 MB main bundle. This split puts each large family in its
-        // own cacheable file so a hot-fix to app code doesn't
-        // invalidate vendor cache and first-paint downloads less.
-        manualChunks: (id) => {
-          if (!id.includes('node_modules')) return undefined;
-
-          // React core. Keep `react-router*` separate from generic
-          // "react-…" packages by anchoring on the path separator.
-          if (/[\\/]react[\\/]/.test(id) || /[\\/]react-dom[\\/]/.test(id)) {
-            return 'react-vendor';
-          }
-
-          // Monaco editor + its language services.
-          if (id.includes('monaco-editor') || id.includes('@monaco-editor')) {
-            return 'monaco-vendor';
-          }
-
-          // Icons. Lucide ships hundreds of components; even with
-          // tree-shaking we import dozens, and they tend to dominate
-          // any "misc" bucket.
-          if (id.includes('lucide-react')) {
-            return 'icons-vendor';
-          }
-
-          // Radix primitives and shadcn-style wrappers + Headless
-          // UI (used in a couple of legacy menus we haven't migrated
-          // off yet — same role bucket).
-          if (id.includes('@radix-ui') || id.includes('@headlessui')) {
-            return 'radix-vendor';
-          }
-
-          // Arch SDK + crypto + Node-style polyfills all share the
-          // same circular import graph at runtime: arch-sdk pulls
-          // @noble/@scure, those reach into `buffer/` and
-          // `process/browser` polyfills, and the polyfill helpers
-          // (Rollup's `getAugmentedNamespace`) end up referenced
-          // from arch-sdk in turn. Splitting them into separate
-          // chunks forces ESM to resolve a cross-chunk cycle, and
-          // any binding read at module top-level lands in the
-          // temporal dead zone (e.g. "Cannot access 'hi' before
-          // initialization"). Keeping the whole foundational layer
-          // in one chunk lets Rollup hoist imports in dependency
-          // order so initialization is monotonic.
-          if (
-            id.includes('@arch-network') ||
-            id.includes('bitcoinjs-lib') ||
-            id.includes('bitcoinjs-message') ||
-            id.includes('@bitcoinerlab') ||
-            id.includes('@sats-connect') ||
-            id.includes('sats-connect') ||
-            id.includes('noble-secp256k1') ||
-            id.includes('tiny-secp256k1') ||
-            id.includes('/secp256k1/') ||
-            id.includes('@noble') ||
-            id.includes('@scure') ||
-            id.includes('bip322') ||
-            id.includes('borsh') ||
-            id.includes('bs58') ||
-            id.includes('/wif/') ||
-            id.includes('js-sha256') ||
-            id.includes('vite-plugin-node-polyfills') ||
-            id.includes('@esbuild-plugins/node') ||
-            id.includes('web-streams-polyfill') ||
-            id.includes('vm-browserify') ||
-            id.includes('process/browser') ||
-            id.includes('crypto-browserify') ||
-            id.includes('readable-stream') ||
-            id.includes('buffer/')
-          ) {
-            return 'crypto-vendor';
-          }
-
-          // Archive (zip) for project import/export.
-          if (id.includes('jszip')) {
-            return 'archive-vendor';
-          }
-
-          // GitHub API client (auth, gists, repos). Only used by
-          // import/export flows so it shouldn't be in the hot path.
-          if (id.includes('@octokit')) {
-            return 'octokit-vendor';
-          }
-
-          // TanStack family (query, virtual, table). Used widely
-          // enough to keep on the hot path but bulky enough to split.
-          if (id.includes('@tanstack')) {
-            return 'tanstack-vendor';
-          }
-
-          // HTTP client. Big enough to call out, small enough that
-          // route-based splitting isn't worth the effort.
-          if (id.includes('/axios/') || id.endsWith('/axios')) {
-            return 'http-vendor';
-          }
-
-          // Storage / persistence.
-          if (id.includes('/idb/') || id.endsWith('/idb')) {
-            return 'storage-vendor';
-          }
-
-          // Everything else from node_modules. Keeps unrelated
-          // dependency churn out of `index-*.js` so app-only edits
-          // don't bust the vendor cache.
-          return 'vendor';
-        },
+        // We deliberately do NOT use `manualChunks` here.
+        //
+        // Phase 4F's experiment with path-based vendor splitting
+        // (react-vendor / monaco-vendor / crypto-vendor / arch-vendor
+        // / polyfills-vendor / archive-vendor / catch-all vendor)
+        // produced a sequence of cross-chunk import cycles that
+        // ESM resolved by hoisting bindings — which then landed in
+        // the temporal dead zone at runtime, blanking the app with
+        // errors like "Cannot access 'hi' before initialization"
+        // and "Cannot read properties of undefined (reading
+        // 'useLayoutEffect')". Each fix surfaced another cycle,
+        // because the underlying Bitcoin/crypto/polyfill ecosystem
+        // is full of mutual top-level references and Rollup's
+        // shared-helper placement is non-deterministic across
+        // chunks.
+        //
+        // Letting Rollup choose chunk boundaries by its own static
+        // analysis avoids cross-chunk cycles by construction (it
+        // co-locates strongly-connected components into the same
+        // chunk). We give up the granular vendor cache wins, but
+        // we get a deterministic, working build. The Monaco editor
+        // is still loaded lazily via React.lazy in `App.tsx`, so
+        // first paint isn't blocked by its 4MB bundle.
       },
     },
     reportCompressedSize: false,

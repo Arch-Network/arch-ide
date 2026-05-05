@@ -1,7 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import {
   ArchWebSocketClient,
-  BackoffStrategyType,
   EventTopic,
 } from '@arch-network/arch-sdk';
 
@@ -145,8 +144,15 @@ const ensureSlot = (rpcUrl: string): SocketSlot | null => {
     url: wsUrl,
     autoReconnect: true,
     maxReconnectAttempts: 10,
+    // The SDK declares `BackoffStrategyType` as an enum in its `.d.ts`
+    // but the published `.mjs` build doesn't actually export it at
+    // runtime (it was a const enum that TypeScript inlined). Using
+    // the string literal matches what the SDK compares against
+    // internally and avoids the TDZ-style "Cannot read properties of
+    // undefined (reading 'Exponential')" crash.
     backoffStrategy: {
-      type: BackoffStrategyType.Exponential,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      type: 'exponential' as any,
       initial: 500,
       factor: 2,
       maxDelay: 15_000,
