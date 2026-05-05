@@ -22,10 +22,10 @@ const DeleteProjectDialog = ({ isOpen, onClose, onConfirm, projectName }: Delete
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-background border-border sm:max-w-[425px]">
+      <DialogContent className="bg-card border-border sm:max-w-[425px]">
         <DialogHeader>
           <DialogTitle className="flex gap-2 items-center text-foreground">
-            <AlertTriangle className="h-5 w-5 text-red-500" />
+            <AlertTriangle className="h-5 w-5 text-danger" aria-hidden="true" />
             Confirm Delete
           </DialogTitle>
           <DialogDescription className="text-muted-foreground">

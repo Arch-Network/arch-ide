@@ -68,9 +68,8 @@ export const getFileIcon = (fileName: string) => {
     case 'wav':
       return <FileAudio size={15} className="text-green-400 shrink-0" />;
 
-    // Default
     default:
-      return <File size={15} className="text-gray-400 shrink-0" />;
+      return <File size={15} className="text-muted-foreground shrink-0" />;
   }
 };
 

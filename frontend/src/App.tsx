@@ -1,36 +1,46 @@
 // src/App.tsx
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Editor from './components/Editor';
 import { Output } from './components/Output';
-import ProjectList from './components/ProjectList';
+import TopBar from './components/TopBar';
+import BottomPanel from './components/BottomPanel';
+import CommandPalette, { type CommandItem } from './components/CommandPalette';
 import NewProjectDialog from './components/NewProjectDialog';
 import { projectService } from './services/projectService';
-import type { Project, FileNode, ProjectAccount, ProjectFramework } from './types';
+import type { ArchIdl, Project, FileNode, ProjectAccount, ProjectFramework } from './types';
+import type { ProjectMutations } from './components/ProgramInspector/projectMutations';
+import { parseIdlJson } from './utils/idl/validate';
 import TabBar from './components/TabBar';
-import ResizeHandle from './components/ResizeHandle';
 import NewItemDialog from './components/NewItemDialog';
 import { OutputMessage } from './components/Output';
 import { ConfigPanel } from './components/ConfigPanel';
-import { Button } from './components/ui/button';
-import { PanelLeft, Settings } from 'lucide-react';
+import {
+  CheckCircle2,
+  AlertCircle,
+  Hammer,
+  Rocket,
+  PlusCircle,
+  FilePlus2,
+  FolderPlus,
+  Settings,
+  Home,
+  Play,
+} from 'lucide-react';
 import SidePanel from './components/SidePanel';
 import { StatusBar } from './components/StatusBar';
-import type { ArchIdl } from './types';
 import { ArchProgramLoader, deployProgram } from './utils/arch-sdk-deployer';
-import { storage } from './utils/storage';
+import { storage, type SidebarView } from './utils/storage';
 import { hexToBase58 } from './utils/base58';
 import { getExplorerUrls } from './utils/explorerLinks';
 import { FileChange } from './types/types';
-import { Plus, FolderPlus, Download } from 'lucide-react';
 import { Buffer } from 'buffer/';
 import { formatBuildError } from './utils/errorFormatter';
-import { Loader2 } from 'lucide-react';
 import { ArchPgClient } from './utils/archPgClient';
-import { ThemeProvider, useTheme } from './theme/ThemeContext';
-import { ThemeVariableProvider } from './theme/ThemeProvider';
-import ARCH_THEME from './theme/theme';
-import { GlobalStyles } from './styles/GlobalStyles';
+import { ThemeProvider } from './theme/ThemeContext';
+import { findFileInProject, findFileByPath, constructFullPath } from './utils/projectTree';
+import { useResizablePanel } from './hooks/useResizablePanel';
+import { useEditorPreferences } from './hooks/useEditorPreferences';
 import { DeploymentModal } from './components/DeploymentModal';
 import { BrowserCompatibilityAlert } from './components/BrowserCompatibilityAlert';
 import { TutorialProvider, useTutorial } from './context/TutorialContext';
@@ -180,17 +190,6 @@ const findNodeByPath = (nodes: FileNode[], targetPath: string[]): FileNode | nul
   return findNodeByPath(node.children, rest);
 };
 
-export const findFileInProject = (nodes: FileNode[], targetPath: string): FileNode | null => {
-  for (const node of nodes) {
-    if (node.type === 'file' && (node.path === targetPath || node.name === targetPath)) return node;
-    if (node.type === 'directory' && node.children) {
-      const found = findFileInProject(node.children, targetPath);
-      if (found) return found;
-    }
-  }
-  return null;
-};
-
 // Add these new utility functions at the top level
 const stripProjectContent = (project: Project): Project => {
   // Only keep essential metadata and stripped file structure
@@ -225,32 +224,6 @@ interface ArchDeployOptions {
     password: string;
   };
 }
-
-const constructFullPath = (file: FileNode, files: FileNode[]): string => {
-  const findPath = (nodes: FileNode[], target: FileNode, currentPath: string = ''): string | null => {
-    for (const node of nodes) {
-      if (node === file) return currentPath + node.name;
-      if (node.children) {
-        const found = findPath(node.children, target, `${currentPath}${node.name}/`);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
-
-  return findPath(files, file) || file.name;
-};
-
-const findFileByPath = (nodes: FileNode[], targetPath: string): FileNode | null => {
-  for (const node of nodes) {
-    if (node.type === 'file' && node.path === targetPath) return node;
-    if (node.type === 'directory' && node.children) {
-      const found = findFileByPath(node.children, targetPath);
-      if (found) return found;
-    }
-  }
-  return null;
-};
 
 // Debug helper function
 if (typeof window !== 'undefined') {
@@ -307,13 +280,19 @@ const AppContent = () => {
 
   const fullCurrentProject = fullCurrentProjectRaw;
   const [currentFile, setCurrentFile] = useState<FileNode | null>(null);
-  const [output, setOutput] = useState('');
   const [isCompiling, setIsCompiling] = useState(false);
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [openFiles, setOpenFiles] = useState<FileNode[]>([]);
-  const [terminalHeight, setTerminalHeight] = useState(192);
+  const { size: terminalHeight, onMouseDown: handleResizeStart } = useResizablePanel({
+    initial: 192,
+    min: 100,
+    max: 800,
+    axis: 'vertical',
+    storageKey: 'arch-ide:terminal-height',
+  });
   const [isMobile, setIsMobile] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isNewFileDialogOpen, setIsNewFileDialogOpen] = useState(false);
   const [newItemPath, setNewItemPath] = useState<string[]>([]);
   const [newItemType, setNewItemType] = useState<'file' | 'directory'>();
@@ -322,24 +301,20 @@ const AppContent = () => {
   const [programId, setProgramId] = useState<string>();
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [programBinary, setProgramBinary] = useState<string | null>(null);
-  const [programIdl, setProgramIdl] = useState<ArchIdl | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, FileChange>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
-  const [isWordWrapEnabled, setIsWordWrapEnabled] = useState(() => {
-    const v = localStorage.getItem('editor-word-wrap');
-    return v === null ? true : v === 'true';
-  });
+  const { prefs: editorPrefs, updatePrefs: updateEditorPref } = useEditorPreferences();
+  const isWordWrapEnabled = editorPrefs.wordWrap;
   const [currentAccount, setCurrentAccount] = useState<{
     privkey: string;
     pubkey: string;
     address: string;
   } | null>(null);
-  const [currentView, setCurrentView] = useState<'explorer' | 'build'>(storage.getCurrentView());
+  const [currentView, setCurrentView] = useState<SidebarView>(storage.getCurrentView());
   const [binaryFileName, setBinaryFileName] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
   const previousConnectionStatus = useRef(isConnected);
-  const { theme } = useTheme();
   const [actualConnectedUrl, setActualConnectedUrl] = useState<string | null>(null);
   const [isDeploymentModalOpen, setIsDeploymentModalOpen] = useState(false);
   const [utxoInfo, setUtxoInfo] = useState<{ txid: string; vout: number } | undefined>(undefined);
@@ -748,7 +723,6 @@ const AppContent = () => {
     setCurrentAccount(null);
     setProgramId(undefined);
     setProgramBinary(null);
-    setProgramIdl(null);
 
     // Clear all open tabs and current file
     setOpenFiles([]);
@@ -940,11 +914,7 @@ const AppContent = () => {
   };
 
   const handleToggleWordWrap = () => {
-    setIsWordWrapEnabled((prev) => {
-      const next = !prev;
-      localStorage.setItem('editor-word-wrap', String(next));
-      return next;
-    });
+    updateEditorPref('wordWrap', !editorPrefs.wordWrap);
   };
 
   const handleCloseFile = useCallback((file: FileNode) => {
@@ -957,26 +927,6 @@ const AppContent = () => {
     // Update localStorage after closing
     saveTabState();
   }, [currentFile, openFiles, saveTabState]);
-
-  const handleResizeStart = React.useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    const startY = e.pageY;
-    const startHeight = terminalHeight;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const delta = startY - e.pageY;
-      const newHeight = Math.max(100, Math.min(800, startHeight + delta));
-      setTerminalHeight(newHeight);
-    };
-
-    const handleMouseUp = () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-  }, [terminalHeight]);
 
   const handleUpdateTree = (operation: FileOperation) => {
     if (!fullCurrentProject) return;
@@ -1250,6 +1200,36 @@ const AppContent = () => {
             addOutputMessage('info', `Program binary retrieved successfully (${arrayBuffer.byteLength} bytes)`);
           } catch (error: any) {
             addOutputMessage('error', `Failed to retrieve program binary: ${error.message}`);
+          }
+
+          // Auto-import IDL when the satellite framework toolchain extracted
+          // one during the build. Failures here are non-fatal — the user can
+          // still hand-import via the Program Inspector. We validate before
+          // persisting so a malformed payload from the server can't poison
+          // the project's IDL state.
+          if (statusResult.idl_json) {
+            try {
+              const result = parseIdlJson(statusResult.idl_json);
+              if (result.ok && result.idl) {
+                await handleIdlChange(result.idl);
+                addOutputMessage(
+                  'success',
+                  `IDL imported from build: ${result.idl.instructions.length} instructions, ${result.idl.accounts.length} accounts`
+                );
+              } else {
+                console.warn('IDL validation failed:', result.reason);
+                addOutputMessage(
+                  'info',
+                  `Build emitted an IDL but it failed validation: ${result.reason}`
+                );
+              }
+            } catch (err: any) {
+              console.warn('IDL auto-import failed:', err);
+              addOutputMessage(
+                'info',
+                `IDL auto-import failed (non-fatal): ${err.message ?? String(err)}`
+              );
+            }
           }
         } else if (statusResult.status === 'failed') {
           // Build failed; replace live log with final error output
@@ -1752,6 +1732,71 @@ const AppContent = () => {
     console.log('✅ handleProjectUpdate complete');
   };
 
+  // Persist or clear the project's IDL through projectService and bubble the
+  // change into the in-memory project so the inspector re-renders immediately.
+  const handleIdlChange = async (idl: ArchIdl | null) => {
+    if (!fullCurrentProject) return;
+    try {
+      await projectService.setProjectIdl(fullCurrentProject.id, idl);
+      setFullCurrentProject({ ...fullCurrentProject, idl });
+    } catch (err) {
+      console.error('Failed to persist IDL', err);
+      addOutputMessage('error', err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  /**
+   * Project-mutation surface for the Program Inspector. Each method
+   * persists through `projectService` (which bumps `lastModified`) and
+   * refreshes `fullCurrentProject` so derived UI updates without a
+   * second round-trip. We construct it inline so closures capture the
+   * current `fullCurrentProject` reference; child components only see a
+   * stable shape via the `ProjectMutations` interface.
+   */
+  const inspectorMutations: ProjectMutations = useMemo(
+    () => ({
+      saveAddressBookEntry: async (label, address) => {
+        if (!fullCurrentProject) return null;
+        const entry = await projectService.addAddressBookEntry(
+          fullCurrentProject.id,
+          label,
+          address,
+        );
+        if (entry) {
+          const fresh = await projectService.getProject(fullCurrentProject.id);
+          if (fresh) setFullCurrentProject(fresh);
+        }
+        return entry;
+      },
+      removeAddressBookEntry: async (id) => {
+        if (!fullCurrentProject) return;
+        await projectService.removeAddressBookEntry(fullCurrentProject.id, id);
+        const fresh = await projectService.getProject(fullCurrentProject.id);
+        if (fresh) setFullCurrentProject(fresh);
+      },
+      saveKeypair: async (label, account) => {
+        if (!fullCurrentProject) return null;
+        const entry = await projectService.addSavedKeypair(
+          fullCurrentProject.id,
+          label,
+          account,
+        );
+        if (entry) {
+          const fresh = await projectService.getProject(fullCurrentProject.id);
+          if (fresh) setFullCurrentProject(fresh);
+        }
+        return entry;
+      },
+      removeKeypair: async (id) => {
+        if (!fullCurrentProject) return;
+        await projectService.removeSavedKeypair(fullCurrentProject.id, id);
+        const fresh = await projectService.getProject(fullCurrentProject.id);
+        if (fresh) setFullCurrentProject(fresh);
+      },
+    }),
+    [fullCurrentProject?.id],
+  );
+
   const handleProjectSelect = async (project: Project) => {
     console.group('🔄 Project Selection - DEBUGGING');
     console.log('📌 Selected project:', project);
@@ -2046,7 +2091,6 @@ const AppContent = () => {
       setCurrentAccount(null);
       setProgramId(undefined);
       setProgramBinary(null);
-      setProgramIdl(null);
       setBinaryFileName(null);
       setExpandedFolders(new Set());
       setPendingChanges(new Map());
@@ -2130,52 +2174,167 @@ const AppContent = () => {
     return () => mq.removeEventListener('change', onChange);
   }, []);
 
+  // Global keyboard shortcuts. We avoid Cmd/Ctrl+B and Cmd/Ctrl+K when the
+  // user is typing into a form field so we don't shadow common chords like
+  // Monaco's "go-to-symbol" or input field clear.
+  useEffect(() => {
+    const isEditableTarget = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      return (
+        tag === 'input' ||
+        tag === 'textarea' ||
+        target?.isContentEditable === true
+      );
+    };
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      const cmd = e.metaKey || e.ctrlKey;
+      if (!cmd) return;
+      if (e.key === 'k' || e.key === 'K') {
+        if (isEditableTarget(e)) return;
+        e.preventDefault();
+        setIsCommandPaletteOpen((open) => !open);
+      } else if (e.key === 'b' || e.key === 'B') {
+        if (isEditableTarget(e)) return;
+        if (!fullCurrentProject || isCompiling) return;
+        e.preventDefault();
+        handleBuild();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [fullCurrentProject, isCompiling, handleBuild]);
+
+  // Build the command palette action set. We assemble it on every render
+  // because palette items capture closures over the current handlers and
+  // disabled state — memoization here would force us to flatten dozens of
+  // dependencies into the deps array with no measurable win since the
+  // palette only renders when open.
+  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
+  const cmdKey = isMac ? '⌘' : 'Ctrl';
+  const hasProject = !!fullCurrentProject;
+  const canRunClient = !!currentFile?.name?.endsWith('.ts');
+  const commands: CommandItem[] = [
+    {
+      id: 'project.new',
+      title: 'New Project',
+      description: 'Create a new Arch project',
+      group: 'Project',
+      keywords: ['create', 'add'],
+      icon: <PlusCircle className="h-3.5 w-3.5" />,
+      onSelect: () => handleNewProject(),
+    },
+    {
+      id: 'project.home',
+      title: 'Open Home Tab',
+      description: 'Examples, recent projects, docs',
+      group: 'Project',
+      keywords: ['welcome', 'start'],
+      icon: <Home className="h-3.5 w-3.5" />,
+      onSelect: () => handleOpenHomeTab(),
+    },
+    {
+      id: 'view.settings',
+      title: 'Open Settings',
+      description: 'Network, RPC, and connection',
+      group: 'View',
+      keywords: ['preferences', 'config', 'rpc'],
+      icon: <Settings className="h-3.5 w-3.5" />,
+      onSelect: () => setIsConfigOpen(true),
+    },
+    {
+      id: 'view.explorer',
+      title: 'Show Explorer',
+      description: 'Files & folders',
+      group: 'View',
+      onSelect: () => setCurrentView('explorer'),
+    },
+    {
+      id: 'view.search',
+      title: 'Search Across Files',
+      description: 'Project-wide search with regex',
+      group: 'View',
+      keywords: ['find', 'grep'],
+      onSelect: () => setCurrentView('search'),
+    },
+    {
+      id: 'view.inspector',
+      title: 'Open Program Inspector',
+      description: 'IDL viewer, account decoder, transaction builder',
+      group: 'View',
+      keywords: ['idl', 'account', 'inspect', 'invoke'],
+      onSelect: () => setCurrentView('inspector'),
+    },
+    {
+      id: 'view.build',
+      title: 'Show Build Panel',
+      description: 'Build, deploy, and authority controls',
+      group: 'View',
+      onSelect: () => setCurrentView('build'),
+    },
+    {
+      id: 'file.new',
+      title: 'New File',
+      group: 'File',
+      icon: <FilePlus2 className="h-3.5 w-3.5" />,
+      disabled: !hasProject,
+      description: hasProject ? 'Add a file under src/' : 'Open a project first',
+      onSelect: () => handleNewItem(['src'], 'file'),
+    },
+    {
+      id: 'file.new-folder',
+      title: 'New Folder',
+      group: 'File',
+      icon: <FolderPlus className="h-3.5 w-3.5" />,
+      disabled: !hasProject,
+      description: hasProject ? 'Add a folder under src/' : 'Open a project first',
+      onSelect: () => handleNewItem(['src'], 'directory'),
+    },
+    {
+      id: 'build.compile',
+      title: 'Build Program',
+      description: isCompiling ? 'Build in progress…' : 'Compile the current project',
+      group: 'Build',
+      shortcut: `${cmdKey}+B`,
+      icon: <Hammer className="h-3.5 w-3.5" />,
+      disabled: !hasProject || isCompiling,
+      onSelect: () => handleBuild(),
+    },
+    {
+      id: 'build.deploy',
+      title: 'Deploy Program',
+      description: isDeploying ? 'Deployment in progress…' : 'Send the program to the network',
+      group: 'Build',
+      icon: <Rocket className="h-3.5 w-3.5" />,
+      disabled: !hasProject || isDeploying || !programBinary,
+      onSelect: () => handleDeploy(),
+    },
+    {
+      id: 'client.run',
+      title: 'Run Client Code',
+      description: canRunClient ? 'Execute the current TypeScript file' : 'Open a .ts file first',
+      group: 'Build',
+      icon: <Play className="h-3.5 w-3.5" />,
+      disabled: !canRunClient,
+      onSelect: () => runClientCode(),
+    },
+  ];
+
   return (
-    <div className="h-[100dvh] min-h-0 flex flex-col" style={{
-      backgroundColor: theme.colors.default.bgPrimary,
-      color: theme.colors.default.textPrimary
-    }}>
-      <nav className="flex items-center justify-between gap-3 px-3 py-1.5 md:px-4 md:py-1.5 bg-[#121212] border-b border-gray-800/60 shadow-[0_1px_0_0_rgba(255,255,255,0.03)]">
-        {/* Left: branding */}
-        <div className="flex items-center gap-2.5 min-w-0 shrink-0">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="md:hidden h-8 w-8"
-            onClick={() => setIsMobileSidebarOpen(true)}
-            aria-label="Open sidebar"
-          >
-            <PanelLeft className="h-5 w-5" />
-          </Button>
-          <img src="/images/logo.svg" alt="Arch Network" className="h-5 w-auto md:h-6" />
-          <span className="hidden md:inline text-sm font-semibold tracking-wide text-gray-400">IDE</span>
-        </div>
-
-        {/* Right: project selector + actions + settings */}
-        <div className="flex items-center gap-1.5 min-w-0">
-          <ProjectList
-            projects={projects}
-            currentProject={fullCurrentProject || undefined}
-            onSelectProject={handleProjectSelect}
-            onNewProject={handleNewProject}
-            onDeleteProject={handleDeleteProject}
-            onProjectsChange={setProjects}
-            onDeleteAllProjects={handleDeleteAllProjects}
-          />
-
-          <div className="hidden md:block h-5 w-px bg-gray-700/40 mx-1" />
-
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-8 w-8 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700/40"
-            onClick={() => setIsConfigOpen(true)}
-            aria-label="Open settings"
-          >
-            <Settings className="h-4 w-4" />
-          </Button>
-        </div>
-      </nav>
+    <div className="h-[100dvh] min-h-0 flex flex-col bg-background text-foreground">
+      <TopBar
+        projects={projects}
+        currentProject={fullCurrentProject}
+        onSelectProject={handleProjectSelect}
+        onNewProject={handleNewProject}
+        onDeleteProject={handleDeleteProject}
+        onProjectsChange={setProjects}
+        onDeleteAllProjects={handleDeleteAllProjects}
+        onOpenSettings={() => setIsConfigOpen(true)}
+        onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
+        onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
+      />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {/* Desktop sidebar */}
@@ -2198,7 +2357,6 @@ const AppContent = () => {
             programId={programId}
             programBinary={programBinary}
             onProgramBinaryChange={setProgramBinary}
-            programIdl={programIdl}
             config={config}
             onConfigChange={setConfig}
             onConnectionStatusChange={setIsConnected}
@@ -2219,13 +2377,15 @@ const AppContent = () => {
             addOutputMessage={addOutputMessage}
             expandedFolders={expandedFolders}
             onExpandedFoldersChange={setExpandedFolders}
+            onIdlChange={handleIdlChange}
+            inspectorMutations={inspectorMutations}
             isMobile={false}
           />
         </div>
 
         {/* Mobile sidebar drawer */}
         {isMobile && isMobileSidebarOpen && (
-          <div className="fixed inset-0 z-40 md:hidden">
+          <div className="fixed inset-0 z-overlay md:hidden">
             <div
               className="absolute inset-0 bg-black/50"
               onClick={() => setIsMobileSidebarOpen(false)}
@@ -2250,7 +2410,6 @@ const AppContent = () => {
                 programId={programId}
                 programBinary={programBinary}
                 onProgramBinaryChange={setProgramBinary}
-                programIdl={programIdl}
                 config={config}
                 onConfigChange={setConfig}
                 onConnectionStatusChange={setIsConnected}
@@ -2271,6 +2430,8 @@ const AppContent = () => {
                 addOutputMessage={addOutputMessage}
                 expandedFolders={expandedFolders}
                 onExpandedFoldersChange={setExpandedFolders}
+                onIdlChange={handleIdlChange}
+                inspectorMutations={inspectorMutations}
                 isMobile={true}
               />
             </div>
@@ -2299,18 +2460,23 @@ const AppContent = () => {
                 onNewProject={handleNewProject}
                 onSelectProject={handleProjectSelect}
                 onLoadExample={handleLoadExampleProject}
-                isWordWrapEnabled={isWordWrapEnabled}
+                isWordWrapEnabled={editorPrefs.wordWrap}
+                fontSize={editorPrefs.fontSize}
+                fontLigatures={editorPrefs.fontLigatures}
+                minimap={editorPrefs.minimap}
+                smoothCaret={editorPrefs.smoothCaret}
+                tabSize={editorPrefs.tabSize}
               />
               </div>
 
               {/* Desktop-only terminal/output pane (mobile uses the bottom status sheet instead) */}
               {!isMobile && (
-                <div style={{ height: terminalHeight }} className="flex flex-col flex-shrink-0 border-t border-gray-700">
-                  <ResizeHandle onMouseDown={handleResizeStart} />
-                  <div className="flex-1 min-h-0">
-                    <Output messages={outputMessages} onClear={clearOutputMessages} />
-                  </div>
-                </div>
+                <BottomPanel
+                  height={terminalHeight}
+                  onResizeStart={handleResizeStart}
+                  messages={outputMessages}
+                  onClear={clearOutputMessages}
+                />
               )}
             </div>
       </div>
@@ -2325,21 +2491,25 @@ const AppContent = () => {
         mobileConsoleBadgeCount={outputMessages.length}
         onOpenSettings={() => setIsConfigOpen(true)}
       >
-        <div className="flex items-center gap-1 min-w-0">
+        <div
+          className="flex items-center gap-1.5 min-w-0"
+          role="status"
+          aria-live="polite"
+        >
           {isConnected ? (
             <div
-              className="flex items-center gap-1 min-w-0"
+              className="flex items-center gap-1.5 min-w-0"
               title={`Connected to ${config.network} (${actualConnectedUrl || config.rpcUrl})`}
             >
-              <span className="text-green-500 flex-shrink-0">✓</span>
-              <span className="truncate text-gray-200">
-                Connected to {config.network} ({actualConnectedUrl || config.rpcUrl})
+              <CheckCircle2 className="h-3 w-3 text-success flex-shrink-0" aria-hidden="true" />
+              <span className="truncate text-foreground/80">
+                Connected to {config.network}
               </span>
             </div>
           ) : (
-            <div className="flex items-center gap-1 min-w-0" title="Not connected to network">
-              <span className="text-red-500 flex-shrink-0">✗</span>
-              <span className="truncate text-gray-200">Not connected to network</span>
+            <div className="flex items-center gap-1.5 min-w-0" title="Not connected to network">
+              <AlertCircle className="h-3 w-3 text-danger flex-shrink-0" aria-hidden="true" />
+              <span className="truncate text-foreground/80">Not connected</span>
             </div>
           )}
         </div>
@@ -2361,6 +2531,7 @@ const AppContent = () => {
         onClose={() => setIsConfigOpen(false)}
         config={config}
         onConfigChange={setConfig}
+        onClearAllProjects={handleDeleteAllProjects}
       />
       <DeploymentModal
         isOpen={isDeploymentModalOpen}
@@ -2372,6 +2543,11 @@ const AppContent = () => {
                 config.network === 'testnet' ? 'testnet' : 'devnet'}
         programId={programId}
         rpcUrl={config.rpcUrl}
+      />
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        commands={commands}
       />
       <BrowserCompatibilityAlert />
       <WelcomeModal
@@ -2499,16 +2675,6 @@ function debounce<T extends (...args: any[]) => any>(
     }, wait);
   };
 }
-
-const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
-  const uint8Array = new Uint8Array(buffer);
-  let binary = '';
-  const chunkSize = 8192;
-  for (let i = 0; i < uint8Array.length; i += chunkSize) {
-    binary += String.fromCharCode.apply(null, Array.from(uint8Array.slice(i, i + chunkSize)));
-  }
-  return btoa(binary);
-};
 
 const App = () => {
   return (

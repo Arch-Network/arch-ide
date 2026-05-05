@@ -17,26 +17,26 @@ interface StepCardProps {
 
 const statusConfig: Record<StepStatus, { ring: string; bg: string; text: string; icon?: React.ReactNode }> = {
   pending: {
-    ring: 'ring-gray-600',
-    bg: 'bg-gray-700/80',
-    text: 'text-gray-400',
+    ring: 'ring-border',
+    bg: 'bg-surface-3/80',
+    text: 'text-muted-foreground',
   },
   active: {
-    ring: 'ring-[#F7931A]/60',
-    bg: 'bg-[#F7931A]/20',
-    text: 'text-[#F7931A]',
+    ring: 'ring-brand/60',
+    bg: 'bg-brand/20',
+    text: 'text-brand',
   },
   complete: {
-    ring: 'ring-emerald-500/60',
-    bg: 'bg-emerald-500/20',
-    text: 'text-emerald-400',
-    icon: <Check className="h-3 w-3" />,
+    ring: 'ring-success/60',
+    bg: 'bg-success/20',
+    text: 'text-success',
+    icon: <Check className="h-3 w-3" aria-hidden="true" />,
   },
   error: {
-    ring: 'ring-red-500/60',
-    bg: 'bg-red-500/20',
-    text: 'text-red-400',
-    icon: <AlertCircle className="h-3 w-3" />,
+    ring: 'ring-danger/60',
+    bg: 'bg-danger/20',
+    text: 'text-danger',
+    icon: <AlertCircle className="h-3 w-3" aria-hidden="true" />,
   },
 };
 
@@ -72,7 +72,7 @@ export const StepCard: React.FC<StepCardProps> = ({
         {!isLast && (
           <div className={cn(
             'w-px flex-1 mt-2 transition-colors duration-300',
-            status === 'complete' ? 'bg-emerald-500/30' : 'bg-gray-700/60',
+            status === 'complete' ? 'bg-success/30' : 'bg-border',
           )} />
         )}
       </div>
@@ -81,14 +81,14 @@ export const StepCard: React.FC<StepCardProps> = ({
       <div className="flex-1 min-w-0 pb-5">
         <section
           className={cn(
-            'rounded-lg border transition-all duration-200',
+            'rounded-lg border transition-all duration-200 bg-surface-2/40',
             status === 'complete'
-              ? 'border-emerald-500/20 bg-gray-800/40'
+              ? 'border-success/20'
               : status === 'active'
-                ? 'border-[#F7931A]/20 bg-gray-800/60 shadow-sm shadow-[#F7931A]/5'
+                ? 'border-brand/20 bg-surface-2/60 shadow-sm shadow-brand/5'
                 : status === 'error'
-                  ? 'border-red-500/20 bg-gray-800/40'
-                  : 'border-gray-700/40 bg-gray-800/40',
+                  ? 'border-danger/20'
+                  : 'border-border',
           )}
         >
           {/* Header */}
@@ -100,11 +100,11 @@ export const StepCard: React.FC<StepCardProps> = ({
             onClick={collapsible ? () => setIsCollapsed(!isCollapsed) : undefined}
           >
             <div className="flex items-center gap-2 min-w-0">
-              <h3 className="text-sm font-semibold tracking-wide uppercase text-gray-200">
+              <h3 className="text-sm font-semibold tracking-wide uppercase text-foreground/90">
                 {title}
               </h3>
               {status === 'complete' && (
-                <span className="text-[10px] font-medium text-emerald-400/80 bg-emerald-500/10 px-1.5 py-0.5 rounded">
+                <span className="text-[10px] font-medium text-success/80 bg-success/10 px-1.5 py-0.5 rounded">
                   Done
                 </span>
               )}
@@ -118,9 +118,10 @@ export const StepCard: React.FC<StepCardProps> = ({
               {collapsible && (
                 <ChevronDown
                   className={cn(
-                    'h-4 w-4 text-gray-500 transition-transform duration-200',
+                    'h-4 w-4 text-muted-foreground transition-transform duration-200',
                     isCollapsed && '-rotate-90',
                   )}
+                  aria-hidden="true"
                 />
               )}
             </div>

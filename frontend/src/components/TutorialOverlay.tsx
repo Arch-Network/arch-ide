@@ -2,38 +2,26 @@ import React, { useEffect, useState } from 'react';
 import { useTutorial } from '../context/TutorialContext';
 import { Portal } from '@radix-ui/react-portal';
 import { Button } from '@/components/ui/button';
-import styled, { keyframes } from 'styled-components';
 
-const pulse = keyframes`
-  0% {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 1;
-  }
-  50% {
-    transform: translate(-50%, -50%) scale(1.5);
-    opacity: 0.7;
-  }
-  100% {
-    transform: translate(-50%, -50%) scale(1);
-    opacity: 1;
-  }
-`;
+interface IndicatorDotProps {
+  top: number;
+  left: number;
+}
 
-const IndicatorDot = styled.div<{ top: number; left: number }>`
-  position: absolute;
-  width: 16px;
-  height: 16px;
-  background-color: #F7931A;
-  border-radius: 50%;
-  border: 2px solid rgba(247, 147, 26, 0.3);
-  box-shadow: 0 0 12px rgba(247, 147, 26, 0.7);
-  z-index: 49;
-  top: ${props => props.top}px;
-  left: ${props => props.left}px;
-  transform: translate(-50%, -50%);
-  pointer-events: none;
-  animation: ${pulse} 1.5s ease-in-out infinite;
-`;
+const IndicatorDot: React.FC<IndicatorDotProps> = ({ top, left }) => (
+  <div
+    aria-hidden="true"
+    className="tutorial-indicator-dot pointer-events-none absolute h-4 w-4 rounded-full bg-brand"
+    style={{
+      top: `${top}px`,
+      left: `${left}px`,
+      transform: 'translate(-50%, -50%)',
+      zIndex: 49,
+      border: '2px solid hsl(var(--brand) / 0.3)',
+      boxShadow: '0 0 12px hsl(var(--brand) / 0.7)',
+    }}
+  />
+);
 
 export const TutorialOverlay: React.FC = () => {
   const { isActive, currentStep, steps, nextStep, previousStep, skipTutorial } = useTutorial();
@@ -194,15 +182,18 @@ export const TutorialOverlay: React.FC = () => {
         left={arrowPosition.left}
       />
       <div
-        className="fixed z-50 bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 w-[300px]"
+        role="dialog"
+        aria-modal="false"
+        aria-labelledby="tutorial-step-title"
+        className="fixed bg-card text-foreground border border-border rounded-lg shadow-lg p-4 w-[300px] z-modal"
         style={{
           top: `${position.top}px`,
           left: `${position.left}px`,
           zIndex: 9999,
         }}
       >
-        <h3 className="text-lg font-semibold dark:text-white">{steps[currentStep].title}</h3>
-        <p className="mt-2 text-gray-600 dark:text-gray-300">{steps[currentStep].content}</p>
+        <h3 id="tutorial-step-title" className="text-lg font-semibold text-foreground">{steps[currentStep].title}</h3>
+        <p className="mt-2 text-muted-foreground">{steps[currentStep].content}</p>
 
         <div className="mt-4 flex justify-between">
           <Button

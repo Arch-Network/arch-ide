@@ -31,22 +31,20 @@ export const BrowserCompatibilityAlert = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50">
-      {/* Layer 2: dimmed overlay above the app */}
+    <div className="fixed inset-0 z-modal" role="dialog" aria-modal="true" aria-labelledby="browser-compat-title">
       <div
         className="absolute inset-0 bg-black/50"
         aria-hidden="true"
         onClick={dismissForever}
       />
 
-      {/* Layer 3: centered modal above the overlay */}
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-yellow-50 border border-yellow-200 rounded-lg p-4 shadow-lg animate-in fade-in">
+        <div className="w-full max-w-md bg-warning/10 border border-warning/30 rounded-lg p-4 shadow-lg animate-in fade-in">
           <div className="flex gap-3">
-            <AlertTriangle className="h-5 w-5 text-yellow-700 flex-shrink-0 mt-0.5" />
+            <AlertTriangle className="h-5 w-5 text-warning flex-shrink-0 mt-0.5" aria-hidden="true" />
             <div>
-              <h3 className="font-medium text-yellow-800">Browser Compatibility Notice</h3>
-              <p className="text-sm text-yellow-700 mt-1">
+              <h3 id="browser-compat-title" className="font-medium text-foreground">Browser Compatibility Notice</h3>
+              <p className="text-sm text-foreground/80 mt-1">
                 {isMobile ? (
                   <>
                     Mobile browsers can have limited Bitcoin wallet support. For signing{' '}
@@ -62,8 +60,9 @@ export const BrowserCompatibilityAlert = () => {
               </p>
               <div className="mt-3 flex gap-3">
                 <button
+                  type="button"
                   onClick={dismissForever}
-                  className="text-xs bg-yellow-100 hover:bg-yellow-200 text-yellow-800 px-3 py-1.5 rounded-md transition-colors"
+                  className="text-xs bg-accent hover:bg-surface-3 text-foreground px-3 py-1.5 rounded-md transition-colors"
                 >
                   Dismiss
                 </button>
@@ -71,7 +70,7 @@ export const BrowserCompatibilityAlert = () => {
                   href={isMobile ? "https://www.xverse.app/download" : "https://www.google.com/chrome"}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-xs bg-yellow-700 hover:bg-yellow-800 text-white px-3 py-1.5 rounded-md transition-colors"
+                  className="text-xs bg-warning hover:bg-warning/90 text-warning-foreground px-3 py-1.5 rounded-md transition-colors"
                 >
                   {isMobile ? "Get Xverse Wallet" : "Download Chrome"}
                 </a>

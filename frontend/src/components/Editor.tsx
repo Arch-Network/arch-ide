@@ -2,12 +2,24 @@ import React, { useCallback, useEffect, useState, useRef } from 'react';
 import MonacoEditor from '@monaco-editor/react';
 import { FileNode, Disposable } from '../types';
 import { declareGlobalTypes } from './Editor/languages/typescript/declarations/global';
-import { COMMENT, H_ORANGE, H_YELLOW, H_PURPLE, H_BLUE, ARCH_DARK, ARCH_GRAY, TEXT_PRIMARY } from '../theme/theme';
+import {
+  COMMENT,
+  H_ORANGE,
+  H_YELLOW,
+  H_PURPLE,
+  H_BLUE,
+  H_GREEN,
+  SURFACE_1,
+  SURFACE_2,
+  TEXT_PRIMARY,
+  TEXT_SECONDARY,
+} from '../theme/theme';
 import { MonacoFileSystem } from '../services/MonacoFileSystem';
 import * as monaco from 'monaco-editor';
 import { editor as monacoEditor } from 'monaco-editor';
 import { isHomeTab } from '../utils/homeTab';
 import { HomeScreen } from './HomeScreen';
+import { useTheme } from '../hooks/useTheme';
 
 interface EditorProps {
   code: string;
@@ -22,6 +34,12 @@ interface EditorProps {
   onSelectProject?: (project: any) => void;
   onLoadExample?: (exampleName: string) => Promise<void>;
   isWordWrapEnabled?: boolean;
+  /** When provided, overrides Monaco's font size preference. */
+  fontSize?: number;
+  fontLigatures?: boolean;
+  minimap?: boolean;
+  smoothCaret?: boolean;
+  tabSize?: number;
 }
 
 
@@ -121,36 +139,171 @@ const decodeBase64Content = (content: string): string => {
   return content;
 };
 
-const findFileInProject = (files: any[], path: string): FileNode | null => {
-  for (const file of files) {
-    if (file.path === path) return file;
-    if (file.children) {
-      const found = findFileInProject(file.children, path);
-      if (found) return found;
-    }
-  }
-  return null;
+// Strip the leading `#` so Monaco gets bare-hex strings ("F7931A" not "#F7931A").
+const hex = (color: string) => color.replace(/^#/, '');
+
+/**
+ * Light-mode syntax palette
+ * -------------------------
+ * Tuned for WCAG AA against a near-white background. We keep the brand
+ * orange for keywords (matches the rest of the IDE's accent), but
+ * shift every other hue darker than its dark-mode counterpart so it
+ * actually reads on white.
+ */
+const LIGHT = {
+  bg: '#FFFFFF',
+  bgAlt: '#F4F4F5',
+  bgRaised: '#FAFAFA',
+  fg: '#18181B', // near-black, slightly warm
+  fgMuted: '#52525B',
+  comment: '#71717A',
+  keyword: '#CC6A00',     // darker orange (passes contrast on white)
+  control: '#7C3AED',     // purple
+  string: '#B45309',      // amber-700
+  number: '#7C3AED',
+  type: '#0369A1',        // sky-700
+  fn: '#15803D',          // green-700
+  border: '#E4E4E7',
+  borderActive: '#D4D4D8',
+  selection: '#F7931A33',
+  selectionInactive: '#F7931A1A',
+  cursor: '#CC6A00',
 };
 
-const defineTheme = (monaco: any) => {
-  monaco.editor.defineTheme('arch-theme', {
-    base: 'vs-dark',
-    inherit: true,
-    rules: [
-      { token: 'comment', foreground: COMMENT.substring(1), fontStyle: 'italic' },
-      { token: 'keyword', foreground: H_ORANGE.substring(1) },
-      { token: 'string', foreground: H_YELLOW.substring(1) },
-      { token: 'number', foreground: H_PURPLE.substring(1) },
-      { token: 'type', foreground: H_BLUE.substring(1) },
-    ],
-    colors: {
-      'editor.background': ARCH_DARK,
-      'editor.foreground': TEXT_PRIMARY,
-      'editor.lineHighlightBackground': ARCH_GRAY,
-      'editorLineNumber.foreground': COMMENT,
-      'editorGutter.background': ARCH_DARK,
-    }
-  });
+interface MonacoPalette {
+  bg: string;
+  bgAlt: string;
+  bgRaised: string;
+  fg: string;
+  fgMuted: string;
+  comment: string;
+  keyword: string;
+  control: string;
+  string: string;
+  number: string;
+  type: string;
+  fn: string;
+  border: string;
+  borderActive: string;
+  selection: string;
+  selectionInactive: string;
+  cursor: string;
+}
+
+const DARK: MonacoPalette = {
+  bg: SURFACE_1,
+  bgAlt: SURFACE_2,
+  bgRaised: SURFACE_2,
+  fg: TEXT_PRIMARY,
+  fgMuted: TEXT_SECONDARY,
+  comment: COMMENT,
+  keyword: H_ORANGE,
+  control: H_PURPLE,
+  string: H_YELLOW,
+  number: H_PURPLE,
+  type: H_BLUE,
+  fn: H_GREEN,
+  border: '#2a2a2a',
+  borderActive: '#3a3a3a',
+  selection: '#F7931A33',
+  selectionInactive: '#F7931A1A',
+  cursor: H_ORANGE,
+};
+
+const buildArchTheme = (
+  p: MonacoPalette,
+  base: 'vs' | 'vs-dark',
+): monaco.editor.IStandaloneThemeData => ({
+  base,
+  inherit: true,
+  rules: [
+    // Comments
+    { token: 'comment', foreground: hex(p.comment), fontStyle: 'italic' },
+    { token: 'comment.line', foreground: hex(p.comment), fontStyle: 'italic' },
+    { token: 'comment.block', foreground: hex(p.comment), fontStyle: 'italic' },
+    { token: 'comment.doc', foreground: hex(p.comment), fontStyle: 'italic' },
+
+    // Keywords
+    { token: 'keyword', foreground: hex(p.keyword) },
+    { token: 'keyword.control', foreground: hex(p.control) },
+    { token: 'keyword.operator', foreground: hex(p.control) },
+    { token: 'keyword.directive', foreground: hex(p.type) },
+    { token: 'storage', foreground: hex(p.keyword) },
+    { token: 'storage.type', foreground: hex(p.keyword) },
+    { token: 'storage.modifier', foreground: hex(p.keyword) },
+
+    // Strings & literals
+    { token: 'string', foreground: hex(p.string) },
+    { token: 'string.quoted', foreground: hex(p.string) },
+    { token: 'string.escape', foreground: hex(p.control) },
+    { token: 'string.regexp', foreground: hex(p.string) },
+    { token: 'number', foreground: hex(p.number) },
+    { token: 'number.float', foreground: hex(p.number) },
+    { token: 'number.hex', foreground: hex(p.number) },
+    { token: 'constant', foreground: hex(p.number) },
+    { token: 'constant.language', foreground: hex(p.number) },
+    { token: 'constant.numeric', foreground: hex(p.number) },
+
+    // Types & namespaces
+    { token: 'type', foreground: hex(p.type) },
+    { token: 'type.identifier', foreground: hex(p.type) },
+    { token: 'entity.name.type', foreground: hex(p.type) },
+    { token: 'entity.name.namespace', foreground: hex(p.type) },
+    { token: 'namespace', foreground: hex(p.type) },
+
+    // Functions / methods / macros
+    { token: 'function', foreground: hex(p.fn) },
+    { token: 'entity.name.function', foreground: hex(p.fn) },
+    { token: 'support.function', foreground: hex(p.fn) },
+    { token: 'meta.function-call', foreground: hex(p.fn) },
+
+    // Variables / params / identifiers
+    { token: 'variable', foreground: hex(p.fg) },
+    { token: 'variable.parameter', foreground: hex(p.fg) },
+    { token: 'identifier', foreground: hex(p.fg) },
+
+    // Attributes
+    { token: 'attribute', foreground: hex(p.type) },
+    { token: 'attribute.name', foreground: hex(p.type) },
+    { token: 'meta.attribute', foreground: hex(p.type) },
+    { token: 'metatag', foreground: hex(p.type) },
+
+    // Operators / delimiters
+    { token: 'operator', foreground: hex(p.control) },
+    { token: 'delimiter', foreground: hex(p.fgMuted) },
+    { token: 'delimiter.bracket', foreground: hex(p.fg) },
+    { token: 'delimiter.parenthesis', foreground: hex(p.fg) },
+  ],
+  colors: {
+    'editor.background': p.bg,
+    'editor.foreground': p.fg,
+    'editor.lineHighlightBackground': p.bgAlt,
+    'editor.selectionBackground': p.selection,
+    'editor.inactiveSelectionBackground': p.selectionInactive,
+    'editor.findMatchBackground': '#F7931A55',
+    'editor.findMatchHighlightBackground': '#F7931A22',
+    'editorLineNumber.foreground': p.comment,
+    'editorLineNumber.activeForeground': p.fgMuted,
+    'editorGutter.background': p.bg,
+    'editorIndentGuide.background': p.border,
+    'editorIndentGuide.activeBackground': p.borderActive,
+    'editorBracketMatch.background': '#F7931A33',
+    'editorBracketMatch.border': '#F7931A',
+    'editorCursor.foreground': p.cursor,
+    'editorWidget.background': p.bgRaised,
+    'editorWidget.border': p.border,
+    'editorSuggestWidget.background': p.bgRaised,
+    'editorSuggestWidget.border': p.border,
+    'editorSuggestWidget.selectedBackground': '#F7931A1A',
+  },
+});
+
+const defineTheme = (monacoNs: typeof monaco) => {
+  monacoNs.editor.defineTheme('arch-theme', buildArchTheme(DARK, 'vs-dark'));
+  monacoNs.editor.defineTheme(
+    'arch-theme-light',
+    buildArchTheme(LIGHT, 'vs'),
+  );
 };
 
 const Editor = ({
@@ -164,7 +317,12 @@ const Editor = ({
   onNewProject,
   onSelectProject,
   onLoadExample,
-  isWordWrapEnabled = true
+  isWordWrapEnabled = true,
+  fontSize,
+  fontLigatures = true,
+  minimap = false,
+  smoothCaret = true,
+  tabSize = 2,
 }: EditorProps) => {
   const [editorContent, setEditorContent] = useState<string>(code || '');
   const isWelcomeScreen = !currentFile;
@@ -173,6 +331,27 @@ const Editor = ({
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoFsRef = useRef<MonacoFileSystem | null>(null);
   const [disposables, setDisposables] = useState<Disposable[]>([]);
+  const { resolvedTheme } = useTheme();
+  const monacoTheme =
+    resolvedTheme === 'light' ? 'arch-theme-light' : 'arch-theme';
+
+  // The Monaco namespace passed into `beforeMount` / `onMount` is the
+  // *actual* instance the editor uses. Importing `monaco-editor` at
+  // the top of this file may resolve to a separate module copy in
+  // some bundler setups — calling `setTheme` on the wrong instance
+  // silently no-ops, which is exactly what was happening when
+  // toggling the theme without a refresh. We capture it on mount and
+  // drive theme changes through this ref instead.
+  const monacoRef = useRef<typeof monaco | null>(null);
+
+  // Re-apply theme imperatively whenever the user toggles. Monaco's
+  // `setTheme` is global, so calling it on the captured namespace
+  // updates every model instantly — no editor remount required.
+  useEffect(() => {
+    const mn = monacoRef.current;
+    if (!mn) return;
+    mn.editor.setTheme(monacoTheme);
+  }, [monacoTheme]);
 
   const getLanguage = (fileName: string) => {
     if (fileName.endsWith('.ts')) return 'typescript';
@@ -288,15 +467,22 @@ const Editor = ({
         height="100%"
         language={getLanguage(currentFile?.name || '')}
         // defaultLanguage="plaintext"
-        theme="arch-theme"
+        theme={monacoTheme}
         key={currentFile?.path || 'welcome'}
         value={displayCode}
         onChange={handleChange}
         beforeMount={(monaco) => {
+          monacoRef.current = monaco;
           defineTheme(monaco);
+          // Apply the current theme immediately. The user may have
+          // toggled themes during a previous editor lifecycle (or
+          // before this component mounted) and our `useEffect` no-ops
+          // until `monacoRef` is populated.
+          monaco.editor.setTheme(monacoTheme);
         }}
         onMount={async (editor, monaco) => {
           editorRef.current = editor;
+          monacoRef.current = monaco;
           editor.onKeyDown((e) => {
             const keyboardEvent = e as unknown as KeyboardEvent;
             handleKeyDown(keyboardEvent);
@@ -366,22 +552,30 @@ const Editor = ({
           }
         }}
         options={{
-          // Current options
-          minimap: { enabled: false },
+          minimap: { enabled: minimap },
           // iOS Safari auto-zooms focused editable areas when font-size < 16px.
-          // Use a larger editor font on small screens to prevent viewport zoom getting "stuck".
-          fontSize: typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches ? 16 : 12,
+          // On small screens we floor the font at 16px to prevent viewport zoom getting "stuck".
+          fontSize:
+            typeof window !== 'undefined' && window.matchMedia?.('(max-width: 767px)').matches
+              ? Math.max(16, fontSize ?? 13)
+              : (fontSize ?? 13),
+          fontFamily: '"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+          fontLigatures,
+          letterSpacing: 0.2,
+          lineHeight: 1.55,
           scrollBeyondLastLine: false,
           lineNumbers: 'on',
           renderWhitespace: 'selection',
-          tabSize: 2,
+          renderLineHighlight: 'line',
+          tabSize,
           readOnly: isWelcomeScreen,
-
-          // New options
           automaticLayout: true,
           bracketPairColorization: { enabled: true },
           wordWrap: isWordWrapEnabled ? 'on' : 'off',
           formatOnPaste: true,
+          smoothScrolling: true,
+          cursorBlinking: smoothCaret ? 'smooth' : 'blink',
+          cursorSmoothCaretAnimation: smoothCaret ? 'on' : 'off',
           hover: {
             enabled: true,
             delay: 300,
@@ -398,7 +592,8 @@ const Editor = ({
             comments: true,
             strings: true
           },
-          suggestSelection: 'first'
+          suggestSelection: 'first',
+          padding: { top: 12, bottom: 12 }
         }}
       />
     </div>

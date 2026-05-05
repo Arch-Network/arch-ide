@@ -6,7 +6,7 @@ export const ToggleGroupItem = React.forwardRef<HTMLButtonElement, React.Compone
   ({ className = '', ...props }, ref) => (
     <ToggleGroupPrimitive.Item
       ref={ref}
-      className={`inline-flex items-center justify-center rounded-full h-7 px-3 text-xs transition-colors data-[state=on]:bg-gray-200 data-[state=on]:text-gray-900 data-[state=off]:text-gray-300 hover:data-[state=off]:text-white ${className}`}
+      className={`inline-flex items-center justify-center rounded-full h-7 px-3 text-xs transition-colors data-[state=on]:bg-foreground data-[state=on]:text-background data-[state=off]:text-foreground/70 hover:data-[state=off]:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${className}`}
       {...props}
     />
   )

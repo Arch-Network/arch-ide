@@ -303,25 +303,30 @@ import type { StepStatus } from './StepCard';
     const ReadinessItem = ({ done, label }: { done: boolean; label: string }) => (
       <div className="flex items-center gap-1.5">
         {done ? (
-          <Check className="h-3 w-3 text-emerald-400" />
+          <Check className="h-3 w-3 text-success" aria-hidden="true" />
         ) : (
-          <Circle className="h-3 w-3 text-gray-600" />
+          <Circle className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
         )}
-        <span className={`text-[11px] ${done ? 'text-gray-300' : 'text-gray-500'}`}>{label}</span>
+        <span
+          className={`text-[11px] ${done ? 'text-foreground/80' : 'text-muted-foreground'}`}
+          aria-label={`${label} ${done ? 'ready' : 'pending'}`}
+        >
+          {label}
+        </span>
       </div>
     );
 
     return (
-        <div className="w-full min-w-[390px] shrink-0 bg-gray-800 border-r border-gray-700 p-5 no-scrollbar overflow-y-auto overflow-x-hidden">
+        <div className="w-full min-w-0 bg-surface-1 border-r border-border p-5 no-scrollbar overflow-y-auto overflow-x-hidden">
           {/* Header */}
-          <div className="flex items-center justify-between mb-5">
-            <h2 className="text-base font-bold tracking-wide text-gray-100">BUILD & DEPLOY</h2>
-            <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full tracking-wider ${
+          <div className="flex items-center justify-between gap-2 mb-5 min-w-0">
+            <h2 className="text-base font-bold tracking-wide text-foreground truncate">BUILD &amp; DEPLOY</h2>
+            <span className={`flex-shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded-full tracking-wider whitespace-nowrap ${
               config.network === 'mainnet'
-                ? 'bg-red-500/15 text-red-300 ring-1 ring-red-500/30'
+                ? 'bg-danger/15 text-danger ring-1 ring-danger/30'
                 : config.network === 'testnet'
-                  ? 'bg-yellow-500/15 text-yellow-300 ring-1 ring-yellow-500/30'
-                  : 'bg-blue-500/15 text-blue-300 ring-1 ring-blue-500/30'
+                  ? 'bg-warning/15 text-warning ring-1 ring-warning/30'
+                  : 'bg-info/15 text-info ring-1 ring-info/30'
             }`}>
               {config.network === 'mainnet' ? 'MAINNET' : config.network.toUpperCase()}
             </span>
@@ -329,7 +334,7 @@ import type { StepStatus } from './StepCard';
 
           {/* Build button */}
           <Button
-            className="w-full h-10 bg-[#F7931A] hover:bg-[#d47b16] text-white font-semibold rounded-lg shadow-sm shadow-[#F7931A]/20 transition-all duration-200 mb-6"
+            className="w-full h-10 bg-brand hover:bg-brand-hover text-brand-foreground font-semibold rounded-lg shadow-sm shadow-brand/20 transition-all duration-200 mb-6"
             onClick={onBuild}
             disabled={!hasProjects || isBuilding}
           >
@@ -357,24 +362,24 @@ import type { StepStatus } from './StepCard';
                   <div className="flex items-center gap-0.5">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button data-tutorial="generate-key" variant="ghost" size="sm" onClick={handleNewKeypairClick} className="h-7 w-7 p-0 hover:bg-gray-700/50 rounded-lg" aria-label="New keypair">
-                          <Plus className="h-3.5 w-3.5 text-gray-400" />
+                        <Button data-tutorial="generate-key" variant="ghost" size="sm" onClick={handleNewKeypairClick} className="h-7 w-7 p-0 hover:bg-accent rounded-lg" aria-label="New keypair">
+                          <Plus className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent side="bottom"><p>New Keypair</p></TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="sm" onClick={() => document.getElementById('import-keypair')?.click()} className="h-7 w-7 p-0 hover:bg-gray-700/50 rounded-lg" aria-label="Import keypair">
-                          <Import className="h-3.5 w-3.5 text-gray-400" />
+                        <Button variant="ghost" size="sm" onClick={() => document.getElementById('import-keypair')?.click()} className="h-7 w-7 p-0 hover:bg-accent rounded-lg" aria-label="Import keypair">
+                          <Import className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent side="bottom"><p>Import Keypair</p></TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="sm" onClick={handleExportKeypair} disabled={!currentAccount} className="h-7 w-7 p-0 hover:bg-gray-700/50 rounded-lg" aria-label="Save keypair">
-                          <Save className="h-3.5 w-3.5 text-gray-400" />
+                        <Button variant="ghost" size="sm" onClick={handleExportKeypair} disabled={!currentAccount} className="h-7 w-7 p-0 hover:bg-accent rounded-lg" aria-label="Save keypair">
+                          <Save className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent side="bottom"><p>Export Keypair</p></TooltipContent>
@@ -402,8 +407,8 @@ import type { StepStatus } from './StepCard';
                 </div>
               ) : (
                 <div className="text-center py-2">
-                  <p className="text-xs text-gray-500">
-                    No keypair generated yet. Click <strong className="text-gray-400">+</strong> above to create one.
+                  <p className="text-xs text-muted-foreground">
+                    No keypair generated yet. Click <strong className="text-foreground/80">+</strong> above to create one.
                   </p>
                 </div>
               )}
@@ -434,16 +439,16 @@ import type { StepStatus } from './StepCard';
                   <div className="flex items-center gap-0.5">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="sm" onClick={() => document.getElementById('import-binary')?.click()} className="h-7 w-7 p-0 hover:bg-gray-700/50 rounded-lg" aria-label="Import binary">
-                          <Import className="h-3.5 w-3.5 text-gray-400" />
+                        <Button variant="ghost" size="sm" onClick={() => document.getElementById('import-binary')?.click()} className="h-7 w-7 p-0 hover:bg-accent rounded-lg" aria-label="Import binary">
+                          <Import className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent side="bottom"><p>Import Binary</p></TooltipContent>
                     </Tooltip>
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button variant="ghost" size="sm" onClick={handleExportBinary} disabled={!programBinary} className="h-7 w-7 p-0 hover:bg-gray-700/50 rounded-lg" aria-label="Save binary">
-                          <Save className="h-3.5 w-3.5 text-gray-400" />
+                        <Button variant="ghost" size="sm" onClick={handleExportBinary} disabled={!programBinary} className="h-7 w-7 p-0 hover:bg-accent rounded-lg" aria-label="Save binary">
+                          <Save className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                         </Button>
                       </TooltipTrigger>
                       <TooltipContent side="bottom"><p>Export Binary</p></TooltipContent>
@@ -463,9 +468,9 @@ import type { StepStatus } from './StepCard';
 
               {hasBinary && binaryFileName ? (
                 /* Binary loaded state */
-                <div className="flex items-center gap-2.5 rounded-lg bg-emerald-500/5 border border-emerald-500/20 px-3 py-2.5">
-                  <div className="h-2 w-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" />
-                  <span className="text-xs font-mono text-gray-200 truncate flex-1">{binaryFileName}</span>
+                <div className="flex items-center gap-2.5 rounded-lg bg-success/5 border border-success/20 px-3 py-2.5">
+                  <div className="h-2 w-2 rounded-full bg-success shadow-sm shadow-success/50" />
+                  <span className="text-xs font-mono text-foreground truncate flex-1">{binaryFileName}</span>
                 </div>
               ) : (
                 /* Drop zone */
@@ -473,8 +478,8 @@ import type { StepStatus } from './StepCard';
                   className={`
                     relative rounded-lg border-2 border-dashed transition-all duration-200 cursor-pointer
                     ${isDragOver
-                      ? 'border-[#F7931A]/60 bg-[#F7931A]/5'
-                      : 'border-gray-700/60 hover:border-gray-600 bg-gray-900/30 hover:bg-gray-900/50'
+                      ? 'border-brand/60 bg-brand/5'
+                      : 'border-border hover:border-muted-foreground/50 bg-background/30 hover:bg-background/50'
                     }
                   `}
                   onClick={() => document.getElementById('import-binary')?.click()}
@@ -483,11 +488,11 @@ import type { StepStatus } from './StepCard';
                   onDrop={handleDrop}
                 >
                   <div className="flex flex-col items-center py-5 px-4">
-                    <Upload className={`h-5 w-5 mb-2 transition-colors ${isDragOver ? 'text-[#F7931A]' : 'text-gray-500'}`} />
-                    <p className="text-xs text-gray-400 text-center">
+                    <Upload className={`h-5 w-5 mb-2 transition-colors ${isDragOver ? 'text-brand' : 'text-muted-foreground'}`} aria-hidden="true" />
+                    <p className="text-xs text-muted-foreground text-center">
                       {isDragOver ? 'Drop to upload' : 'Drag & drop or click to import'}
                     </p>
-                    <p className="text-[10px] text-gray-600 mt-1">.so binary files</p>
+                    <p className="text-[10px] text-muted-foreground/70 mt-1">.so binary files</p>
                   </div>
                 </div>
               )}
@@ -496,13 +501,13 @@ import type { StepStatus } from './StepCard';
 
           {/* Mainnet warning */}
           {config.network === 'mainnet' && (
-            <div className="rounded-lg border border-red-500/20 bg-red-500/5 text-red-300/90 text-xs p-3 mb-4">
+            <div className="rounded-lg border border-danger/20 bg-danger/5 text-danger/90 text-xs p-3 mb-4" role="alert">
               Deploys on Mainnet are irreversible. Review fees and program permissions.
             </div>
           )}
 
           {/* Deploy Section */}
-          <div className="rounded-lg border border-gray-700/40 bg-gray-800/60 p-4 space-y-3">
+          <div className="rounded-lg border border-border bg-surface-2/60 p-4 space-y-3">
             {/* Readiness checklist */}
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -510,12 +515,12 @@ import type { StepStatus } from './StepCard';
                 <ReadinessItem done={hasAuthority} label="Authority" />
                 <ReadinessItem done={hasBinary} label="Binary" />
               </div>
-              <span className="text-[10px] text-gray-500 font-mono">{readyCount}/3</span>
+              <span className="text-[10px] text-muted-foreground font-mono">{readyCount}/3</span>
             </div>
 
             {/* Fee estimate */}
-            <div className="text-[11px] text-gray-500">
-              Estimated fee: <span className="text-gray-300 font-mono">~0.001 ARCH</span>
+            <div className="text-[11px] text-muted-foreground">
+              Estimated fee: <span className="text-foreground/80 font-mono">~0.001 ARCH</span>
             </div>
 
             {/* Deploy button */}
@@ -526,8 +531,8 @@ import type { StepStatus } from './StepCard';
               className={`
                 w-full h-10 font-semibold rounded-lg transition-all duration-200
                 ${isDeployReady
-                  ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm shadow-emerald-600/20'
-                  : 'bg-gray-700 hover:bg-gray-600 text-gray-300'
+                  ? 'bg-success hover:bg-success/90 text-success-foreground shadow-sm shadow-success/20'
+                  : 'bg-surface-3 hover:bg-surface-3/80 text-muted-foreground'
                 }
               `}
             >

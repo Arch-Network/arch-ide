@@ -53,38 +53,38 @@ export const NewKeypairDialog = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-[#141414] border-gray-800/60 text-gray-200">
+      <DialogContent className="bg-card border-border text-foreground">
         <DialogHeader>
-          <DialogTitle className="text-base font-semibold text-gray-100">Create a new program keypair?</DialogTitle>
-          <DialogDescription className="pt-2 text-sm text-gray-400">
+          <DialogTitle className="text-base font-semibold text-foreground">Create a new program keypair?</DialogTitle>
+          <DialogDescription className="pt-2 text-sm text-muted-foreground">
             This will create a brand new keypair for your program.
           </DialogDescription>
         </DialogHeader>
 
         {!isConnected && (
-          <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
-            <WifiOff className="h-4 w-4 text-red-400" />
-            <p className="text-xs text-red-400">
+          <div className="flex items-center gap-2 p-3 bg-danger/10 border border-danger/20 rounded-lg" role="alert">
+            <WifiOff className="h-4 w-4 text-danger" aria-hidden="true" />
+            <p className="text-xs text-danger">
               No RPC connection available. Please check your connection and try again.
             </p>
           </div>
         )}
 
-        <div className="flex items-center gap-2 p-3 bg-yellow-500/10 border border-yellow-500/20 rounded-lg">
-          <AlertTriangle className="h-4 w-4 text-yellow-400" />
-          <p className="text-xs text-yellow-400">
+        <div className="flex items-center gap-2 p-3 bg-warning/10 border border-warning/20 rounded-lg" role="alert">
+          <AlertTriangle className="h-4 w-4 text-warning" aria-hidden="true" />
+          <p className="text-xs text-warning">
             The old keypair will be lost if you don't save it.
           </p>
         </div>
 
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} className="text-gray-300 border-gray-700 hover:bg-gray-800 hover:text-gray-200">
+          <Button variant="outline" onClick={onClose} className="text-foreground/80 border-border hover:bg-accent hover:text-foreground">
             Cancel
           </Button>
           <Button
             onClick={handleConfirm}
             disabled={!isConnected || isGenerating}
-            className="bg-[#F7931A] hover:bg-[#d47b16] text-white"
+            className="bg-brand hover:bg-brand-hover text-brand-foreground"
           >
             {isGenerating ? "Generating..." : "Generate"}
           </Button>

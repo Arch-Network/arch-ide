@@ -71,43 +71,43 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 w-7 p-0 text-gray-400 hover:text-gray-300 hover:bg-gray-700/50 rounded-lg"
+            className="h-7 w-7 p-0 text-muted-foreground hover:text-foreground hover:bg-accent rounded-lg"
             aria-label="Authority account actions"
             title="Authority account actions"
           >
-            <MoreVertical className="h-3.5 w-3.5" />
+            <MoreVertical className="h-3.5 w-3.5" aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700">
+        <DropdownMenuContent align="end" className="bg-popover border-border">
           {isFaucetNetwork && (
             <DropdownMenuItem
               onClick={handleRequestFunds}
               disabled={!isConnected || isRequestingFunds}
-              className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
+              className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <Droplets className="h-3.5 w-3.5 mr-2" />
+              <Droplets className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
               {isRequestingFunds ? `Requesting ${networkDisplay} funds...` : `Get ${networkDisplay} faucet funds`}
             </DropdownMenuItem>
           )}
           <DropdownMenuItem
             onClick={() => setIsHistoryModalOpen(true)}
-            className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
+            className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer"
           >
-            <History className="h-3.5 w-3.5 mr-2" />
+            <History className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
             View History
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={handleExport}
-            className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
+            className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer"
           >
-            <Download className="h-3.5 w-3.5 mr-2" />
+            <Download className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
             Export Keypair
           </DropdownMenuItem>
           <DropdownMenuItem
             onClick={handleGenerate}
-            className="text-gray-300 hover:bg-gray-700 hover:text-white cursor-pointer"
+            className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer"
           >
-            <RotateCcw className="h-3.5 w-3.5 mr-2" />
+            <RotateCcw className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
             Regenerate Keypair
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -269,7 +269,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   if (!project) {
     return (
       <div className="text-center py-2">
-        <p className="text-xs text-gray-500">No project loaded</p>
+        <p className="text-xs text-muted-foreground">No project loaded</p>
       </div>
     );
   }
@@ -279,16 +279,16 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
       {!authority ? (
         /* Empty state — inviting prompt */
         <div className="text-center py-2">
-          <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-[#F7931A]/10 mb-3">
-            <Key className="h-5 w-5 text-[#F7931A]" />
+          <div className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-brand/10 mb-3">
+            <Key className="h-5 w-5 text-brand" aria-hidden="true" />
           </div>
-          <p className="text-xs text-gray-400 mb-3 leading-relaxed">
+          <p className="text-xs text-muted-foreground mb-3 leading-relaxed">
             Generate a keypair to sign transactions and deploy your program.
           </p>
           <Button
             onClick={handleGenerate}
             size="sm"
-            className="w-full h-9 bg-[#F7931A] hover:bg-[#d47b16] text-white font-medium rounded-lg transition-colors"
+            className="w-full h-9 bg-brand hover:bg-brand-hover text-brand-foreground font-medium rounded-lg transition-colors"
           >
             Generate Keypair
           </Button>
@@ -296,13 +296,13 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
       ) : (
         <div className="space-y-3">
           {/* Balance display — clean single row */}
-          <div className="flex items-center justify-between rounded-lg bg-gray-900/60 px-3 py-2.5">
+          <div className="flex items-center justify-between rounded-lg bg-background/60 px-3 py-2.5">
             <div className="flex items-center gap-2 min-w-0">
               {isLoadingBalance ? (
-                <span className="text-xs text-gray-500">Loading...</span>
+                <span className="text-xs text-muted-foreground">Loading...</span>
               ) : balance !== null ? (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-sm font-mono font-semibold text-gray-100">
+                <div className="flex items-center gap-1.5" role="status">
+                  <span className="text-sm font-mono font-semibold text-foreground">
                     {(() => {
                       const arch = formatBalance(balance);
                       if (window && window.innerWidth < 360) {
@@ -313,13 +313,13 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
                     })()}
                   </span>
                   {hasSufficientFunds ? (
-                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-label="Sufficient funds" />
                   ) : needsFunding ? (
-                    <AlertCircle className="h-3.5 w-3.5 text-orange-400" />
+                    <AlertCircle className="h-3.5 w-3.5 text-warning" aria-label="Needs funding" />
                   ) : null}
                 </div>
               ) : (
-                <span className="text-xs text-gray-500">--</span>
+                <span className="text-xs text-muted-foreground">--</span>
               )}
             </div>
             {isConnected && (
@@ -328,27 +328,28 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
                 size="sm"
                 onClick={fetchBalance}
                 disabled={isLoadingBalance}
-                className="h-6 w-6 p-0 hover:bg-gray-700/50"
+                className="h-6 w-6 p-0 hover:bg-accent"
                 title="Refresh balance"
+                aria-label="Refresh balance"
               >
-                <RefreshCw className={`h-3 w-3 text-gray-400 ${isLoadingBalance ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`h-3 w-3 text-muted-foreground ${isLoadingBalance ? 'animate-spin' : ''}`} aria-hidden="true" />
               </Button>
             )}
           </div>
 
           {/* Funding prompt */}
           {(needsFunding || isLowFunds) && isFaucetNetwork && (
-            <div className="rounded-lg bg-orange-500/5 border border-orange-500/20 p-3 space-y-2">
-              <p className="text-xs text-orange-300/90 leading-relaxed">
+            <div className="rounded-lg bg-warning/5 border border-warning/20 p-3 space-y-2" role="status">
+              <p className="text-xs text-warning/90 leading-relaxed">
                 {needsFunding ? 'Fund this account to enable transactions.' : 'Balance is low — consider topping up.'}
               </p>
               <Button
                 onClick={handleRequestFunds}
                 disabled={!isConnected || isRequestingFunds}
                 size="sm"
-                className="w-full h-8 bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 border border-orange-500/30 rounded-lg transition-colors"
+                className="w-full h-8 bg-warning/20 hover:bg-warning/30 text-warning border border-warning/30 rounded-lg transition-colors"
               >
-                <Droplets className="h-3.5 w-3.5 mr-1.5" />
+                <Droplets className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
                 {isRequestingFunds ? 'Requesting...' : `Request ${networkDisplay} funds`}
               </Button>
             </div>
@@ -356,34 +357,36 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
 
           {/* Pubkey */}
           <div className="space-y-1.5">
-            <label className="text-[11px] font-medium text-gray-500 uppercase tracking-wider">Pubkey</label>
+            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider">Pubkey</label>
             <div className="flex items-center gap-1.5">
-              <div className="flex-1 min-w-0 h-8 text-xs font-mono bg-gray-900/60 border border-gray-700/50 rounded-lg px-2.5 flex items-center">
-                <span className="truncate text-gray-300" title={authorityBase58 || ''}>{authorityBase58 || '-'}</span>
+              <div className="flex-1 min-w-0 h-8 text-xs font-mono bg-background/60 border border-border rounded-lg px-2.5 flex items-center">
+                <span className="truncate text-foreground/80" title={authorityBase58 || ''}>{authorityBase58 || '-'}</span>
               </div>
-              <Button 
-                variant="ghost" 
-                size="sm" 
-                onClick={() => authorityBase58 && handleCopy(authorityBase58, 'pubkey')} 
-                className="h-8 w-8 p-0 hover:bg-gray-700/50 rounded-lg"
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => authorityBase58 && handleCopy(authorityBase58, 'pubkey')}
+                className="h-8 w-8 p-0 hover:bg-accent rounded-lg"
                 title="Copy pubkey"
+                aria-label="Copy pubkey"
                 disabled={!authorityBase58}
               >
                 {copiedField === 'pubkey' ? (
-                  <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                  <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />
                 ) : (
-                  <Copy className="h-3.5 w-3.5 text-gray-400" />
+                  <Copy className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                 )}
               </Button>
               {explorerUrls && authorityBase58 && (
-                <a 
-                  href={explorerUrls.account(authorityBase58)} 
-                  target="_blank" 
+                <a
+                  href={explorerUrls.account(authorityBase58)}
+                  target="_blank"
                   rel="noopener noreferrer"
-                  className="h-8 w-8 p-0 inline-flex items-center justify-center hover:bg-gray-700/50 rounded-lg transition-colors"
+                  className="h-8 w-8 p-0 inline-flex items-center justify-center hover:bg-accent rounded-lg transition-colors"
                   title="View on Explorer"
+                  aria-label="View account on Explorer"
                 >
-                  <ExternalLink className="h-3.5 w-3.5 text-gray-400" />
+                  <ExternalLink className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                 </a>
               )}
             </div>

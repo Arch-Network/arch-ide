@@ -51,16 +51,16 @@ const NewItemDialog = ({ isOpen, onClose, onSubmit, type }: NewItemDialogProps) 
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-background text-foreground border-input">
+      <DialogContent className="bg-card text-foreground border-border">
         <DialogHeader>
           <DialogTitle className="text-foreground">New {type === 'file' ? 'File' : 'Folder'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
-              <Label htmlFor="name" className="text-foreground">Name</Label>
+              <Label htmlFor="new-item-name" className="text-foreground">Name</Label>
               <Input
-                id="name"
+                id="new-item-name"
                 value={name}
                 onChange={(e) => {
                   setName(e.target.value);
@@ -69,16 +69,24 @@ const NewItemDialog = ({ isOpen, onClose, onSubmit, type }: NewItemDialogProps) 
                 placeholder={type === 'file' ? 'filename.rs' : 'folder-name'}
                 autoFocus
                 ref={inputRef}
-                className="bg-background text-foreground border-input"
+                className="bg-background text-foreground border-border"
+                aria-invalid={!!error}
+                aria-describedby={error ? 'new-item-error' : undefined}
               />
-              {error && <p className="text-red-500 text-sm">{error}</p>}
+              {error && (
+                <p id="new-item-error" role="alert" className="text-danger text-sm">
+                  {error}
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose} className="text-foreground">
               Cancel
             </Button>
-            <Button type="submit">Create</Button>
+            <Button type="submit" className="bg-brand hover:bg-brand-hover text-brand-foreground">
+              Create
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

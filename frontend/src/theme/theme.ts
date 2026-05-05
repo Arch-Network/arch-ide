@@ -1,30 +1,52 @@
 import type { Theme } from './types';
 
-// Core brand colors -- warm neutral palette (no blue tint)
-export const BITCOIN_ORANGE = "#F7931A";
-export const ARCH_BLACK = "#000000";
-export const ARCH_DARK = "#121212";
-export const ARCH_GRAY = "#1a1a1a";
+/**
+ * Arch IDE theme constants
+ * ------------------------
+ * The runtime source of truth for colors is the CSS variables defined in
+ * `src/index.css` and exposed as Tailwind utilities (`bg-surface-1`,
+ * `text-brand`, `border-success`, ...). Components should prefer those
+ * utilities over the hex constants below.
+ *
+ * The hex constants here exist for non-CSS consumers (Monaco editor token
+ * colors, canvas drawing, etc.) and as the typed `ARCH_THEME` object for
+ * places that read it via `useTheme()`. Keep these values in sync with
+ * `src/index.css` whenever brand colors change.
+ */
 
-// Accent colors
+// Brand
+export const BITCOIN_ORANGE = "#F7931A";
+export const BRAND_HOVER = "#d47b16";
+
+// Surfaces (must mirror --surface-* in index.css)
+export const SURFACE_0 = "#0a0a0a";
+export const SURFACE_1 = "#121212";
+export const SURFACE_2 = "#1a1a1a";
+export const SURFACE_3 = "#212121";
+
+// Aliases retained for backwards compatibility with existing imports.
+export const ARCH_BLACK = "#000000";
+export const ARCH_DARK = SURFACE_1;
+export const ARCH_GRAY = SURFACE_2;
+
+// Accent palette used in syntax highlighting / status iconography
 export const BLUE = "#80ECFF";
 export const GREEN = "#14F195";
 export const RED = "#FF5555";
 export const YELLOW = "#FFC107";
 export const PURPLE = "#9945FF";
 
-// Text colors -- warm whites and grays
+// Text
 export const TEXT_PRIMARY = "#F5F5F4";
 export const TEXT_SECONDARY = "#A8A29E";
 
-// Syntax highlighting
+// Syntax highlighting palette (used by Monaco theme + theme.highlight)
 export const H_ORANGE = BITCOIN_ORANGE;
 export const H_BLUE = "#38CCFF";
 export const H_GREEN = "#2EF0B1";
 export const H_PURPLE = "#B57BEE";
 export const H_YELLOW = "#FFD174";
 
-// Borders & States -- true neutral
 export const BORDER_COLOR = "#2a2a2a";
 export const HOVER_BG = "#2e2e2e";
 export const DISABLED = "#0d0d0d";
@@ -35,7 +57,7 @@ const ARCH_THEME: Theme = {
   colors: {
     default: {
       bgPrimary: ARCH_BLACK,
-      bgSecondary: ARCH_DARK,
+      bgSecondary: SURFACE_1,
       primary: BITCOIN_ORANGE,
       secondary: BLUE,
       textPrimary: TEXT_PRIMARY,
@@ -43,66 +65,31 @@ const ARCH_THEME: Theme = {
       border: BORDER_COLOR,
     },
     state: {
-      disabled: {
-        bg: DISABLED,
-        color: TEXT_SECONDARY,
-      },
-      error: {
-        color: RED,
-      },
-      hover: {
-        bg: HOVER_BG,
-        color: TEXT_SECONDARY,
-      },
-      info: {
-        color: BLUE,
-      },
-      success: {
-        color: GREEN,
-      },
-      warning: {
-        color: YELLOW,
-      },
+      disabled: { bg: DISABLED, color: TEXT_SECONDARY },
+      error: { color: RED },
+      hover: { bg: HOVER_BG, color: TEXT_SECONDARY },
+      info: { color: BLUE },
+      success: { color: GREEN },
+      warning: { color: YELLOW },
     },
   },
   default: {
-    backdrop: {
-      backdropFilter: "blur(8px)",
-    },
+    backdrop: { backdropFilter: "blur(8px)" },
     borderRadius: "12px",
     boxShadow: "0px 4px 8px rgba(0, 0, 0, 0.2)",
   },
   components: {
     editor: {
-      default: {
-        bg: ARCH_DARK,
-        color: TEXT_PRIMARY,
-      },
-      gutter: {
-        bg: ARCH_DARK,
-        color: COMMENT,
-      },
-      wrapper: {
-        bg: ARCH_DARK,
-      },
+      default: { bg: SURFACE_1, color: TEXT_PRIMARY },
+      gutter: { bg: SURFACE_1, color: COMMENT },
+      wrapper: { bg: SURFACE_1 },
     },
     main: {
-      default: {
-        bg: ARCH_BLACK,
-      },
+      default: { bg: ARCH_BLACK },
     },
     sidebar: {
-      left: {
-        default: {
-          bg: ARCH_BLACK,
-        },
-      },
-      right: {
-        default: {
-          bg: ARCH_BLACK,
-          otherBg: ARCH_DARK,
-        },
-      },
+      left: { default: { bg: ARCH_BLACK } },
+      right: { default: { bg: ARCH_BLACK, otherBg: SURFACE_1 } },
     },
   },
   highlight: {

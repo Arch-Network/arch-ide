@@ -8,10 +8,13 @@ interface ResizeHandleProps {
 const ResizeHandle = ({ onMouseDown }: ResizeHandleProps) => {
   return (
     <div
-      className="h-2 border-t border-b border-gray-700 bg-gray-800 cursor-row-resize flex items-center justify-center hover:bg-gray-700"
+      className="h-2 border-t border-b border-border bg-surface-1 cursor-row-resize flex items-center justify-center hover:bg-accent transition-colors"
       onMouseDown={onMouseDown}
+      role="separator"
+      aria-orientation="horizontal"
+      aria-label="Resize panel"
     >
-      <GripHorizontal size={16} className="text-gray-500" />
+      <GripHorizontal size={16} className="text-muted-foreground" aria-hidden="true" />
     </div>
   );
 };

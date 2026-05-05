@@ -68,31 +68,31 @@ const FileContextMenu: React.FC<FileContextMenuProps> = ({
             style={{ left: position.x, top: position.y }}
           />
         </DropdownMenuTrigger>
-        <DropdownMenuContent className="bg-gray-800 border-gray-700 min-w-[160px]" align="start">
+        <DropdownMenuContent className="bg-popover border-border min-w-[160px]" align="start">
           {node.type === 'directory' && (
             <>
-              <DropdownMenuItem onClick={() => onNewFile()} className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs">
-                <Plus size={14} className="mr-2" />
+              <DropdownMenuItem onClick={() => onNewFile()} className="text-foreground/80 hover:bg-accent cursor-pointer text-xs">
+                <Plus size={14} className="mr-2" aria-hidden="true" />
                 New File
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={onNewFolder} className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs">
-                <Folder size={14} className="mr-2" />
+              <DropdownMenuItem onClick={onNewFolder} className="text-foreground/80 hover:bg-accent cursor-pointer text-xs">
+                <Folder size={14} className="mr-2" aria-hidden="true" />
                 New Folder
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => fileInputRef.current?.click()} className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs">
-                <Upload size={14} className="mr-2" />
+              <DropdownMenuItem onClick={() => fileInputRef.current?.click()} className="text-foreground/80 hover:bg-accent cursor-pointer text-xs">
+                <Upload size={14} className="mr-2" aria-hidden="true" />
                 Import File
               </DropdownMenuItem>
             </>
           )}
           {!isTopLevelFolder && (
             <>
-              <DropdownMenuItem onClick={onRename} className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs">
-                <Pencil size={14} className="mr-2" />
+              <DropdownMenuItem onClick={onRename} className="text-foreground/80 hover:bg-accent cursor-pointer text-xs">
+                <Pencil size={14} className="mr-2" aria-hidden="true" />
                 Rename
               </DropdownMenuItem>
-              <DropdownMenuItem className="text-red-400 hover:bg-gray-700 cursor-pointer text-xs" onClick={handleDelete}>
-                <Trash2 size={14} className="mr-2" />
+              <DropdownMenuItem className="text-danger hover:bg-danger/10 hover:text-danger cursor-pointer text-xs" onClick={handleDelete}>
+                <Trash2 size={14} className="mr-2" aria-hidden="true" />
                 Delete
               </DropdownMenuItem>
             </>

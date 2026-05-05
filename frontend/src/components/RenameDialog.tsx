@@ -83,16 +83,16 @@ const RenameDialog = ({ isOpen, onClose, onRename, currentName, type }: RenameDi
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-background text-foreground border-input">
+      <DialogContent className="bg-card text-foreground border-border">
         <DialogHeader>
           <DialogTitle className="text-foreground">Rename {type === 'file' ? 'File' : 'Folder'}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
           <div className="space-y-4 py-2">
             <div className="space-y-2">
-              <Label htmlFor="name" className="text-foreground">New name</Label>
+              <Label htmlFor="rename-name" className="text-foreground">New name</Label>
               <Input
-                id="name"
+                id="rename-name"
                 ref={inputRef}
                 value={name}
                 onChange={(e) => {
@@ -101,17 +101,24 @@ const RenameDialog = ({ isOpen, onClose, onRename, currentName, type }: RenameDi
                 }}
                 onKeyDown={handleKeyDown}
                 placeholder={`Enter new ${type === 'file' ? 'file' : 'folder'} name`}
-                className="bg-background text-foreground border-input"
+                className="bg-background text-foreground border-border"
                 aria-invalid={!!error}
+                aria-describedby={error ? 'rename-error' : undefined}
               />
-              {error && <p className="text-red-500 text-sm">{error}</p>}
+              {error && (
+                <p id="rename-error" role="alert" className="text-danger text-sm">
+                  {error}
+                </p>
+              )}
             </div>
           </div>
           <DialogFooter className="mt-4">
             <Button type="button" variant="outline" onClick={onClose} className="text-foreground">
               Cancel
             </Button>
-            <Button type="submit">Rename</Button>
+            <Button type="submit" className="bg-brand hover:bg-brand-hover text-brand-foreground">
+              Rename
+            </Button>
           </DialogFooter>
         </form>
       </DialogContent>

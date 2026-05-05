@@ -17,7 +17,7 @@ interface ConnectionErrorModalProps {
 }
 
 const CopiedNotification = () => (
-  <span className="text-[11px] text-emerald-400 ml-2">Copied</span>
+  <span className="text-[11px] text-success ml-2" role="status" aria-live="polite">Copied</span>
 );
 
 export const ConnectionErrorModal = ({
@@ -66,61 +66,64 @@ export const ConnectionErrorModal = ({
   const displayUrl = actualUrl || rpcUrl;
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div className="fixed inset-0 z-modal" role="dialog" aria-modal="true" aria-label="Connection failed">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-sm"
         onClick={handleClose}
       />
 
       <div className="absolute inset-0 flex items-center justify-center p-4">
-        <div className="w-full max-w-md bg-[#141414] border border-gray-800/60 rounded-xl p-5 shadow-2xl animate-in fade-in">
+        <div className="w-full max-w-md bg-card border border-border rounded-xl p-5 shadow-2xl animate-in fade-in">
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2.5">
-              <div className="h-8 w-8 rounded-lg bg-red-500/10 flex items-center justify-center">
-                <WifiOff className="h-4 w-4 text-red-400" />
+              <div className="h-8 w-8 rounded-lg bg-danger/10 flex items-center justify-center">
+                <WifiOff className="h-4 w-4 text-danger" aria-hidden="true" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-gray-200">Connection Failed</h3>
-                <p className="text-[11px] text-gray-500 capitalize">{network}</p>
+                <h3 className="text-sm font-semibold text-foreground">Connection Failed</h3>
+                <p className="text-[11px] text-muted-foreground capitalize">{network}</p>
               </div>
             </div>
             <Button
               variant="ghost"
               size="icon"
               onClick={handleClose}
-              className="h-7 w-7 rounded-lg text-gray-500 hover:text-gray-300 hover:bg-gray-800/60"
+              className="h-7 w-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+              aria-label="Close"
             >
-              <X className="h-3.5 w-3.5" />
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
             </Button>
           </div>
 
           {/* Error detail */}
-          <div className="rounded-lg bg-red-500/5 border border-red-500/15 px-3 py-2.5 mb-4">
-            <p className="text-xs text-red-400/90">
-              Unable to reach <span className="font-mono text-red-300">{displayUrl}</span>
+          <div className="rounded-lg bg-danger/5 border border-danger/15 px-3 py-2.5 mb-4">
+            <p className="text-xs text-danger/90">
+              Unable to reach <span className="font-mono text-danger">{displayUrl}</span>
             </p>
           </div>
 
           {/* Content */}
           {isLocalnet ? (
             <div className="space-y-4">
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-muted-foreground">
                 A local validator must be running to use devnet. Follow these steps:
               </p>
 
               {/* Step 1 */}
               <div className="space-y-1.5">
-                <p className="text-[11px] font-medium text-gray-300">1. Install the validator</p>
+                <p className="text-[11px] font-medium text-foreground/80">1. Install the validator</p>
                 <div className="relative group">
-                  <pre className="bg-[#0a0a0a] rounded-lg px-3 py-2.5 text-[11px] font-mono text-gray-300 overflow-x-auto">
+                  <pre className="bg-surface-0 rounded-lg px-3 py-2.5 text-[11px] font-mono text-foreground/80 overflow-x-auto">
                     {installCommand}
                   </pre>
                   <button
+                    type="button"
                     onClick={() => handleCopy(installCommand, setCopiedInstall)}
-                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded-md bg-gray-800/80 hover:bg-gray-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded-md bg-surface-2 hover:bg-surface-3 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Copy install command"
                   >
-                    <Copy className="h-3 w-3 text-gray-400" />
+                    <Copy className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
                   </button>
                   {copiedInstall && <CopiedNotification />}
                 </div>
@@ -128,16 +131,18 @@ export const ConnectionErrorModal = ({
 
               {/* Step 2 */}
               <div className="space-y-1.5">
-                <p className="text-[11px] font-medium text-gray-300">2. Start the validator</p>
+                <p className="text-[11px] font-medium text-foreground/80">2. Start the validator</p>
                 <div className="relative group">
-                  <pre className="bg-[#0a0a0a] rounded-lg px-3 py-2.5 text-[11px] font-mono text-gray-300 overflow-x-auto whitespace-pre-wrap">
+                  <pre className="bg-surface-0 rounded-lg px-3 py-2.5 text-[11px] font-mono text-foreground/80 overflow-x-auto whitespace-pre-wrap">
                     {validatorCommand}
                   </pre>
                   <button
+                    type="button"
                     onClick={() => handleCopy(validatorCommand, setCopiedValidator)}
-                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded-md bg-gray-800/80 hover:bg-gray-700 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    className="absolute right-1.5 top-1.5 h-6 w-6 rounded-md bg-surface-2 hover:bg-surface-3 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                    aria-label="Copy validator command"
                   >
-                    <Copy className="h-3 w-3 text-gray-400" />
+                    <Copy className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
                   </button>
                   {copiedValidator && <CopiedNotification />}
                 </div>
@@ -147,16 +152,16 @@ export const ConnectionErrorModal = ({
                 href="https://docs.arch.network"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-300 transition-colors"
+                className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
               >
-                <ExternalLink className="h-3 w-3" />
+                <ExternalLink className="h-3 w-3" aria-hidden="true" />
                 View full documentation
               </a>
             </div>
           ) : (
             <div className="space-y-3">
-              <p className="text-xs text-gray-400 leading-relaxed">
-                The RPC server at <span className="font-mono text-gray-300">{displayUrl}</span> is
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                The RPC server at <span className="font-mono text-foreground/80">{displayUrl}</span> is
                 not responding. This usually means the network is temporarily unavailable or the
                 endpoint has changed.
               </p>
@@ -166,9 +171,9 @@ export const ConnectionErrorModal = ({
                 {onRetry && (
                   <Button
                     onClick={() => { onRetry(); handleClose(); }}
-                    className="flex-1 h-9 text-xs bg-[#F7931A] hover:bg-[#d47b16] text-white rounded-lg font-medium"
+                    className="flex-1 h-9 text-xs bg-brand hover:bg-brand-hover text-brand-foreground rounded-lg font-medium"
                   >
-                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" />
+                    <RefreshCw className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
                     Retry Connection
                   </Button>
                 )}
@@ -176,9 +181,9 @@ export const ConnectionErrorModal = ({
                   <Button
                     onClick={() => { onOpenSettings(); handleClose(); }}
                     variant="ghost"
-                    className="flex-1 h-9 text-xs text-gray-300 bg-gray-800/60 hover:bg-gray-700/60 rounded-lg border border-gray-700/40"
+                    className="flex-1 h-9 text-xs text-foreground/80 bg-accent hover:bg-surface-3 rounded-lg border border-border"
                   >
-                    <Settings className="h-3.5 w-3.5 mr-1.5" />
+                    <Settings className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
                     Settings
                   </Button>
                 )}
@@ -187,7 +192,7 @@ export const ConnectionErrorModal = ({
           )}
 
           {/* Dismiss hint */}
-          <p className="text-[10px] text-gray-600 mt-4 text-center">
+          <p className="text-[10px] text-muted-foreground/80 mt-4 text-center">
             This will auto-dismiss once connected
           </p>
         </div>

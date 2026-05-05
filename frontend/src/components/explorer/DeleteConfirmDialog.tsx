@@ -25,17 +25,17 @@ const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-background text-foreground border-input max-w-sm">
+      <DialogContent className="bg-card text-foreground border-border max-w-sm">
         <DialogHeader>
           <DialogTitle className="text-foreground flex items-center gap-2">
-            <Trash2 className="h-4 w-4 text-red-400" />
+            <Trash2 className="h-4 w-4 text-danger" aria-hidden="true" />
             Delete {itemType === 'directory' ? 'Folder' : 'File'}
           </DialogTitle>
-          <DialogDescription className="text-gray-400 text-sm pt-2">
+          <DialogDescription className="text-muted-foreground text-sm pt-2">
             {itemType === 'directory' ? (
-              <>Are you sure you want to delete <strong className="text-gray-300">{itemName}</strong> and all its contents? This action cannot be undone.</>
+              <>Are you sure you want to delete <strong className="text-foreground/80">{itemName}</strong> and all its contents? This action cannot be undone.</>
             ) : (
-              <>Are you sure you want to delete <strong className="text-gray-300">{itemName}</strong>? This action cannot be undone.</>
+              <>Are you sure you want to delete <strong className="text-foreground/80">{itemName}</strong>? This action cannot be undone.</>
             )}
           </DialogDescription>
         </DialogHeader>
@@ -46,7 +46,7 @@ const DeleteConfirmDialog: React.FC<DeleteConfirmDialogProps> = ({
           <Button
             type="button"
             onClick={handleConfirm}
-            className="bg-red-600 hover:bg-red-700 text-white"
+            className="bg-danger hover:bg-danger/90 text-danger-foreground"
           >
             Delete
           </Button>

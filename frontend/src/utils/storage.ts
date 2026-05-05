@@ -6,6 +6,8 @@ const STORAGE_KEYS = {
     CURRENT_VIEW: 'arch-playground-current-view'
   };
 
+export type SidebarView = 'explorer' | 'search' | 'inspector' | 'build';
+
   export const storage = {
     saveConfig: (config: any) => {
       localStorage.setItem(STORAGE_KEYS.CONFIG, JSON.stringify(config));
@@ -53,12 +55,21 @@ const STORAGE_KEYS = {
       return stored ? JSON.parse(stored) : null;
     },
 
-    saveCurrentView: (view: 'explorer' | 'build') => {
+    saveCurrentView: (view: SidebarView) => {
       localStorage.setItem(STORAGE_KEYS.CURRENT_VIEW, view);
     },
 
-    getCurrentView: () => {
-      return (localStorage.getItem(STORAGE_KEYS.CURRENT_VIEW) as 'explorer' | 'build') || 'explorer';
+    getCurrentView: (): SidebarView => {
+      const raw = localStorage.getItem(STORAGE_KEYS.CURRENT_VIEW);
+      if (
+        raw === 'explorer' ||
+        raw === 'build' ||
+        raw === 'search' ||
+        raw === 'inspector'
+      ) {
+        return raw;
+      }
+      return 'explorer';
     },
 
     getHasCompletedTutorial: () => {

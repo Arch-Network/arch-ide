@@ -273,34 +273,41 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
       onDrop={handleDrop}
     >
       {/* Header */}
-      <div className="flex justify-between items-center px-3 py-2 border-b border-gray-700/60">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400">Explorer</h2>
+      <div className="flex justify-between items-center px-3 py-2 border-b border-border">
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Explorer</h2>
         <div className="flex items-center gap-0.5">
           {hasProjects && (
             <>
               <button
-                className="hover:bg-gray-700/60 p-1 rounded-md transition-colors text-gray-500 hover:text-gray-300"
+                type="button"
+                className="hover:bg-accent p-1 rounded-md transition-colors text-muted-foreground hover:text-foreground"
                 onClick={() => setIsSearchOpen(!isSearchOpen)}
                 title="Search Files"
+                aria-label="Search files"
+                aria-expanded={isSearchOpen}
               >
-                <Search size={14} />
+                <Search size={14} aria-hidden="true" />
               </button>
               <button
-                className="hover:bg-gray-700/60 p-1 rounded-md transition-colors text-gray-500 hover:text-gray-300"
+                type="button"
+                className="hover:bg-accent p-1 rounded-md transition-colors text-muted-foreground hover:text-foreground"
                 onClick={handleCollapseAll}
                 title="Collapse All"
+                aria-label="Collapse all folders"
               >
-                <ChevronsDownUp size={14} />
+                <ChevronsDownUp size={14} aria-hidden="true" />
               </button>
             </>
           )}
           {onOpenHomeTab && (
             <button
-              className="hover:bg-gray-700/60 p-1 rounded-md transition-colors text-gray-500 hover:text-gray-300"
+              type="button"
+              className="hover:bg-accent p-1 rounded-md transition-colors text-muted-foreground hover:text-foreground"
               onClick={onOpenHomeTab}
               title="Open Home Tab"
+              aria-label="Open home tab"
             >
-              <Home size={14} />
+              <Home size={14} aria-hidden="true" />
             </button>
           )}
         </div>
@@ -318,12 +325,12 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
       {/* Tree content */}
       <div className="flex-1 overflow-y-auto">
         {!hasProjects ? (
-          <div className="flex flex-col items-center justify-center h-full gap-4 text-gray-400 px-6">
+          <div className="flex flex-col items-center justify-center h-full gap-4 text-muted-foreground px-6">
             <p className="text-sm text-center">No projects found</p>
             <Button
               variant="default"
               onClick={onNewProject}
-              className="bg-[#F7931A] hover:bg-[#d47b16] text-white font-semibold"
+              className="bg-brand hover:bg-brand-hover text-brand-foreground font-semibold"
             >
               Create New Project
             </Button>
@@ -337,7 +344,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
               <>
                 <SectionHeader
                   title="Program"
-                  icon={<Hammer size={14} className="text-orange-400" />}
+                  icon={<Hammer size={14} className="text-brand" aria-hidden="true" />}
                   actions={[
                     {
                       icon: isBuilding ? <Loader2 size={14} className="animate-spin" /> : <Hammer size={14} />,
@@ -364,7 +371,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
               <>
                 <SectionHeader
                   title="Client"
-                  icon={<Play size={14} className="text-green-400" />}
+                  icon={<Play size={14} className="text-success" aria-hidden="true" />}
                   actions={[
                     {
                       icon: <Play size={14} />,
@@ -388,8 +395,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
 
             {/* No results when searching */}
             {searchQuery && programFiles.length === 0 && clientFiles.length === 0 && otherFiles.length === 0 && (
-              <div className="flex flex-col items-center justify-center py-12 text-gray-500">
-                <Search size={24} className="mb-2 text-gray-600" />
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <Search size={24} className="mb-2 text-muted-foreground/70" aria-hidden="true" />
                 <p className="text-xs">No files matching "{searchQuery}"</p>
               </div>
             )}
@@ -399,11 +406,15 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
 
       {/* Drag-and-drop overlay */}
       {isDragOver && hasProjects && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-gray-900/80 backdrop-blur-sm border-2 border-dashed border-[#F7931A]/60 rounded-lg pointer-events-none">
+        <div
+          className="absolute inset-0 z-overlay flex items-center justify-center bg-background/80 backdrop-blur-sm border-2 border-dashed border-brand/60 rounded-lg pointer-events-none"
+          role="status"
+          aria-live="polite"
+        >
           <div className="flex flex-col items-center gap-2 text-center px-4">
-            <Upload className="h-8 w-8 text-[#F7931A]" />
-            <p className="text-sm font-medium text-gray-200">Drop files here</p>
-            <p className="text-xs text-gray-400">
+            <Upload className="h-8 w-8 text-brand" aria-hidden="true" />
+            <p className="text-sm font-medium text-foreground">Drop files here</p>
+            <p className="text-xs text-muted-foreground">
               .rs files go to Program, .ts files go to Client
             </p>
           </div>

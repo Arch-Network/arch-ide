@@ -73,9 +73,9 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
 
   const getReasonBadge = (reason: string) => {
     const styles = {
-      regenerated: 'bg-blue-900/40 text-blue-300 border-blue-800',
-      project_deleted: 'bg-red-900/40 text-red-300 border-red-800',
-      manual: 'bg-gray-700 text-gray-300 border-gray-600'
+      regenerated: 'bg-info/15 text-info border-info/30',
+      project_deleted: 'bg-danger/15 text-danger border-danger/30',
+      manual: 'bg-accent text-foreground/80 border-border'
     };
     const labels = {
       regenerated: 'Regenerated',
@@ -95,10 +95,10 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="bg-gray-800 border-gray-700 max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+      <DialogContent className="bg-card border-border max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
         <DialogHeader>
-          <DialogTitle className="text-gray-200">Historical Authority Keys</DialogTitle>
-          <DialogDescription className="text-gray-400">
+          <DialogTitle className="text-foreground">Historical Authority Keys</DialogTitle>
+          <DialogDescription className="text-muted-foreground">
             View and manage previous authority account keypairs for this project
           </DialogDescription>
         </DialogHeader>
@@ -107,35 +107,44 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
           <div className="space-y-2">
             {/* Current Key */}
             {currentAccount && (
-              <div className="bg-gray-900/50 border-2 border-green-700/50 rounded-md overflow-hidden">
+              <div className="bg-background/50 border-2 border-success/40 rounded-md overflow-hidden">
                 <div
-                  className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-800/50 transition-colors"
+                  className="flex items-center justify-between p-3 cursor-pointer hover:bg-accent/50 transition-colors"
                   onClick={() => setCurrentExpanded(!currentExpanded)}
+                  role="button"
+                  aria-expanded={currentExpanded}
+                  tabIndex={0}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      setCurrentExpanded(!currentExpanded);
+                    }
+                  }}
                 >
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className="flex-shrink-0">
                       {currentExpanded ? (
-                        <ChevronUp className="h-4 w-4 text-gray-400" />
+                        <ChevronUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                       ) : (
-                        <ChevronDown className="h-4 w-4 text-gray-400" />
+                        <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                       )}
                     </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm text-gray-200 font-mono font-medium tracking-wide">
+                            <span className="text-sm text-foreground font-mono font-medium tracking-wide">
                               {(() => {
                                 const pubkeyBase58 = hexToBase58(currentAccount.pubkey);
-                                return pubkeyBase58.length > 16 
+                                return pubkeyBase58.length > 16
                                   ? `${pubkeyBase58.slice(0, 8)}...${pubkeyBase58.slice(-8)}`
                                   : pubkeyBase58;
                               })()}
                             </span>
-                        <span className="text-[10px] font-medium px-2 py-0.5 rounded border bg-green-900/40 text-green-300 border-green-800">
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded border bg-success/15 text-success border-success/30">
                           Current
                         </span>
                       </div>
-                      <div className="flex items-center gap-2 text-[10px] text-gray-500">
-                        <CheckCircle className="h-3 w-3 text-green-500" />
+                      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                        <CheckCircle className="h-3 w-3 text-success" aria-hidden="true" />
                         <span>Active authority account</span>
                       </div>
                     </div>
@@ -144,14 +153,14 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
 
                 {/* Expanded Content */}
                 {currentExpanded && (
-                  <div className="border-t border-gray-700 p-4 space-y-4 bg-gray-900/30">
+                  <div className="border-t border-border p-4 space-y-4 bg-background/30">
                     <div className="space-y-3">
                       <div>
-                        <label className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5 block">
+                        <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5 block">
                           Pubkey
                         </label>
                         <div className="flex items-center gap-2">
-                          <div className="flex-1 min-w-0 h-9 text-sm font-mono font-medium bg-gray-800 border border-gray-700 rounded px-3 flex items-center text-gray-50 tracking-wide">
+                          <div className="flex-1 min-w-0 h-9 text-sm font-mono font-medium bg-surface-1 border border-border rounded px-3 flex items-center text-foreground tracking-wide">
                             <span className="truncate" title={hexToBase58(currentAccount.pubkey)}>
                               {hexToBase58(currentAccount.pubkey)}
                             </span>
@@ -165,11 +174,12 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
                             }}
                             className="h-9 px-2.5"
                             title="Copy pubkey"
+                            aria-label="Copy pubkey"
                           >
                             {copiedField === 'current-pubkey' ? (
-                              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                              <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />
                             ) : (
-                              <Copy className="h-3.5 w-3.5 text-gray-400" />
+                              <Copy className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                             )}
                           </Button>
                         </div>
@@ -183,9 +193,9 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
                             e.stopPropagation();
                             handleExport(currentAccount);
                           }}
-                          className="h-8 text-xs border-gray-600 text-gray-700 hover:bg-gray-700 hover:text-gray-200"
+                          className="h-8 text-xs border-border text-foreground/80 hover:bg-accent hover:text-foreground"
                         >
-                          <FileText className="h-3.5 w-3.5 mr-1.5" />
+                          <FileText className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
                           Export JSON
                         </Button>
                       </div>
@@ -198,44 +208,53 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
             {/* Historical Keys */}
             {sortedKeys.length === 0 && !currentAccount ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <Clock className="h-12 w-12 text-gray-600 mb-4" />
-                <p className="text-gray-400 text-sm">No historical keys</p>
-                <p className="text-gray-500 text-xs mt-2">Historical keys will appear here when you regenerate your authority account</p>
+                <Clock className="h-12 w-12 text-muted-foreground/70 mb-4" aria-hidden="true" />
+                <p className="text-muted-foreground text-sm">No historical keys</p>
+                <p className="text-muted-foreground/80 text-xs mt-2">Historical keys will appear here when you regenerate your authority account</p>
               </div>
             ) : (
-              sortedKeys.map((historicalKey, index) => {
+              sortedKeys.map((historicalKey) => {
                 const originalIndex = historicalKeys.indexOf(historicalKey);
                 const isExpanded = expandedIndex === originalIndex;
                 const pubkeyBase58 = hexToBase58(historicalKey.account.pubkey);
-                const truncatedPubkey = pubkeyBase58.length > 16 
+                const truncatedPubkey = pubkeyBase58.length > 16
                   ? `${pubkeyBase58.slice(0, 8)}...${pubkeyBase58.slice(-8)}`
                   : pubkeyBase58;
 
                 return (
                   <div
                     key={originalIndex}
-                    className="bg-gray-900/50 border border-gray-700 rounded-md overflow-hidden"
+                    className="bg-background/50 border border-border rounded-md overflow-hidden"
                   >
                     {/* Collapsed Row */}
                     <div
-                      className="flex items-center justify-between p-3 cursor-pointer hover:bg-gray-800/50 transition-colors"
+                      className="flex items-center justify-between p-3 cursor-pointer hover:bg-accent/50 transition-colors"
                       onClick={() => setExpandedIndex(isExpanded ? null : originalIndex)}
+                      role="button"
+                      aria-expanded={isExpanded}
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setExpandedIndex(isExpanded ? null : originalIndex);
+                        }
+                      }}
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
                         <div className="flex-shrink-0">
                           {isExpanded ? (
-                            <ChevronUp className="h-4 w-4 text-gray-400" />
+                            <ChevronUp className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                           ) : (
-                            <ChevronDown className="h-4 w-4 text-gray-400" />
+                            <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
                           )}
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <span className="text-sm text-gray-300 font-mono font-medium tracking-wide">{truncatedPubkey}</span>
+                            <span className="text-sm text-foreground/80 font-mono font-medium tracking-wide">{truncatedPubkey}</span>
                             {getReasonBadge(historicalKey.reason)}
                           </div>
-                          <div className="flex items-center gap-2 text-[10px] text-gray-500">
-                            <Clock className="h-3 w-3" />
+                          <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                            <Clock className="h-3 w-3" aria-hidden="true" />
                             <span>{formatDate(historicalKey.savedAt)}</span>
                           </div>
                         </div>
@@ -244,14 +263,14 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
 
                     {/* Expanded Content */}
                     {isExpanded && (
-                      <div className="border-t border-gray-700 p-4 space-y-4 bg-gray-900/30">
+                      <div className="border-t border-border p-4 space-y-4 bg-background/30">
                         <div className="space-y-3">
                           <div>
-                            <label className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5 block">
+                            <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5 block">
                               Pubkey
                             </label>
                             <div className="flex items-center gap-2">
-                              <div className="flex-1 min-w-0 h-9 text-sm font-mono font-medium bg-gray-800 border border-gray-700 rounded px-3 flex items-center text-gray-50 tracking-wide">
+                              <div className="flex-1 min-w-0 h-9 text-sm font-mono font-medium bg-surface-1 border border-border rounded px-3 flex items-center text-foreground tracking-wide">
                                 <span className="truncate" title={pubkeyBase58}>{pubkeyBase58}</span>
                               </div>
                               <Button
@@ -263,11 +282,12 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
                                 }}
                                 className="h-9 px-2.5"
                                 title="Copy pubkey"
+                                aria-label="Copy pubkey"
                               >
                                 {copiedField === `pubkey-${originalIndex}` ? (
-                                  <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
+                                  <CheckCircle2 className="h-3.5 w-3.5 text-success" aria-hidden="true" />
                                 ) : (
-                                  <Copy className="h-3.5 w-3.5 text-gray-400" />
+                                  <Copy className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                                 )}
                               </Button>
                             </div>
@@ -275,10 +295,10 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
 
                           {historicalKey.note && (
                             <div>
-                              <label className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-1.5 block">
+                              <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide mb-1.5 block">
                                 Note
                               </label>
-                              <p className="text-xs text-gray-200 bg-gray-800/50 border border-gray-700 rounded px-2.5 py-2">
+                              <p className="text-xs text-foreground bg-accent/50 border border-border rounded px-2.5 py-2">
                                 {historicalKey.note}
                               </p>
                             </div>
@@ -292,9 +312,9 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
                                 e.stopPropagation();
                                 handleRestore(originalIndex);
                               }}
-                              className="h-8 text-xs border-gray-600 text-gray-700 hover:bg-gray-700 hover:text-gray-200"
+                              className="h-8 text-xs border-border text-foreground/80 hover:bg-accent hover:text-foreground"
                             >
-                              <RotateCcw className="h-3.5 w-3.5 mr-1.5" />
+                              <RotateCcw className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
                               Restore
                             </Button>
                             <Button
@@ -304,9 +324,9 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
                                 e.stopPropagation();
                                 handleExport(historicalKey.account);
                               }}
-                              className="h-8 text-xs border-gray-600 text-gray-700 hover:bg-gray-700 hover:text-gray-200"
+                              className="h-8 text-xs border-border text-foreground/80 hover:bg-accent hover:text-foreground"
                             >
-                              <FileText className="h-3.5 w-3.5 mr-1.5" />
+                              <FileText className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
                               Export JSON
                             </Button>
                             <Button
@@ -316,9 +336,9 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
                                 e.stopPropagation();
                                 handleDelete(originalIndex);
                               }}
-                              className="h-8 text-xs border-red-600 text-red-400 hover:bg-red-900/20"
+                              className="h-8 text-xs border-danger/40 text-danger hover:bg-danger/10"
                             >
-                              <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                              <Trash2 className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
                               Delete
                             </Button>
                           </div>
@@ -336,7 +356,7 @@ const HistoricalKeysModal: React.FC<HistoricalKeysModalProps> = ({
           <Button
             variant="outline"
             onClick={onClose}
-            className="border-gray-600 text-gray-700 hover:bg-gray-700 hover:text-gray-200"
+            className="border-border text-foreground/80 hover:bg-accent hover:text-foreground"
           >
             Close
           </Button>

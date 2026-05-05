@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { Check } from 'lucide-react';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -77,14 +78,15 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
                 <button
                   type="button"
                   onClick={() => setFramework('native')}
+                  aria-pressed={framework === 'native'}
                   className={`relative p-4 rounded-lg border-2 transition-all text-left ${
                     framework === 'native'
-                      ? 'border-[#F7931A] bg-[#F7931A]/10 dark:bg-[#F7931A]/20'
+                      ? 'border-brand bg-brand/10 dark:bg-brand/20'
                       : 'border-input bg-background hover:border-muted-foreground/50'
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="text-3xl">🦀</div>
+                    <div className="text-3xl" aria-hidden="true">🦀</div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-foreground">Native (Rust)</h3>
                       <p className="text-xs text-muted-foreground mt-1">
@@ -93,8 +95,8 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
                     </div>
                   </div>
                   {framework === 'native' && (
-                    <div className="absolute top-2 right-2">
-                      <span className="text-[#F7931A] font-bold">✓</span>
+                    <div className="absolute top-2 right-2" aria-hidden="true">
+                      <Check className="h-4 w-4 text-brand" />
                     </div>
                   )}
                 </button>
@@ -103,14 +105,15 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
                 <button
                   type="button"
                   onClick={() => setFramework('satellite')}
+                  aria-pressed={framework === 'satellite'}
                   className={`relative p-4 rounded-lg border-2 transition-all text-left ${
                     framework === 'satellite'
-                      ? 'border-[#F7931A] bg-[#F7931A]/10 dark:bg-[#F7931A]/20'
+                      ? 'border-brand bg-brand/10 dark:bg-brand/20'
                       : 'border-input bg-background hover:border-muted-foreground/50'
                   }`}
                 >
                   <div className="flex items-start gap-3">
-                    <div className="text-3xl">🛰️</div>
+                    <div className="text-3xl" aria-hidden="true">🛰️</div>
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-foreground">Satellite (Rust)</h3>
                       <p className="text-xs text-muted-foreground mt-1">
@@ -119,8 +122,8 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
                     </div>
                   </div>
                   {framework === 'satellite' && (
-                    <div className="absolute top-2 right-2">
-                      <span className="text-[#F7931A] font-bold">✓</span>
+                    <div className="absolute top-2 right-2" aria-hidden="true">
+                      <Check className="h-4 w-4 text-brand" />
                     </div>
                   )}
                 </button>
@@ -131,9 +134,9 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
             <Button type="button" variant="outline" onClick={onClose} className="text-foreground">
               Cancel
             </Button>
-            <Button 
-              type="submit" 
-              className="bg-[#E05A1A] hover:bg-[#d14e12] text-white"
+            <Button
+              type="submit"
+              className="bg-brand hover:bg-brand-hover text-brand-foreground"
               disabled={!isNameValid}
             >
               Create Project

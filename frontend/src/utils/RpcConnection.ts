@@ -43,6 +43,14 @@ export class RpcConnection {
       }
     }
 
+    /**
+     * Request an airdrop for the given pubkey byte array.
+     * Returns the transaction hash on success.
+     */
+    async requestAirdrop(pubkeyBytes: number[]): Promise<string> {
+      return this.request('request_airdrop', pubkeyBytes);
+    }
+
     async checkConnection(): Promise<boolean> {
       try {
         await this.request('getblockcount');

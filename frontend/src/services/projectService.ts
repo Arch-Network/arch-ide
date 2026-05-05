@@ -11,11 +11,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-arch_program = "0.6.2"
-apl-associated-token-account = "0.6.2"
-apl-token = "0.6.2"
-apl-token-metadata = "0.6.2"
+arch_program = "0.6.4"
+apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
 borsh = { version = "1.5.1", features = ["derive"] }
+hashbrown = ">=0.14.0, <0.17.0"
+indexmap = ">=2.0.0, <2.14.0"
 
 [lib]
 crate-type = ["cdylib", "lib"]`;
@@ -1158,6 +1160,92 @@ export class ProjectService {
     await this.updateProject(projectId, (project) => ({
       ...project,
       account,
+    }));
+  }
+
+  /**
+   * Persist or clear the project's IDL.
+   *
+   * The IDL is the contract surface that powers the Program Inspector — it
+   * cannot be derived from the .so binary alone, so we treat it as
+   * project-level metadata that the user supplies (manual import today,
+   * build-pipeline emission later).
+   */
+  async setProjectIdl(projectId: string, idl: import('../types').ArchIdl | null): Promise<void> {
+    await this.updateProject(projectId, (project) => ({
+      ...project,
+      idl: idl ?? null,
+    }));
+  }
+
+  /**
+   * Address book and saved-keypair helpers used by the Invoke form's
+   * account picker. We keep them on the project itself rather than in a
+   * dedicated IndexedDB store so a) we don't have to bump the schema
+   * version and b) export/import of a project carries its address book
+   * along — which is what users expect when sharing programs.
+   */
+  async addAddressBookEntry(
+    projectId: string,
+    label: string,
+    address: string,
+  ): Promise<import('../types').AddressBookEntry | null> {
+    const trimmedLabel = label.trim();
+    const trimmedAddress = address.trim();
+    if (!trimmedLabel || !trimmedAddress) return null;
+
+    const entry: import('../types').AddressBookEntry = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      label: trimmedLabel,
+      address: trimmedAddress,
+      addedAt: new Date(),
+    };
+
+    await this.updateProject(projectId, (project) => {
+      const existing = project.addressBook ?? [];
+      // Dedup by address — if it already exists, replace the label so
+      // the user's most recent intent wins (rather than silently keeping
+      // a stale label for the same pubkey).
+      const filtered = existing.filter((e) => e.address !== trimmedAddress);
+      return {
+        ...project,
+        addressBook: [...filtered, entry],
+      };
+    });
+    return entry;
+  }
+
+  async removeAddressBookEntry(projectId: string, id: string): Promise<void> {
+    await this.updateProject(projectId, (project) => ({
+      ...project,
+      addressBook: (project.addressBook ?? []).filter((e) => e.id !== id),
+    }));
+  }
+
+  async addSavedKeypair(
+    projectId: string,
+    label: string,
+    account: ProjectAccount,
+  ): Promise<import('../types').SavedKeypair | null> {
+    const trimmedLabel = label.trim();
+    if (!trimmedLabel) return null;
+    const entry: import('../types').SavedKeypair = {
+      id: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      label: trimmedLabel,
+      account,
+      createdAt: new Date(),
+    };
+    await this.updateProject(projectId, (project) => ({
+      ...project,
+      savedKeypairs: [...(project.savedKeypairs ?? []), entry],
+    }));
+    return entry;
+  }
+
+  async removeSavedKeypair(projectId: string, id: string): Promise<void> {
+    await this.updateProject(projectId, (project) => ({
+      ...project,
+      savedKeypairs: (project.savedKeypairs ?? []).filter((k) => k.id !== id),
     }));
   }
 

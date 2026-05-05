@@ -22,9 +22,9 @@ const FileSearchBar: React.FC<FileSearchBarProps> = ({ value, onChange, onClose 
   };
 
   return (
-    <div className="px-2 py-1.5 border-b border-gray-700/60">
-      <div className="flex items-center gap-2 bg-gray-900/60 border border-gray-700/50 rounded-lg px-2.5 py-1.5">
-        <Search size={13} className="text-gray-500 shrink-0" />
+    <div className="px-2 py-1.5 border-b border-border">
+      <div className="flex items-center gap-2 bg-background/60 border border-border rounded-lg px-2.5 py-1.5 focus-within:ring-1 focus-within:ring-brand/50">
+        <Search size={13} className="text-muted-foreground shrink-0" aria-hidden="true" />
         <input
           ref={inputRef}
           type="text"
@@ -32,14 +32,17 @@ const FileSearchBar: React.FC<FileSearchBarProps> = ({ value, onChange, onClose 
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Search files..."
-          className="flex-1 bg-transparent text-xs text-gray-300 placeholder-gray-600 outline-none"
+          aria-label="Search files"
+          className="flex-1 bg-transparent text-xs text-foreground/80 placeholder:text-muted-foreground/70 outline-none"
         />
         {value && (
           <button
+            type="button"
             onClick={() => { onChange(''); inputRef.current?.focus(); }}
-            className="hover:bg-gray-700/50 p-0.5 rounded transition-colors"
+            className="hover:bg-accent p-0.5 rounded transition-colors"
+            aria-label="Clear search"
           >
-            <X size={12} className="text-gray-500" />
+            <X size={12} className="text-muted-foreground" aria-hidden="true" />
           </button>
         )}
       </div>

@@ -154,7 +154,7 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
     return (
       <span className="text-[13px] leading-tight">
         {node.name.slice(0, idx)}
-        <span className="bg-yellow-500/30 text-yellow-200 rounded-sm px-0.5">{node.name.slice(idx, idx + searchQuery.length)}</span>
+        <span className="bg-warning/30 text-warning rounded-sm px-0.5">{node.name.slice(idx, idx + searchQuery.length)}</span>
         {node.name.slice(idx + searchQuery.length)}
       </span>
     );
@@ -168,11 +168,14 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
         className={cn(
           "flex items-center gap-1.5 py-[3px] px-2 cursor-pointer transition-colors duration-100 relative",
           isSelected
-            ? "bg-[#F7931A]/10 border-l-2 border-[#F7931A]"
-            : "border-l-2 border-transparent hover:bg-gray-700/40",
-          isDropTarget && "bg-[#F7931A]/20 border-l-2 border-[#F7931A]/80",
+            ? "bg-brand/10 border-l-2 border-brand"
+            : "border-l-2 border-transparent hover:bg-accent",
+          isDropTarget && "bg-brand/20 border-l-2 border-brand/80",
         )}
         style={{ paddingLeft: `${depth * INDENT_PX + 8}px` }}
+        role={isDirectory ? 'treeitem' : 'option'}
+        aria-selected={isSelected || undefined}
+        aria-expanded={isDirectory ? isExpanded : undefined}
         draggable
         onDragStart={handleDragStart}
         onDragOver={isDirectory ? handleDragOver : undefined}
@@ -186,8 +189,9 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
         {depth > 0 && Array.from({ length: depth }).map((_, i) => (
           <div
             key={i}
-            className="absolute top-0 bottom-0 border-l border-gray-700/30 pointer-events-none"
+            className="absolute top-0 bottom-0 border-l border-border/40 pointer-events-none"
             style={{ left: `${i * INDENT_PX + 11}px` }}
+            aria-hidden="true"
           />
         ))}
 
@@ -195,9 +199,9 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
         {isDirectory ? (
           <span className="shrink-0 w-4 flex items-center justify-center">
             {isExpanded ? (
-              <ChevronDown size={14} className="text-gray-500" />
+              <ChevronDown size={14} className="text-muted-foreground" aria-hidden="true" />
             ) : (
-              <ChevronRight size={14} className="text-gray-500" />
+              <ChevronRight size={14} className="text-muted-foreground" aria-hidden="true" />
             )}
           </span>
         ) : (
@@ -206,7 +210,7 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
 
         {/* Icon */}
         {isDirectory ? (
-          <Folder size={15} className={cn("shrink-0", isExpanded ? "text-blue-400" : "text-blue-400/70")} />
+          <Folder size={15} className={cn("shrink-0", isExpanded ? "text-info" : "text-info/70")} aria-hidden="true" />
         ) : (
           getFileIcon(node.name)
         )}
@@ -218,7 +222,7 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
 
         {/* Child count badge for collapsed folders */}
         {isDirectory && !isExpanded && childCount > 0 && (
-          <span className="text-[10px] text-gray-600 tabular-nums shrink-0">
+          <span className="text-[10px] text-muted-foreground/70 tabular-nums shrink-0" aria-label={`${childCount} items`}>
             {childCount}
           </span>
         )}

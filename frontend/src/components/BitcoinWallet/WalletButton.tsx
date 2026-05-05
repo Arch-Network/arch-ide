@@ -13,7 +13,6 @@ import {
   DropdownMenuTrigger,
 } from '../ui/dropdown-menu';
 
-// Wallet icon component - using styled badges
 const WalletIcon: React.FC<{ name: string }> = ({ name }) => {
   const getWalletStyle = () => {
     switch (name) {
@@ -22,14 +21,17 @@ const WalletIcon: React.FC<{ name: string }> = ({ name }) => {
       case 'Xverse':
         return { bg: 'bg-purple-600', text: 'X' };
       default:
-        return { bg: 'bg-gray-600', text: name[0] };
+        return { bg: 'bg-muted', text: name[0] };
     }
   };
 
   const style = getWalletStyle();
 
   return (
-    <div className={`${style.bg} w-5 h-5 rounded flex items-center justify-center text-white text-xs font-bold`}>
+    <div
+      aria-hidden="true"
+      className={`${style.bg} w-5 h-5 rounded flex items-center justify-center text-white text-xs font-bold`}
+    >
       {style.text}
     </div>
   );
@@ -81,8 +83,8 @@ export const WalletButton: React.FC<WalletButtonProps> = ({
 
   if (connecting) {
     return (
-      <Button variant="outline" size="sm" disabled className="gap-2 bg-gray-800 border-gray-600 text-gray-300">
-        <Wallet className="h-4 w-4 animate-pulse text-[#F7931A]" />
+      <Button variant="outline" size="sm" disabled className="gap-2 bg-accent border-border text-foreground/80">
+        <Wallet className="h-4 w-4 animate-pulse text-brand" aria-hidden="true" />
         <span>Connecting...</span>
       </Button>
     );
@@ -92,36 +94,41 @@ export const WalletButton: React.FC<WalletButtonProps> = ({
     return (
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <Button variant="outline" size="sm" className="gap-2 bg-gray-800 border-gray-600 hover:bg-gray-700 text-white">
-            <Wallet className="h-4 w-4 text-[#F7931A]" />
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-2 bg-accent border-border hover:bg-surface-3 text-foreground"
+            aria-label={`Wallet ${formatAddress(account.address)}`}
+          >
+            <Wallet className="h-4 w-4 text-brand" aria-hidden="true" />
             <span className="font-mono text-xs font-medium">{formatAddress(account.address)}</span>
-            <ChevronDown className="h-3 w-3 opacity-70" />
+            <ChevronDown className="h-3 w-3 opacity-70" aria-hidden="true" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-72 bg-gray-900 border-gray-700">
-          <DropdownMenuLabel className="text-white">
+        <DropdownMenuContent align="end" className="w-72 bg-popover border-border">
+          <DropdownMenuLabel className="text-foreground">
             <div className="flex items-center gap-2">
-              <Wallet className="h-4 w-4 text-[#F7931A]" />
+              <Wallet className="h-4 w-4 text-brand" aria-hidden="true" />
               <span className="font-semibold">{wallet?.name}</span>
             </div>
           </DropdownMenuLabel>
-          <DropdownMenuSeparator className="bg-gray-700" />
-          <div className="px-3 py-3 text-sm bg-gray-800/50">
-            <div className="text-gray-400 text-xs font-medium mb-1.5">Address</div>
-            <div className="font-mono text-sm text-white break-all leading-relaxed">{account.address}</div>
+          <DropdownMenuSeparator className="bg-border" />
+          <div className="px-3 py-3 text-sm bg-accent/50">
+            <div className="text-muted-foreground text-xs font-medium mb-1.5">Address</div>
+            <div className="font-mono text-sm text-foreground break-all leading-relaxed">{account.address}</div>
           </div>
           {account.publicKey && (
-            <div className="px-3 py-3 text-sm bg-gray-800/30 border-t border-gray-700">
-              <div className="text-gray-400 text-xs font-medium mb-1.5">Public Key</div>
-              <div className="font-mono text-sm text-white break-all leading-relaxed">{account.publicKey}</div>
+            <div className="px-3 py-3 text-sm bg-accent/30 border-t border-border">
+              <div className="text-muted-foreground text-xs font-medium mb-1.5">Public Key</div>
+              <div className="font-mono text-sm text-foreground break-all leading-relaxed">{account.publicKey}</div>
             </div>
           )}
-          <DropdownMenuSeparator className="bg-gray-700" />
+          <DropdownMenuSeparator className="bg-border" />
           <DropdownMenuItem
             onClick={() => disconnect()}
-            className="text-red-400 hover:text-red-300 hover:bg-red-950/30 font-medium cursor-pointer flex items-center gap-2"
+            className="text-danger hover:text-danger hover:bg-danger/10 font-medium cursor-pointer flex items-center gap-2"
           >
-            <LogOut className="h-4 w-4" />
+            <LogOut className="h-4 w-4" aria-hidden="true" />
             <span>Disconnect</span>
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -135,10 +142,10 @@ export const WalletButton: React.FC<WalletButtonProps> = ({
       <Button
         variant="outline"
         size="sm"
-        className="gap-2 bg-gray-800 border-gray-600 hover:bg-gray-700 text-white"
+        className="gap-2 bg-accent border-border hover:bg-surface-3 text-foreground"
         onClick={() => window.open('https://unisat.io', '_blank')}
       >
-        <Wallet className="h-4 w-4" />
+        <Wallet className="h-4 w-4" aria-hidden="true" />
         <span>Install Wallet</span>
       </Button>
     );
@@ -150,10 +157,10 @@ export const WalletButton: React.FC<WalletButtonProps> = ({
       <Button
         variant="outline"
         size="sm"
-        className="gap-2 bg-gray-800 border-gray-600 hover:bg-gray-700 text-white"
+        className="gap-2 bg-accent border-border hover:bg-surface-3 text-foreground"
         onClick={() => handleConnect(availableWallets[0].name)}
       >
-        <Wallet className="h-4 w-4" />
+        <Wallet className="h-4 w-4" aria-hidden="true" />
         <span>Connect {availableWallets[0].name}</span>
       </Button>
     );
@@ -163,20 +170,24 @@ export const WalletButton: React.FC<WalletButtonProps> = ({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" className="gap-2 bg-gray-800 border-gray-600 hover:bg-gray-700 text-white">
-          <Wallet className="h-4 w-4" />
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-2 bg-accent border-border hover:bg-surface-3 text-foreground"
+        >
+          <Wallet className="h-4 w-4" aria-hidden="true" />
           <span>Connect Wallet</span>
-          <ChevronDown className="h-3 w-3 opacity-70" />
+          <ChevronDown className="h-3 w-3 opacity-70" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="bg-gray-900 border-gray-700">
-        <DropdownMenuLabel className="text-white font-semibold">Select Wallet</DropdownMenuLabel>
-        <DropdownMenuSeparator className="bg-gray-700" />
+      <DropdownMenuContent align="end" className="bg-popover border-border">
+        <DropdownMenuLabel className="text-foreground font-semibold">Select Wallet</DropdownMenuLabel>
+        <DropdownMenuSeparator className="bg-border" />
         {availableWallets.map((w) => (
           <DropdownMenuItem
             key={w.name}
             onClick={() => handleConnect(w.name)}
-            className="gap-2 text-white hover:bg-gray-800 cursor-pointer"
+            className="gap-2 text-foreground hover:bg-accent cursor-pointer"
           >
             <WalletIcon name={w.name} />
             <span>{w.name}</span>

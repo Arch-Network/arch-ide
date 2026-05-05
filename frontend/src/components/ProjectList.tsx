@@ -121,48 +121,47 @@ const ProjectList: React.FC<ProjectListProps> = ({
     setIsDeleteDialogOpen(false);
   };
 
-  // Shared menu items used by both desktop and mobile overflow menus
   const menuItems = (
     <>
       <DropdownMenuItem
         data-tutorial="create-project-button"
         onClick={onNewProject}
-        className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs"
+        className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer text-xs"
       >
-        <PlusCircle className="h-3.5 w-3.5 mr-2" />
+        <PlusCircle className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
         New Project
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => document.getElementById('import-project')?.click()}
-        className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs"
+        className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer text-xs"
       >
-        <Upload className="h-3.5 w-3.5 mr-2" />
+        <Upload className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
         Import Project
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={handleExportProject}
         disabled={!currentProject}
-        className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs"
+        className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer text-xs"
       >
-        <Download className="h-3.5 w-3.5 mr-2" />
+        <Download className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
         Export Project
       </DropdownMenuItem>
-      <DropdownMenuSeparator className="bg-gray-700/50" />
+      <DropdownMenuSeparator className="bg-border" />
       <DropdownMenuItem
         onClick={() => startTutorial()}
-        className="text-gray-300 hover:bg-gray-700 cursor-pointer text-xs"
+        className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer text-xs"
       >
-        <HelpCircle className="h-3.5 w-3.5 mr-2" />
+        <HelpCircle className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
         Tutorial
       </DropdownMenuItem>
       {currentProject && (
         <>
-          <DropdownMenuSeparator className="bg-gray-700/50" />
+          <DropdownMenuSeparator className="bg-border" />
           <DropdownMenuItem
             onClick={() => setIsDeleteDialogOpen(true)}
-            className="text-red-400 hover:bg-gray-700 cursor-pointer text-xs"
+            className="text-danger hover:bg-danger/10 hover:text-danger cursor-pointer text-xs"
           >
-            <Trash2 className="h-3.5 w-3.5 mr-2" />
+            <Trash2 className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
             Delete Project
           </DropdownMenuItem>
         </>
@@ -172,17 +171,17 @@ const ProjectList: React.FC<ProjectListProps> = ({
 
   return (
     <div className="flex items-center gap-1.5 flex-nowrap min-w-0">
-      {/* Project selector -- compact chip style */}
+      {/* Project selector — compact chip style */}
       <Select value={selectedId} onValueChange={handleProjectSelect}>
-        <SelectTrigger className="w-[min(48vw,180px)] md:w-[200px] h-8 text-xs bg-gray-900/60 text-gray-300 border-gray-700/50 rounded-lg hover:bg-gray-800 transition-colors">
+        <SelectTrigger className="w-[min(48vw,180px)] md:w-[200px] h-8 text-xs bg-background/60 text-foreground/80 border-border rounded-lg hover:bg-accent transition-colors">
           <SelectValue placeholder="Select a project" />
         </SelectTrigger>
-        <SelectContent className="bg-gray-800 border-gray-700">
+        <SelectContent className="bg-popover border-border">
           {sortedProjects.map((project) => (
             <SelectItem
               key={project.id}
               value={project.id}
-              className="text-gray-300 text-xs hover:bg-gray-700 cursor-pointer"
+              className="text-foreground/80 text-xs hover:bg-accent cursor-pointer"
             >
               {project.name}
             </SelectItem>
@@ -200,39 +199,37 @@ const ProjectList: React.FC<ProjectListProps> = ({
         onChange={handleImportProject}
       />
 
-      {/* Desktop: single overflow menu */}
       <div className="hidden md:block">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700/40"
+              className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
               aria-label="Project actions"
             >
-              <MoreHorizontal className="h-4 w-4" />
+              <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700 min-w-[170px]">
+          <DropdownMenuContent align="end" className="bg-popover border-border min-w-[170px]">
             {menuItems}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
-      {/* Mobile: overflow menu */}
       <div className="md:hidden">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 rounded-lg text-gray-400 hover:text-gray-200 hover:bg-gray-700/40"
+              className="h-8 w-8 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
               aria-label="Project actions"
             >
-              <MoreVertical className="h-4 w-4" />
+              <MoreVertical className="h-4 w-4" aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="bg-gray-800 border-gray-700 min-w-[170px]">
+          <DropdownMenuContent align="end" className="bg-popover border-border min-w-[170px]">
             {menuItems}
           </DropdownMenuContent>
         </DropdownMenu>

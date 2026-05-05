@@ -3,6 +3,7 @@ import { Button } from './ui/button';
 import { Plus, BookOpen, MessageSquare, Github, Clock, Package, Rocket, FileText, Loader2 } from 'lucide-react';
 import { Project } from '../types';
 import { cn } from '@/lib/utils';
+import { Logo } from './Logo';
 
 interface HomeScreenProps {
   recentProjects: Project[];
@@ -109,34 +110,34 @@ const QUICK_LINKS = [
     description: 'Learn about Arch Network',
     icon: BookOpen,
     href: 'https://docs.arch.network',
-    color: 'text-gray-300'
+    color: 'text-foreground/80'
   },
   {
     title: 'Join Discord',
     description: 'Get help from the community',
     icon: MessageSquare,
     href: 'https://discord.gg/archnetwork',
-    color: 'text-gray-300'
+    color: 'text-foreground/80'
   },
   {
     title: 'GitHub',
     description: 'View examples & contribute',
     icon: Github,
     href: 'https://github.com/Arch-Network/arch-examples',
-    color: 'text-gray-400'
+    color: 'text-muted-foreground'
   }
 ];
 
 const getDifficultyColor = (difficulty: string) => {
   switch (difficulty) {
     case 'Beginner':
-      return 'bg-green-500/20 text-green-400 border-green-500/30';
+      return 'bg-success/20 text-success border-success/30';
     case 'Intermediate':
-      return 'bg-yellow-500/20 text-yellow-400 border-yellow-500/30';
+      return 'bg-warning/20 text-warning border-warning/30';
     case 'Advanced':
-      return 'bg-red-500/20 text-red-400 border-red-500/30';
+      return 'bg-danger/20 text-danger border-danger/30';
     default:
-      return 'bg-gray-500/20 text-gray-400 border-gray-500/30';
+      return 'bg-muted/20 text-muted-foreground border-muted/30';
   }
 };
 
@@ -158,35 +159,35 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   };
 
   return (
-    <div className="h-full overflow-auto bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900">
+    <div className="h-full overflow-auto bg-gradient-to-br from-background via-surface-1 to-background">
       <div className="max-w-7xl mx-auto p-4 sm:p-8 space-y-12">
         {/* Hero Section */}
         <div className="text-center space-y-6 py-12">
           <div className="flex items-center justify-center gap-4">
-            <img src="/images/logo.svg" alt="Arch Network" className="h-16 w-auto" />
+            <Logo className="h-16 w-auto text-foreground" />
           </div>
-          <h1 className="text-5xl font-bold bg-gradient-to-r from-[#F7931A] via-orange-400 to-yellow-500 bg-clip-text text-transparent">
+          <h1 className="text-5xl font-bold bg-gradient-to-r from-brand via-orange-400 to-yellow-500 bg-clip-text text-transparent">
             Arch Network IDE
           </h1>
-          <p className="text-xl text-gray-400 max-w-2xl mx-auto">
+          <p className="text-xl text-muted-foreground max-w-2xl mx-auto">
             Build Bitcoin-native programs with Rust + eBPF. Learn. Explore. Create.
           </p>
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-center gap-3 sm:gap-4 pt-4 px-2 sm:px-0">
             <Button
               size="lg"
               onClick={onNewProject}
-              className="w-full sm:w-auto bg-[#F7931A] hover:bg-[#E8870E] text-gray-900 font-bold shadow-lg hover:shadow-xl transition-all"
+              className="w-full sm:w-auto bg-brand hover:bg-brand-hover text-brand-foreground font-bold shadow-lg hover:shadow-xl transition-all"
             >
-              <Plus className="mr-2 h-5 w-5" />
+              <Plus className="mr-2 h-5 w-5" aria-hidden="true" />
               Create New Project
             </Button>
             <Button
               size="lg"
               variant="outline"
               onClick={() => window.open('https://docs.arch.network', '_blank')}
-              className="w-full sm:w-auto bg-gray-900/30 border-gray-600 text-white hover:text-white hover:bg-gray-800/60 hover:border-[#F7931A] font-semibold"
+              className="w-full sm:w-auto bg-background/30 border-border text-foreground hover:text-foreground hover:bg-surface-2/60 hover:border-brand font-semibold"
             >
-              <BookOpen className="mr-2 h-5 w-5" />
+              <BookOpen className="mr-2 h-5 w-5" aria-hidden="true" />
               Documentation
             </Button>
           </div>
@@ -196,29 +197,29 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         {recentProjects.length > 0 && (
           <section className="space-y-4">
             <div className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-gray-400" />
-              <h2 className="text-2xl font-semibold text-white">Recent Projects</h2>
+              <Clock className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+              <h2 className="text-2xl font-semibold text-foreground">Recent Projects</h2>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {recentProjects.slice(0, 6).map((project) => (
                 <button
                   key={project.id}
                   onClick={() => onSelectProject(project)}
-                  className="group relative bg-gray-800/50 backdrop-blur border border-gray-700 rounded-lg p-6 hover:border-[#F7931A] transition-all duration-200 text-left"
+                  className="group relative bg-surface-2/50 backdrop-blur border border-border rounded-lg p-6 hover:border-brand transition-all duration-200 text-left"
                 >
                   <div className="space-y-3">
                     <div className="flex items-start justify-between">
-                      <Package className="h-8 w-8 text-[#F7931A]" />
-                      <span className="text-xs text-gray-500">
+                      <Package className="h-8 w-8 text-brand" aria-hidden="true" />
+                      <span className="text-xs text-muted-foreground">
                         {new Date(project.lastModified).toLocaleDateString()}
                       </span>
                     </div>
                     <div>
-                      <h3 className="font-semibold text-white group-hover:text-[#F7931A] transition-colors">
+                      <h3 className="font-semibold text-foreground group-hover:text-brand transition-colors">
                         {project.name}
                       </h3>
                       {project.description && (
-                        <p className="text-sm text-gray-400 mt-1 line-clamp-2">
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-2">
                           {project.description}
                         </p>
                       )}
@@ -233,24 +234,24 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         {/* Example Projects */}
         <section className="space-y-4">
           <div className="flex items-center gap-2">
-            <Rocket className="h-5 w-5 text-gray-400" />
-            <h2 className="text-2xl font-semibold text-white">Example Projects</h2>
-            <span className="text-sm text-gray-500 ml-2">
+            <Rocket className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+            <h2 className="text-2xl font-semibold text-foreground">Example Projects</h2>
+            <span className="text-sm text-muted-foreground ml-2">
               From Arch Network Examples
             </span>
           </div>
-          <p className="text-gray-400">
+          <p className="text-muted-foreground">
             Start with a working example and learn by building. All examples come with documented code and client integration.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {EXAMPLE_PROJECTS.map((example) => (
               <div
                 key={example.name}
-                className="group relative bg-gray-800/50 backdrop-blur border border-gray-700 rounded-lg p-6 hover:border-[#F7931A] transition-all duration-200"
+                className="group relative bg-surface-2/50 backdrop-blur border border-border rounded-lg p-6 hover:border-brand transition-all duration-200"
               >
                 <div className="space-y-4">
                   <div className="flex items-start justify-between">
-                    <div className="text-4xl">{example.icon}</div>
+                    <div className="text-4xl" aria-hidden="true">{example.icon}</div>
                     <span
                       className={cn(
                         'text-xs px-2 py-1 rounded-full border font-medium',
@@ -261,10 +262,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     </span>
                   </div>
                   <div>
-                    <h3 className="font-semibold text-white text-lg">
+                    <h3 className="font-semibold text-foreground text-lg">
                       {example.title}
                     </h3>
-                    <p className="text-sm text-gray-400 mt-2">
+                    <p className="text-sm text-muted-foreground mt-2">
                       {example.description}
                     </p>
                   </div>
@@ -272,7 +273,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                     {example.tags.map((tag) => (
                       <span
                         key={tag}
-                        className="text-xs px-2 py-1 bg-gray-700/50 text-gray-300 rounded"
+                        className="text-xs px-2 py-1 bg-accent text-foreground/80 rounded"
                       >
                         {tag}
                       </span>
@@ -281,11 +282,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   <Button
                     onClick={() => handleLoadExample(example.name)}
                     disabled={loadingExample !== null}
-                    className="w-full bg-gray-700 hover:bg-[#F7931A] text-white transition-colors"
+                    className="w-full bg-surface-3 hover:bg-brand hover:text-brand-foreground text-foreground transition-colors"
                   >
                     {loadingExample === example.name ? (
                       <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
                         Loading...
                       </>
                     ) : (
@@ -301,8 +302,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         {/* Quick Links */}
         <section className="space-y-4">
           <div className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-gray-400" />
-            <h2 className="text-2xl font-semibold text-white">Resources</h2>
+            <FileText className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+            <h2 className="text-2xl font-semibold text-foreground">Resources</h2>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {QUICK_LINKS.map((link) => (
@@ -311,15 +312,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 href={link.href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="group relative bg-gray-800/50 backdrop-blur border border-gray-700 rounded-lg p-6 hover:border-[#F7931A] transition-all duration-200"
+                className="group relative bg-surface-2/50 backdrop-blur border border-border rounded-lg p-6 hover:border-brand transition-all duration-200"
               >
                 <div className="flex items-start gap-4">
-                  <link.icon className={cn('h-8 w-8', link.color)} />
+                  <link.icon className={cn('h-8 w-8', link.color)} aria-hidden="true" />
                   <div>
-                    <h3 className="font-semibold text-white group-hover:text-[#F7931A] transition-colors">
+                    <h3 className="font-semibold text-foreground group-hover:text-brand transition-colors">
                       {link.title}
                     </h3>
-                    <p className="text-sm text-gray-400 mt-1">
+                    <p className="text-sm text-muted-foreground mt-1">
                       {link.description}
                     </p>
                   </div>
@@ -330,10 +331,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         </section>
 
         {/* Footer */}
-        <footer className="text-center text-gray-500 text-sm py-8 border-t border-gray-800">
-          <p>Built with ❤️ by the Arch Network community</p>
+        <footer className="text-center text-muted-foreground text-sm py-8 border-t border-border">
+          <p>Built with love by the Arch Network community</p>
           <p className="mt-2">
-            <a href="https://github.com/Arch-Network" target="_blank" rel="noopener noreferrer" className="hover:text-[#F7931A] transition-colors">
+            <a href="https://github.com/Arch-Network" target="_blank" rel="noopener noreferrer" className="hover:text-brand transition-colors">
               View on GitHub
             </a>
           </p>

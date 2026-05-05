@@ -196,6 +196,76 @@ export async function requestFaucetFunds(
   }
 }
 
+export interface AirdropRequestOptions {
+  pubkeyBytes: number[];
+  rpcUrl: string;
+}
+
+export interface AirdropResponse {
+  success: boolean;
+  txid?: string;
+  error?: string;
+}
+
+/**
+ * Request an airdrop directly via the `request_airdrop` JSON-RPC method.
+ * Takes a pubkey as a raw byte array and returns the resulting transaction hash.
+ */
+export async function requestAirdrop(
+  options: AirdropRequestOptions
+): Promise<AirdropResponse> {
+  const { pubkeyBytes, rpcUrl } = options;
+
+  try {
+    const payload = {
+      jsonrpc: '2.0',
+      id: 'curlycurl',
+      method: 'request_airdrop',
+      params: pubkeyBytes,
+    };
+
+    console.log('[Airdrop] Requesting airdrop via request_airdrop RPC...');
+    console.log('[Airdrop] RPC URL:', rpcUrl);
+
+    const response = await fetch(rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `HTTP error: ${response.status} ${response.statusText}`,
+      };
+    }
+
+    const result = await response.json();
+
+    if (result.error) {
+      const errorMessage = result.error.message || JSON.stringify(result.error);
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+
+    const txid = result.result as string;
+    console.log('[Airdrop] Success, txid:', txid);
+
+    return {
+      success: true,
+      txid,
+    };
+  } catch (error: any) {
+    console.error('[Airdrop] Request failed:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error occurred',
+    };
+  }
+}
+
 /**
  * Check if faucet is available for the given network
  */

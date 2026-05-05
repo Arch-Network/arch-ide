@@ -70,7 +70,6 @@
     "@types/wif": "^2.0.5",
     "@vitejs/plugin-react": "^4.3.3",
     "autoprefixer": "^10.4.20",
-    "babel-plugin-styled-components": "^2.1.4",
     "monaco-editor-core": "^0.52.2",
     "postcss": "^8.4.49",
     "typescript": "^5.7.2",

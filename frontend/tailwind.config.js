@@ -49,6 +49,42 @@ module.exports = {
   			md: 'calc(var(--radius) - 2px)',
   			sm: 'calc(var(--radius) - 4px)'
   		},
+  		fontFamily: {
+  			sans: [
+  				'Inter',
+  				'ui-sans-serif',
+  				'system-ui',
+  				'-apple-system',
+  				'BlinkMacSystemFont',
+  				'"Segoe UI"',
+  				'Roboto',
+  				'"Helvetica Neue"',
+  				'Arial',
+  				'"Noto Sans"',
+  				'sans-serif',
+  				'"Apple Color Emoji"',
+  				'"Segoe UI Emoji"',
+  			],
+  			mono: [
+  				'"JetBrains Mono"',
+  				'ui-monospace',
+  				'"Fira Code"',
+  				'"SF Mono"',
+  				'Menlo',
+  				'Consolas',
+  				'monospace',
+  			],
+  		},
+  		zIndex: {
+  			base: '0',
+  			raised: '10',
+  			dropdown: '20',
+  			sticky: '30',
+  			overlay: '40',
+  			modal: '50',
+  			sheet: '60',
+  			toast: '70',
+  		},
   		colors: {
   			gray: colors.neutral,
   			background: 'hsl(var(--background))',
@@ -84,6 +120,33 @@ module.exports = {
   			border: 'hsl(var(--border))',
   			input: 'hsl(var(--input))',
   			ring: 'hsl(var(--ring))',
+  			// Arch IDE semantic tokens (alpha-value pattern enables opacity modifiers
+  			// like bg-brand/10, bg-surface-2/60, etc.).
+  			brand: {
+  				DEFAULT: 'hsl(var(--brand) / <alpha-value>)',
+  				hover: 'hsl(var(--brand-hover) / <alpha-value>)',
+  				foreground: 'hsl(var(--brand-foreground) / <alpha-value>)',
+  			},
+  			'surface-0': 'hsl(var(--surface-0) / <alpha-value>)',
+  			'surface-1': 'hsl(var(--surface-1) / <alpha-value>)',
+  			'surface-2': 'hsl(var(--surface-2) / <alpha-value>)',
+  			'surface-3': 'hsl(var(--surface-3) / <alpha-value>)',
+  			success: {
+  				DEFAULT: 'hsl(var(--success) / <alpha-value>)',
+  				foreground: 'hsl(var(--success-foreground) / <alpha-value>)',
+  			},
+  			warning: {
+  				DEFAULT: 'hsl(var(--warning) / <alpha-value>)',
+  				foreground: 'hsl(var(--warning-foreground) / <alpha-value>)',
+  			},
+  			danger: {
+  				DEFAULT: 'hsl(var(--danger) / <alpha-value>)',
+  				foreground: 'hsl(var(--danger-foreground) / <alpha-value>)',
+  			},
+  			info: {
+  				DEFAULT: 'hsl(var(--info) / <alpha-value>)',
+  				foreground: 'hsl(var(--info-foreground) / <alpha-value>)',
+  			},
   			chart: {
   				'1': 'hsl(var(--chart-1))',
   				'2': 'hsl(var(--chart-2))',
