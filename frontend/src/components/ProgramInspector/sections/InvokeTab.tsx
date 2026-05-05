@@ -484,7 +484,14 @@ export const InvokeTab: React.FC<InvokeTabProps> = ({
           <SubmitPanel
             instruction={selected}
             argValues={argValues}
-            accounts={accounts}
+            // Submit and history persistence consume the *effective*
+            // account map: manual input → IDL-pinned address → default
+            // signer fallback. This mirrors what the form visually
+            // shows the user (and what PDA derivation already reads),
+            // so an unfilled signer field that displays the Authority
+            // pubkey actually submits with that pubkey instead of
+            // tripping a "required" error.
+            accounts={effectiveAccountValues}
             project={project}
             config={config}
             idl={idl}

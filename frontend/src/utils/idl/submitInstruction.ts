@@ -2,11 +2,11 @@ import { Buffer } from 'buffer/';
 import bs58 from 'bs58';
 import {
   RpcConnection,
-  MessageUtil,
+  SanitizedMessageUtil,
   SignatureUtil,
   type Instruction,
-  type Message,
   type RuntimeTransaction,
+  type SanitizedMessage,
   type AccountMeta,
 } from '@arch-network/arch-sdk';
 import { signMessage } from '../bitcoin-signer';
@@ -151,15 +151,71 @@ export const submitInstruction = async (
     };
   }
 
-  // 4) Build & sign the message.
-  const message: Message = {
-    signers: signersResolved.map((s) => Buffer.from(s.pubkey)) as unknown as Uint8Array[],
-    instructions: [instruction],
-  };
-  const messageHash = MessageUtil.hash(message);
-  let signatures: Uint8Array[];
+  // 4) Build a SanitizedMessage. The validator deserializes incoming
+  //    transactions into `SanitizedMessage` (header + account_keys +
+  //    recent_blockhash + indexed instructions). Sending the raw
+  //    `Message` shape would be rejected with "invalid type: map,
+  //    expected u8" because the JSON shape doesn't match the
+  //    deserializer's expected fields.
+  //
+  //    We need a recent blockhash for the message; the SDK exposes
+  //    `getBestFinalizedBlockHash` which returns a hex string we
+  //    convert to bytes. The first resolved signer is the fee payer
+  //    — that pubkey lands at index 0 of `account_keys`, mirroring
+  //    the deployer's strategy.
+  if (signersResolved.length === 0) {
+    return {
+      ok: false,
+      errors: ['Instruction has no signers — at least one signer is required to pay fees.'],
+      encodedDataHex: bytesToHex(enc.bytes),
+      accounts: resolved.summary,
+    };
+  }
+
+  const rpcUrl = getSmartRpcUrl(ctx.rpcUrl);
+  const connection = new RpcConnection(rpcUrl);
+
+  let recentBlockhash: Uint8Array;
   try {
-    signatures = await signAllMessages(signersResolved, messageHash);
+    const hashHex = await connection.getBestFinalizedBlockHash();
+    recentBlockhash = hexToBytes(hashHex);
+  } catch (e) {
+    return {
+      ok: false,
+      errors: [`Failed to fetch recent blockhash: ${e instanceof Error ? e.message : String(e)}`],
+      encodedDataHex: bytesToHex(enc.bytes),
+      accounts: resolved.summary,
+    };
+  }
+
+  const feePayerPubkey = signersResolved[0].pubkey;
+  const sanitizedResult = SanitizedMessageUtil.createSanitizedMessage(
+    [instruction],
+    feePayerPubkey,
+    recentBlockhash,
+  );
+  if (typeof sanitizedResult === 'string') {
+    return {
+      ok: false,
+      errors: [`Failed to compile message: ${sanitizedResult}`],
+      encodedDataHex: bytesToHex(enc.bytes),
+      accounts: resolved.summary,
+    };
+  }
+  const sanitizedMessage = sanitizedResult as SanitizedMessage;
+
+  // 5) Hash the sanitized message and sign it. We sign with the
+  //    *sanitized* hash because that's what the validator recomputes
+  //    when verifying signatures — signing the un-sanitized hash is
+  //    why earlier deploys could go through (they hashed the bytes
+  //    they actually serialized) but invocations couldn't.
+  const messageHash = SanitizedMessageUtil.hash(sanitizedMessage);
+  let signaturesByPubkey: Map<string, Uint8Array>;
+  try {
+    const sigs = await signAllMessages(signersResolved, messageHash);
+    signaturesByPubkey = new Map(
+      signersResolved.map((s, i) => [bytesToHex(s.pubkey), sigs[i]]),
+    );
   } catch (e) {
     return {
       ok: false,
@@ -169,21 +225,36 @@ export const submitInstruction = async (
     };
   }
 
-  // 5) Submit to the RPC. We wrap the SDK call in our smart-URL helper
-  //    so devnet/testnet/regtest all resolve correctly.
-  const rpcUrl = getSmartRpcUrl(ctx.rpcUrl);
+  // 6) Order signatures to match the leading signer slots in
+  //    account_keys. The validator pairs `signatures[i]` with
+  //    `account_keys[i]` for `i < num_required_signatures`, so we
+  //    must walk the sanitized account_keys list rather than the
+  //    resolution order — `createSanitizedMessage` sorted writable
+  //    signers ahead of readonly ones, and that ordering may not
+  //    match how we resolved them.
+  const numSigners = sanitizedMessage.header.num_required_signatures;
+  const orderedSignatures: Uint8Array[] = [];
+  for (let i = 0; i < numSigners; i++) {
+    const keyHex = bytesToHex(sanitizedMessage.account_keys[i]);
+    const sig = signaturesByPubkey.get(keyHex);
+    if (!sig) {
+      return {
+        ok: false,
+        errors: [`Internal error: missing signature for account_keys[${i}] (${keyHex})`],
+        encodedDataHex: bytesToHex(enc.bytes),
+        accounts: resolved.summary,
+      };
+    }
+    orderedSignatures.push(sig);
+  }
+
   const tx: RuntimeTransaction = {
     version: 0,
-    signatures: signatures as unknown as RuntimeTransaction['signatures'],
-    // The SDK's `RuntimeTransaction` types `message` as `SanitizedMessage`,
-    // but the runtime accepts the un-sanitized `Message` shape (the
-    // existing `arch-program-loader` does the same thing). We stay
-    // honest about the cast so future readers don't try to "fix" it.
-    message: message as unknown as RuntimeTransaction['message'],
+    signatures: orderedSignatures as unknown as RuntimeTransaction['signatures'],
+    message: sanitizedMessage,
   };
 
   try {
-    const connection = new RpcConnection(rpcUrl);
     const txid = await connection.sendTransaction(tx);
     return {
       ok: true,
