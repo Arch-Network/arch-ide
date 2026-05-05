@@ -90,18 +90,20 @@ export default defineConfig({
             return 'radix-vendor';
           }
 
-          // Arch network SDK (~hundreds of KB; pulls @noble/@scure).
-          if (id.includes('@arch-network')) {
-            return 'arch-vendor';
-          }
-
-          // Crypto: signing, hashing, encoding. Bitcoin libs and
-          // their ecosystem live here too — `@bitcoinerlab/*`,
-          // `bitcoinjs-message`, `@sats-connect/*`, `wif`, and
-          // `secp256k1` are large enough to benefit from a dedicated
-          // chunk that the codepath only loads when a wallet flow
-          // is engaged.
+          // Arch SDK + crypto + Node-style polyfills all share the
+          // same circular import graph at runtime: arch-sdk pulls
+          // @noble/@scure, those reach into `buffer/` and
+          // `process/browser` polyfills, and the polyfill helpers
+          // (Rollup's `getAugmentedNamespace`) end up referenced
+          // from arch-sdk in turn. Splitting them into separate
+          // chunks forces ESM to resolve a cross-chunk cycle, and
+          // any binding read at module top-level lands in the
+          // temporal dead zone (e.g. "Cannot access 'hi' before
+          // initialization"). Keeping the whole foundational layer
+          // in one chunk lets Rollup hoist imports in dependency
+          // order so initialization is monotonic.
           if (
+            id.includes('@arch-network') ||
             id.includes('bitcoinjs-lib') ||
             id.includes('bitcoinjs-message') ||
             id.includes('@bitcoinerlab') ||
@@ -116,7 +118,15 @@ export default defineConfig({
             id.includes('borsh') ||
             id.includes('bs58') ||
             id.includes('/wif/') ||
-            id.includes('js-sha256')
+            id.includes('js-sha256') ||
+            id.includes('vite-plugin-node-polyfills') ||
+            id.includes('@esbuild-plugins/node') ||
+            id.includes('web-streams-polyfill') ||
+            id.includes('vm-browserify') ||
+            id.includes('process/browser') ||
+            id.includes('crypto-browserify') ||
+            id.includes('readable-stream') ||
+            id.includes('buffer/')
           ) {
             return 'crypto-vendor';
           }
@@ -136,23 +146,6 @@ export default defineConfig({
           // enough to keep on the hot path but bulky enough to split.
           if (id.includes('@tanstack')) {
             return 'tanstack-vendor';
-          }
-
-          // Browser polyfills for Node-style APIs (process, Buffer,
-          // streams). These pull in `web-streams-polyfill`,
-          // `vm-browserify`, etc. — none of which need to live in
-          // the app bundle.
-          if (
-            id.includes('vite-plugin-node-polyfills') ||
-            id.includes('@esbuild-plugins/node') ||
-            id.includes('web-streams-polyfill') ||
-            id.includes('vm-browserify') ||
-            id.includes('process/browser') ||
-            id.includes('crypto-browserify') ||
-            id.includes('readable-stream') ||
-            id.includes('buffer/')
-          ) {
-            return 'polyfills-vendor';
           }
 
           // HTTP client. Big enough to call out, small enough that
