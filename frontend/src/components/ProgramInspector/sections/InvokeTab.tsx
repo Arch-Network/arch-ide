@@ -29,7 +29,11 @@ import {
   type PdaDerivation,
 } from '../../../utils/idl/derivePda';
 import { lookupWellKnown, shouldHideFromForm } from '../../../utils/idl/wellKnown';
-import { submitInstruction, type SubmitResult } from '../../../utils/idl/submitInstruction';
+import {
+  submitInstruction,
+  type SubmitResult,
+  type WalletSigner,
+} from '../../../utils/idl/submitInstruction';
 import { getExplorerUrls } from '../../../utils/explorerLinks';
 import { AccountInput, type AccountInputSuggestion } from '../AccountInput';
 import { ArgInput } from '../ArgInput';
@@ -87,7 +91,12 @@ export const InvokeTab: React.FC<InvokeTabProps> = ({
   config,
   mutations,
 }) => {
-  const { account: walletAccount, connected: walletConnected } = useBitcoinWallet();
+  const {
+    account: walletAccount,
+    connected: walletConnected,
+    wallet,
+    signMessage: walletSignMessageRaw,
+  } = useBitcoinWallet();
 
   const [selectedIxName, setSelectedIxName] = useState<string | undefined>(
     idl?.instructions[0]?.name,
@@ -95,6 +104,33 @@ export const InvokeTab: React.FC<InvokeTabProps> = ({
   const [argValues, setArgValues] = useState<Record<string, ArgValue>>({});
   const [accounts, setAccounts] = useState<Record<string, string>>({});
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: 'idle' });
+
+  /**
+   * Bridge `useBitcoinWallet` into the shape `submitInstruction` wants.
+   *
+   * The wallet adapter returns the BIP-322 envelope as `{ signature,
+   * address }`, so we strip down to the bare base64 string for the
+   * pipeline. We also normalize the wallet's compressed pubkey
+   * (33 bytes → 66 hex chars) into the 32-byte x-only form Arch
+   * stores on-chain. Both transforms happen here so signer
+   * resolution can compare pubkeys with a plain string equality.
+   */
+  const walletSigner = useMemo<WalletSigner | undefined>(() => {
+    if (!walletConnected || !walletAccount?.publicKey) return undefined;
+    const fullPubHex = walletAccount.publicKey;
+    const xOnlyHex =
+      fullPubHex.length === 66 ? fullPubHex.slice(2) : fullPubHex;
+    return {
+      pubkeyHex: xOnlyHex,
+      label: wallet?.name ?? 'Wallet',
+      signHashHex: async (hashHex) => {
+        const res = await walletSignMessageRaw(hashHex);
+        return typeof res === 'string'
+          ? res
+          : (res as { signature: string }).signature;
+      },
+    };
+  }, [walletConnected, walletAccount?.publicKey, wallet?.name, walletSignMessageRaw]);
 
   const selected = useMemo<ArchInstruction | undefined>(() => {
     if (!idl || !selectedIxName) return undefined;
@@ -397,6 +433,7 @@ export const InvokeTab: React.FC<InvokeTabProps> = ({
             project={project}
             config={config}
             idl={idl}
+            walletSigner={walletSigner}
             state={submitState}
             onStateChange={setSubmitState}
           />
@@ -614,6 +651,7 @@ interface SubmitPanelProps {
   project: Project | null;
   config: Config;
   idl: ArchIdl;
+  walletSigner?: WalletSigner;
   state: SubmitState;
   onStateChange: (s: SubmitState) => void;
 }
@@ -625,6 +663,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
   project,
   config,
   idl,
+  walletSigner,
   state,
   onStateChange,
 }) => {
@@ -645,6 +684,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
       accountValues: accounts,
       argValues,
       project,
+      walletSigner,
     });
     onStateChange({ kind: result.ok ? 'success' : 'error', result });
   };

@@ -3,6 +3,7 @@ import bs58 from 'bs58';
 import {
   RpcConnection,
   MessageUtil,
+  SignatureUtil,
   type Instruction,
   type Message,
   type RuntimeTransaction,
@@ -23,6 +24,30 @@ import type {
 import type { ArgValue } from '../../components/ProgramInspector/argValue';
 
 /**
+ * Signing capability provided by an externally-controlled wallet
+ * (Unisat / Xverse, etc.).
+ *
+ * The wallet only owns *one* keypair, so we identify it by the
+ * 32-byte x-only pubkey and ignore any signer requests that don't
+ * match. The IDE does not have access to the private key — instead
+ * the wallet returns a BIP-322-simple base64 envelope for a given
+ * message hash, which we decode into a 64-byte schnorr signature.
+ */
+export interface WalletSigner {
+  /** 32-byte x-only pubkey, hex-encoded (matches Arch on-chain pubkey). */
+  pubkeyHex: string;
+  /** Display label e.g. "Unisat", "Xverse" — surfaced in error messages. */
+  label: string;
+  /**
+   * Sign the given message hash via the wallet. Implementations should
+   * pass the hex-encoded hash to the wallet's `signMessage(... ,
+   * 'bip322-simple')` and return the wallet's base64 response
+   * unchanged. We handle decoding/normalization here.
+   */
+  signHashHex: (hashHex: string) => Promise<string>;
+}
+
+/**
  * Inputs the form provides to the submit pipeline. We deliberately
  * pass *parsed* `argValues` rather than raw strings so the encoder
  * doesn't have to re-validate; the form has already done that work.
@@ -36,6 +61,12 @@ export interface SubmitContext {
   accountValues: Record<string, string>;
   argValues: Record<string, ArgValue>;
   project: Project;
+  /**
+   * Optional connected Bitcoin wallet that can sign for one
+   * additional pubkey. We keep this strictly optional so the form
+   * still works with just the project authority + saved keypairs.
+   */
+  walletSigner?: WalletSigner;
 }
 
 /**
@@ -101,10 +132,16 @@ export const submitInstruction = async (
     data: enc.bytes,
   };
 
-  // 3) Resolve signers — every signer-flagged account must map to a
-  //    keypair we hold. We deduplicate by pubkey because the runtime
-  //    only includes each signer once in the message.
-  const signersResolved = resolveSigners(resolved.metas, ctx.project, errors);
+  // 3) Resolve signers — every signer-flagged account must map to
+  //    either a keypair we hold *or* the connected wallet's pubkey.
+  //    We deduplicate by pubkey because the runtime only includes
+  //    each signer once in the message.
+  const signersResolved = resolveSigners(
+    resolved.metas,
+    ctx.project,
+    ctx.walletSigner,
+    errors,
+  );
   if (errors.length > 0) {
     return {
       ok: false,
@@ -122,16 +159,7 @@ export const submitInstruction = async (
   const messageHash = MessageUtil.hash(message);
   let signatures: Uint8Array[];
   try {
-    signatures = await Promise.all(
-      signersResolved.map(async (s) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const sig = await (signMessage as any)(
-          Buffer.from(s.privkey),
-          Buffer.from(messageHash),
-        );
-        return new Uint8Array(sig);
-      }),
-    );
+    signatures = await signAllMessages(signersResolved, messageHash);
   } catch (e) {
     return {
       ok: false,
@@ -270,22 +298,40 @@ const resolveAccountMetas = (
 
 // ─── Signer resolution ──────────────────────────────────────────────────────
 
-interface ResolvedSigner {
-  pubkey: Uint8Array;
-  privkey: Uint8Array;
-  source: 'authority' | 'saved-keypair';
-}
+/**
+ * A signer slot the pipeline knows how to fulfill.
+ *
+ * The discriminated `kind` lets the signing loop dispatch on source
+ * without leaking wallet- vs keypair-specific details into the
+ * resolution code; resolution only decides *who* signs, not *how*.
+ */
+type ResolvedSigner =
+  | {
+      kind: 'keypair';
+      pubkey: Uint8Array;
+      privkey: Uint8Array;
+      source: 'authority' | 'saved-keypair';
+    }
+  | {
+      kind: 'wallet';
+      pubkey: Uint8Array;
+      walletSigner: WalletSigner;
+    };
 
 const resolveSigners = (
   metas: AccountMeta[],
   project: Project,
+  walletSigner: WalletSigner | undefined,
   errors: string[],
 ): ResolvedSigner[] => {
   const signerMetas = metas.filter((m) => m.is_signer);
   if (signerMetas.length === 0) return [];
 
   // Build a lookup of pubkey-base58 → keypair for everything we hold.
-  const keypairsByPubkey = new Map<string, { account: ProjectAccount; source: ResolvedSigner['source'] }>();
+  const keypairsByPubkey = new Map<
+    string,
+    { account: ProjectAccount; source: 'authority' | 'saved-keypair' }
+  >();
   if (project.authorityAccount?.pubkey) {
     const b58 = hexToBase58(project.authorityAccount.pubkey);
     keypairsByPubkey.set(b58, {
@@ -300,6 +346,10 @@ const resolveSigners = (
     });
   }
 
+  const walletPubkeyBase58 = walletSigner
+    ? hexToBase58(walletSigner.pubkeyHex)
+    : null;
+
   const seen = new Set<string>();
   const signers: ResolvedSigner[] = [];
   for (const meta of signerMetas) {
@@ -312,20 +362,123 @@ const resolveSigners = (
     if (lookupWellKnown(b58)?.hideInForm) continue;
     if (b58 === SYSTEM_PROGRAM_BASE58) continue;
 
-    const match = keypairsByPubkey.get(b58);
-    if (!match) {
-      errors.push(
-        `Cannot sign for "${b58}" — no matching keypair (authority or saved). Wallet signing lands in the next slice.`,
-      );
+    const keypairMatch = keypairsByPubkey.get(b58);
+    if (keypairMatch) {
+      signers.push({
+        kind: 'keypair',
+        pubkey: meta.pubkey,
+        privkey: hexToBytes(keypairMatch.account.privkey),
+        source: keypairMatch.source,
+      });
       continue;
     }
-    signers.push({
-      pubkey: meta.pubkey,
-      privkey: hexToBytes(match.account.privkey),
-      source: match.source,
-    });
+
+    if (walletSigner && walletPubkeyBase58 === b58) {
+      signers.push({
+        kind: 'wallet',
+        pubkey: meta.pubkey,
+        walletSigner,
+      });
+      continue;
+    }
+
+    errors.push(
+      `Cannot sign for "${b58}" — no matching keypair (authority, saved, or connected wallet).`,
+    );
   }
   return signers;
+};
+
+// ─── Signing ────────────────────────────────────────────────────────────────
+
+/**
+ * Sign one message hash for every resolved signer.
+ *
+ * Keypair signers run in parallel (they're CPU-bound BIP-322 ops);
+ * wallet signers run sequentially because most extension wallets
+ * only allow one in-flight prompt at a time and parallel calls just
+ * surface confusing UX. This serial-for-wallet / parallel-for-rest
+ * mix is intentional.
+ */
+const signAllMessages = async (
+  signers: ResolvedSigner[],
+  messageHash: Uint8Array,
+): Promise<Uint8Array[]> => {
+  const out: Uint8Array[] = new Array(signers.length);
+
+  // Kick off all keypair signs concurrently.
+  const keypairWork = signers.map(async (s, i) => {
+    if (s.kind !== 'keypair') return;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sig = await (signMessage as any)(
+      Buffer.from(s.privkey),
+      Buffer.from(messageHash),
+    );
+    out[i] = new Uint8Array(sig);
+  });
+  await Promise.all(keypairWork);
+
+  // Then walk wallet slots one at a time. Most prompts can only show
+  // one window at a time and back-to-back popups feel jarring; users
+  // see a clear sequence ("approve in Unisat" → "approve next…").
+  const hashHex = bytesToHex(messageHash);
+  for (let i = 0; i < signers.length; i++) {
+    const s = signers[i];
+    if (s.kind !== 'wallet') continue;
+    out[i] = await signWithWallet(s.walletSigner, hashHex);
+  }
+
+  return out;
+};
+
+/**
+ * Translate a wallet's BIP-322-simple base64 envelope into a 64-byte
+ * schnorr signature suitable for an Arch transaction.
+ *
+ * BIP-322 wallets typically return a base64 string whose decoded
+ * form is either:
+ *   - 64 bytes — the raw schnorr signature, or
+ *   - 65 bytes — schnorr + a trailing sighash/recovery byte we drop.
+ *
+ * We then call `SignatureUtil.adjustSignature` to apply Arch's
+ * canonicalization. Errors include the wallet label so the user
+ * sees "Unisat refused…" rather than a generic failure.
+ */
+const signWithWallet = async (
+  wallet: WalletSigner,
+  hashHex: string,
+): Promise<Uint8Array> => {
+  let raw: string;
+  try {
+    raw = await wallet.signHashHex(hashHex);
+  } catch (e) {
+    throw new Error(
+      `${wallet.label} signing rejected: ${
+        e instanceof Error ? e.message : String(e)
+      }`,
+    );
+  }
+  let sig = base64ToBytes(raw);
+  if (sig.length === 65) sig = sig.slice(0, 64);
+  if (sig.length !== 64) {
+    throw new Error(
+      `${wallet.label} returned an unexpected ${sig.length}-byte signature; expected 64.`,
+    );
+  }
+  try {
+    sig = SignatureUtil.adjustSignature(sig);
+  } catch {
+    // adjustSignature is a best-effort canonicalization; if it
+    // fails we ship the raw signature and let the runtime decide.
+  }
+  return sig;
+};
+
+const base64ToBytes = (b64: string): Uint8Array => {
+  const binary = atob(b64);
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
 };
 
 // ─── Helpers ────────────────────────────────────────────────────────────────

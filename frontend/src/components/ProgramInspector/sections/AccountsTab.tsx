@@ -25,7 +25,11 @@ import {
 import { RpcConnection } from '../../../utils/RpcConnection';
 import { getSmartRpcUrl } from '../../../utils/smartRpcConnection';
 import { parseAddress } from '../../../utils/idl/address';
-import { decodeAccountData, type DecodedAccount } from '../../../utils/idl/decode';
+import {
+  decodeAccountData,
+  type DecodedAccount,
+  type DecodedValue,
+} from '../../../utils/idl/decode';
 import { hexToBase58 } from '../../../utils/base58';
 import type { ArchIdl } from '../../../types';
 import type { Config } from '../../../types/config';
@@ -325,34 +329,184 @@ const DecodedFields: React.FC<{ decoded: DecodedAccount }> = ({ decoded }) => {
         {decoded.fields.map((field) => (
           <li
             key={`${field.name}-${field.offset}`}
-            className="grid grid-cols-[1fr_auto] gap-2 px-3 py-1.5 text-xs items-center"
+            className="px-3 py-1.5 text-xs"
           >
-            <div className="min-w-0">
-              <div className="font-mono text-foreground/90 truncate">{field.name}</div>
-              <div className="text-[10px] text-muted-foreground font-mono">
-                {field.type}
-                <span className="ml-2 text-muted-foreground/70">@ {field.offset}</span>
+            <div className="grid grid-cols-[1fr_auto] gap-2 items-start">
+              <div className="min-w-0">
+                <div className="font-mono text-foreground/90 truncate">{field.name}</div>
+                <div className="text-[10px] text-muted-foreground font-mono">
+                  {field.type}
+                  <span className="ml-2 text-muted-foreground/70">@ {field.offset}</span>
+                </div>
+              </div>
+              <div className="font-mono text-[11px] text-foreground/90 text-right break-all max-w-[260px]">
+                {isInlineValue(field.value) ? (
+                  <ValueNode value={field.value} />
+                ) : null}
               </div>
             </div>
-            <div className="font-mono text-[11px] text-foreground/90 text-right break-all max-w-[220px]">
-              {field.value.kind === 'scalar' ? (
-                field.value.value
-              ) : (
-                <span className="text-muted-foreground italic">{field.value.reason}</span>
-              )}
-            </div>
+            {!isInlineValue(field.value) && (
+              <div className="mt-1.5 pl-2 border-l border-border/60">
+                <ValueNode value={field.value} />
+              </div>
+            )}
           </li>
         ))}
       </ul>
       {decoded.truncated && (
         <p className="px-3 py-1.5 text-[10px] text-muted-foreground border-t border-border/60">
-          Decoder stopped at the first variable-length / nested type. Remaining{' '}
+          Decoder stopped at the first unsupported type. Remaining{' '}
           {decoded.remainder.length} bytes shown below.
         </p>
       )}
     </div>
   );
 };
+
+/**
+ * Compact one-line values render inline in the right column. Anything
+ * that's a container (struct/vec/array/tuple/option-with-payload) gets
+ * pushed onto its own indented block so we never have a single grid
+ * cell trying to render a tree.
+ */
+const isInlineValue = (v: DecodedValue): boolean => {
+  switch (v.kind) {
+    case 'scalar':
+    case 'string':
+    case 'bytes':
+    case 'unsupported':
+      return true;
+    case 'option':
+      return !v.present;
+    case 'enum':
+      return !v.data;
+    case 'vec':
+      return v.length === 0;
+    case 'array':
+      return v.length === 0;
+    case 'struct':
+      return v.fields.length === 0;
+    case 'tuple':
+      return v.items.length === 0;
+  }
+};
+
+/**
+ * Recursive renderer for a `DecodedValue`. Containers indent with a
+ * left border so nested structs read like a tree without tipping into
+ * full-blown JSON syntax (which would visually clash with the rest of
+ * the inspector).
+ */
+const ValueNode: React.FC<{ value: DecodedValue }> = ({ value }) => {
+  switch (value.kind) {
+    case 'scalar':
+      return <span>{value.value}</span>;
+    case 'string':
+      return (
+        <span title={value.value}>
+          "{truncate(value.value, 64)}"
+          <span className="ml-1 text-[10px] text-muted-foreground">({value.bytes}B)</span>
+        </span>
+      );
+    case 'bytes':
+      return (
+        <span>
+          {value.preview}
+          <span className="ml-1 text-[10px] text-muted-foreground">({value.length}B)</span>
+        </span>
+      );
+    case 'unsupported':
+      return <span className="text-muted-foreground italic">{value.reason}</span>;
+    case 'option':
+      if (!value.present) {
+        return <span className="text-muted-foreground italic">None</span>;
+      }
+      return (
+        <div className="space-y-0.5">
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground">Some</span>
+          <div className="pl-2 border-l border-border/60">
+            <ValueNode value={value.inner!} />
+          </div>
+        </div>
+      );
+    case 'enum':
+      return (
+        <div className="space-y-0.5">
+          <span className="text-foreground/90">{value.variant}</span>
+          {value.data && (
+            <div className="pl-2 border-l border-border/60">
+              <ValueNode value={value.data} />
+            </div>
+          )}
+        </div>
+      );
+    case 'vec':
+    case 'array': {
+      if (value.length === 0) {
+        return <span className="text-muted-foreground">[] ({value.itemType})</span>;
+      }
+      return (
+        <ol
+          className="space-y-0.5 list-none"
+          aria-label={`${value.length} items`}
+        >
+          {value.items.map((item, i) => (
+            <li key={i} className="grid grid-cols-[2.25rem_1fr] gap-2">
+              <span className="text-[10px] text-muted-foreground tabular-nums">[{i}]</span>
+              <ValueNode value={item} />
+            </li>
+          ))}
+        </ol>
+      );
+    }
+    case 'tuple':
+      if (value.items.length === 0) {
+        return <span className="text-muted-foreground">()</span>;
+      }
+      return (
+        <ol className="space-y-0.5 list-none">
+          {value.items.map((item, i) => (
+            <li key={i} className="grid grid-cols-[2.25rem_1fr] gap-2">
+              <span className="text-[10px] text-muted-foreground tabular-nums">.{i}</span>
+              <ValueNode value={item} />
+            </li>
+          ))}
+        </ol>
+      );
+    case 'struct':
+      if (value.fields.length === 0) {
+        return <span className="text-muted-foreground">{value.name} {'{}'}</span>;
+      }
+      return (
+        <dl className="space-y-0.5 list-none">
+          {value.fields.map((f) => (
+            <div key={f.name} className="grid grid-cols-[1fr_auto] gap-2">
+              <dt className="text-foreground/85 truncate" title={`${f.name}: ${f.type}`}>
+                {f.name}
+              </dt>
+              <dd className="text-right break-all max-w-[180px]">
+                {isInlineValue(f.value) ? (
+                  <ValueNode value={f.value} />
+                ) : (
+                  <details className="text-left">
+                    <summary className="cursor-pointer text-muted-foreground hover:text-foreground text-[10px]">
+                      expand
+                    </summary>
+                    <div className="mt-1 pl-2 border-l border-border/60">
+                      <ValueNode value={f.value} />
+                    </div>
+                  </details>
+                )}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      );
+  }
+};
+
+const truncate = (s: string, n: number): string =>
+  s.length > n ? s.slice(0, n) + '…' : s;
 
 const HeaderTile: React.FC<{
   icon: React.ReactNode;
