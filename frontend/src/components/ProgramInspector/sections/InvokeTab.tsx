@@ -34,6 +34,7 @@ import {
   type SubmitResult,
   type WalletSigner,
 } from '../../../utils/idl/submitInstruction';
+import { decodeProgramError } from '../../../utils/idl/decodeError';
 import { getExplorerUrls } from '../../../utils/explorerLinks';
 import { AccountInput, type AccountInputSuggestion } from '../AccountInput';
 import { ArgInput } from '../ArgInput';
@@ -820,6 +821,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
           tone="success"
           result={state.result}
           network={config.network}
+          idl={idl}
           onClose={() => onStateChange({ kind: 'idle' })}
         />
       )}
@@ -828,6 +830,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
           tone="error"
           result={state.result}
           network={config.network}
+          idl={idl}
           onClose={() => onStateChange({ kind: 'idle' })}
         />
       )}
@@ -883,10 +886,18 @@ const ResultPanel: React.FC<{
   tone: 'success' | 'error';
   result: SubmitResult;
   network: 'mainnet' | 'testnet' | 'devnet';
+  idl: ArchIdl | null;
   onClose: () => void;
-}> = ({ tone, result, network, onClose }) => {
+}> = ({ tone, result, network, idl, onClose }) => {
   const explorer = getExplorerUrls(network);
   const txUrl = result.txid && explorer ? explorer.tx(result.txid) : null;
+  // Decode each error string against the IDL once, so we can render
+  // matched program errors with their friendly name + msg and keep
+  // un-decodable lines (signing failed, RPC unreachable, …) as-is.
+  const decoded = useMemo(
+    () => result.errors.map((e) => decodeProgramError(e, idl)),
+    [result.errors, idl],
+  );
   return (
     <div
       className={
@@ -933,16 +944,10 @@ const ResultPanel: React.FC<{
         </div>
       )}
 
-      {result.errors.length > 0 && (
-        <ul className="space-y-0.5">
-          {result.errors.map((e, i) => (
-            <li
-              key={i}
-              className="text-[10px] text-danger flex items-start gap-1"
-            >
-              <span aria-hidden="true">•</span>
-              <span>{e}</span>
-            </li>
+      {decoded.length > 0 && (
+        <ul className="space-y-1">
+          {decoded.map((d, i) => (
+            <DecodedErrorRow key={i} decoded={d} />
           ))}
         </ul>
       )}
@@ -958,6 +963,52 @@ const ResultPanel: React.FC<{
         </details>
       )}
     </div>
+  );
+};
+
+/**
+ * Single error line inside `ResultPanel`.
+ *
+ * Three render modes, picked from the decoder result:
+ *   - **matched**: bold IDL name + code, msg as the body, raw RPC
+ *     payload tucked behind a `<details>` for power users.
+ *   - **unknown code**: dim "Program error N — no matching IDL entry"
+ *     (we still pulled a number, IDL just doesn't know it).
+ *   - **plain**: the raw error string (signing failures, RPC errors,
+ *     validation rejections that don't look like program errors).
+ */
+const DecodedErrorRow: React.FC<{
+  decoded: ReturnType<typeof decodeProgramError>;
+}> = ({ decoded }) => {
+  if (decoded.matched && decoded.match) {
+    return (
+      <li className="text-[10px] text-danger flex items-start gap-1">
+        <span aria-hidden="true">•</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-baseline gap-1.5 flex-wrap">
+            <span className="font-mono font-semibold text-danger">{decoded.match.name}</span>
+            <span className="text-danger/70">code {decoded.code}</span>
+          </div>
+          <p className="text-foreground/85">{decoded.match.msg}</p>
+          {decoded.raw !== decoded.pretty && (
+            <details className="mt-0.5">
+              <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
+                raw
+              </summary>
+              <pre className="mt-0.5 text-[10px] text-muted-foreground font-mono whitespace-pre-wrap break-all">
+                {decoded.raw}
+              </pre>
+            </details>
+          )}
+        </div>
+      </li>
+    );
+  }
+  return (
+    <li className="text-[10px] text-danger flex items-start gap-1">
+      <span aria-hidden="true">•</span>
+      <span>{decoded.pretty}</span>
+    </li>
   );
 };
 

@@ -1,7 +1,11 @@
 // src/App.tsx
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense, lazy } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import Editor from './components/Editor';
+// Lazy-load the Monaco-backed editor. Monaco + its language services
+// add ~750 KB brotli to the initial bundle; deferring the import lets
+// the app shell paint first and pull the editor in parallel. Falls
+// back to a skeleton while the chunk arrives.
+const Editor = lazy(() => import('./components/Editor'));
 import { Output } from './components/Output';
 import TopBar from './components/TopBar';
 import BottomPanel from './components/BottomPanel';
@@ -2467,24 +2471,32 @@ const AppContent = () => {
                 onToggleWordWrap={handleToggleWordWrap}
               />
               <div className="flex-1 min-h-0 overflow-hidden">
-              <Editor
-                code={currentFile?.content ?? '// Select a file to edit'}
-                onChange={handleFileChange}
-                onSave={handleSaveFile}
-                currentFile={currentFile}
-                onSelectFile={handleFileSelect}
-                key={currentFile?.path || 'welcome'}
-                recentProjects={projects}
-                onNewProject={handleNewProject}
-                onSelectProject={handleProjectSelect}
-                onLoadExample={handleLoadExampleProject}
-                isWordWrapEnabled={editorPrefs.wordWrap}
-                fontSize={editorPrefs.fontSize}
-                fontLigatures={editorPrefs.fontLigatures}
-                minimap={editorPrefs.minimap}
-                smoothCaret={editorPrefs.smoothCaret}
-                tabSize={editorPrefs.tabSize}
-              />
+              <Suspense
+                fallback={
+                  <div className="flex h-full w-full items-center justify-center bg-surface-1 text-xs text-muted-foreground">
+                    Loading editor…
+                  </div>
+                }
+              >
+                <Editor
+                  code={currentFile?.content ?? '// Select a file to edit'}
+                  onChange={handleFileChange}
+                  onSave={handleSaveFile}
+                  currentFile={currentFile}
+                  onSelectFile={handleFileSelect}
+                  key={currentFile?.path || 'welcome'}
+                  recentProjects={projects}
+                  onNewProject={handleNewProject}
+                  onSelectProject={handleProjectSelect}
+                  onLoadExample={handleLoadExampleProject}
+                  isWordWrapEnabled={editorPrefs.wordWrap}
+                  fontSize={editorPrefs.fontSize}
+                  fontLigatures={editorPrefs.fontLigatures}
+                  minimap={editorPrefs.minimap}
+                  smoothCaret={editorPrefs.smoothCaret}
+                  tabSize={editorPrefs.tabSize}
+                />
+              </Suspense>
               </div>
 
               {/* Desktop-only terminal/output pane (mobile uses the bottom status sheet instead) */}

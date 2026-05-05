@@ -1517,39 +1517,102 @@ export async function deployProgram(options: DeployOptions): Promise<{
   // ========== STEP 4: Verify deployment ==========
 
   onMessage('info', 'Verifying deployed program');
-  // Allow indexer/RPC a moment to reflect the last write; retry in case of read lag
+  // Allow indexer/RPC a moment to reflect the last write; retry in case of read lag.
   await new Promise((r) => setTimeout(r, 2000));
-  const maxVerifyAttempts = 3;
+
+  // We give ourselves up to `maxRepairRounds` to *fix* mismatches via
+  // targeted re-uploads. Each round = read account, compare bytes, and
+  // — if they differ at offset N — re-send only the chunks that
+  // overlap [N, end). Read-lag-style transients are tolerated by the
+  // inner `maxReadAttempts` retry, which polls without re-uploading
+  // anything.
+  const maxRepairRounds = 3;
+  const maxReadAttempts = 3;
   let finalAccountInfo: AccountInfo | null = null;
-  for (let attempt = 1; attempt <= maxVerifyAttempts; attempt++) {
-    finalAccountInfo = await deployer.readAccountInfo(programPubkey);
-    if (!finalAccountInfo) {
-      if (attempt < maxVerifyAttempts) await new Promise((r) => setTimeout(r, 1500));
-      continue;
+  let lastMismatchSummary = '';
+
+  for (let round = 1; round <= maxRepairRounds; round++) {
+    let deployedElf: Buffer | null = null;
+    for (let read = 1; read <= maxReadAttempts; read++) {
+      finalAccountInfo = await deployer.readAccountInfo(programPubkey);
+      if (finalAccountInfo) {
+        deployedElf = finalAccountInfo.data.slice(LOADER_STATE_SIZE);
+        break;
+      }
+      if (read < maxReadAttempts) {
+        onMessage('info', `Account read returned null (attempt ${read}/${maxReadAttempts}), retrying…`);
+        await new Promise((r) => setTimeout(r, 1500));
+      }
     }
-    const deployedElf = finalAccountInfo.data.slice(LOADER_STATE_SIZE);
-    if (deployedElf.length >= programBinary.length && deployedElf.subarray(0, programBinary.length).equals(programBinary)) {
-      onMessage('success', 'ELF verification successful');
+    if (!deployedElf || !finalAccountInfo) {
+      throw new Error('Program account disappeared after deployment');
+    }
+
+    if (
+      deployedElf.length >= programBinary.length &&
+      deployedElf.subarray(0, programBinary.length).equals(programBinary)
+    ) {
+      onMessage('success', round === 1 ? 'ELF verification successful' : `ELF verification successful (after ${round - 1} repair round${round - 1 === 1 ? '' : 's'})`);
       break;
     }
-    if (attempt < maxVerifyAttempts) {
-      onMessage('info', `Verification attempt ${attempt}/${maxVerifyAttempts} mismatch, retrying...`);
-      await new Promise((r) => setTimeout(r, 1500));
-    } else {
-      let firstDiff = -1;
-      const len = Math.min(programBinary.length, deployedElf.length);
-      for (let i = 0; i < len; i++) {
-        if (programBinary[i] !== deployedElf[i]) {
-          firstDiff = i;
-          break;
-        }
+
+    // Identify the first mismatched byte; this drives which chunks
+    // we re-upload.
+    let firstDiff = -1;
+    const len = Math.min(programBinary.length, deployedElf.length);
+    for (let i = 0; i < len; i++) {
+      if (programBinary[i] !== deployedElf[i]) {
+        firstDiff = i;
+        break;
       }
-      if (firstDiff < 0 && programBinary.length !== deployedElf.length) firstDiff = len;
-      const msg = firstDiff >= 0
-        ? `ELF verification failed - mismatch at offset ${firstDiff} (expected ${programBinary.length} bytes, got ${deployedElf.length})`
-        : 'ELF verification failed - deployed binary does not match';
-      throw new Error(msg);
     }
+    if (firstDiff < 0 && programBinary.length !== deployedElf.length) firstDiff = len;
+
+    lastMismatchSummary =
+      firstDiff >= 0
+        ? `mismatch at offset ${firstDiff} (expected ${programBinary.length} bytes, got ${deployedElf.length})`
+        : 'deployed binary does not match';
+
+    if (round >= maxRepairRounds) {
+      throw new Error(`ELF verification failed after ${maxRepairRounds} repair rounds — ${lastMismatchSummary}`);
+    }
+
+    // Repair path. Re-upload chunks covering [firstDiff, programBinary.length).
+    // We deliberately re-send the entire tail rather than just the
+    // single chunk containing `firstDiff`: empirically chunk
+    // failures cluster (a batch with a stale blockhash, a brief
+    // validator congestion window), so the dominant cause of "first
+    // mismatch at byte X" is "all writes from chunk-of-X onward
+    // dropped". The cost (one extra round-trip per ~9.7 KB) is far
+    // cheaper than another full deploy.
+    const chunkStartOffset = firstDiff < 0 ? 0 : firstDiff - (firstDiff % calculateMaxChunkSize());
+    const repairChunks: ChunkRecord[] = [];
+    const maxChunkSize = calculateMaxChunkSize();
+    for (let offset = chunkStartOffset; offset < programBinary.length; offset += maxChunkSize) {
+      repairChunks.push({
+        offset,
+        chunk: programBinary.slice(offset, offset + maxChunkSize),
+      });
+    }
+
+    onMessage(
+      'info',
+      `Verification round ${round} failed (${lastMismatchSummary}). Repairing ${repairChunks.length} chunk${repairChunks.length === 1 ? '' : 's'} from offset ${chunkStartOffset}…`,
+    );
+    const repairTxids = await uploadChunks(
+      deployer,
+      programPubkey,
+      authorityPubkey,
+      authorityKeypair,
+      repairChunks,
+      onMessage,
+      'Repairing',
+    );
+    allTxids.push(...repairTxids);
+
+    // Brief settle window before the next read so we don't immediately
+    // trip the same indexer-lag mismatch we just repaired.
+    await new Promise((r) => setTimeout(r, 1500));
   }
 
   if (!finalAccountInfo) {
@@ -1700,7 +1763,7 @@ async function deployProgramElf(
   onMessage('info', 'Uploading program binary');
 
   const maxChunkSize = calculateMaxChunkSize();
-  const chunks = [];
+  const chunks: ChunkRecord[] = [];
 
   for (let offset = 0; offset < elf.length; offset += maxChunkSize) {
     const chunk = elf.slice(offset, offset + maxChunkSize);
@@ -1710,12 +1773,55 @@ async function deployProgramElf(
   console.log(`[Deploy] Total chunks: ${chunks.length}, max chunk size: ${maxChunkSize} bytes`);
   onMessage('info', `Splitting into ${chunks.length} chunks (${maxChunkSize} bytes each)`);
 
-  // IMPORTANT:
-  // Validators drop txs if recent_blockhash is unknown/expired (tx_pool::validate_transaction).
-  // Upload can involve many txs; using a single blockhash for all chunks increases rejection risk
-  // if the network is busy. Instead, we sign/send in smaller batches with a fresh verified blockhash.
+  const uploadTxids = await uploadChunks(
+    deployer,
+    programPubkey,
+    authorityPubkey,
+    authorityKeypair,
+    chunks,
+    onMessage,
+    'Uploading',
+  );
+  txids.push(...uploadTxids);
+
+  return txids;
+}
+
+/**
+ * One Write-instruction unit: a contiguous chunk of bytes to write at
+ * `offset` into the program account. We surface this as a named type
+ * so the repair path can re-target individual chunks identified
+ * during verification rather than re-deriving them from offsets.
+ */
+interface ChunkRecord {
+  offset: number;
+  chunk: Buffer;
+}
+
+/**
+ * Submit `Write` instructions for a list of chunks, batching for
+ * blockhash freshness.
+ *
+ * Validators drop txs if `recent_blockhash` is unknown/expired
+ * (tx_pool::validate_transaction). Long uploads using a single
+ * blockhash get heavily rejected when the network is busy; we sign
+ * and send in smaller batches with a fresh verified blockhash per
+ * batch. The label is surfaced to the UI ("Uploading" vs "Repairing")
+ * so users can tell when we're recovering from a verification
+ * mismatch.
+ */
+async function uploadChunks(
+  deployer: ArchDeployer,
+  programPubkey: Buffer,
+  authorityPubkey: Buffer,
+  authorityKeypair: { privkey: string; pubkey: string },
+  chunks: ChunkRecord[],
+  onMessage: (type: 'info' | 'success' | 'error', message: string) => void,
+  label: 'Uploading' | 'Repairing',
+): Promise<string[]> {
   const CHUNK_TX_BATCH_SIZE = 25;
-  let uploaded = 0;
+  const txids: string[] = [];
+  let done = 0;
 
   for (let start = 0; start < chunks.length; start += CHUNK_TX_BATCH_SIZE) {
     const batchChunks = chunks.slice(start, Math.min(start + CHUNK_TX_BATCH_SIZE, chunks.length));
@@ -1745,14 +1851,14 @@ async function deployProgramElf(
       );
     }
 
-    console.log(`[Deploy] Sending write batch ${batchNum}/${totalBatches} (${batchTxs.length} txs)`);
-    onMessage('info', `Uploading batch ${batchNum}/${totalBatches} (${uploaded}/${chunks.length} chunks uploaded)`);
+    console.log(`[${label}] Sending write batch ${batchNum}/${totalBatches} (${batchTxs.length} txs)`);
+    onMessage('info', `${label} batch ${batchNum}/${totalBatches} (${done}/${chunks.length} chunks done)`);
 
     const batchTxids = await deployer.sendBatchTransactions(batchTxs);
     txids.push(...batchTxids);
-    uploaded += batchChunks.length;
+    done += batchChunks.length;
 
-    onMessage('success', `Uploaded batch ${batchNum}/${totalBatches} (${uploaded}/${chunks.length} chunks)`);
+    onMessage('success', `${label} batch ${batchNum}/${totalBatches} confirmed (${done}/${chunks.length} chunks)`);
   }
 
   return txids;

@@ -54,12 +54,124 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        manualChunks: {
-          'react-vendor': ['react', 'react-dom'],
-          'monaco-vendor': ['@monaco-editor/react'],
-          'crypto-vendor': ['bitcoinjs-lib', 'noble-secp256k1', 'tiny-secp256k1'],
-        }
-      }
+        // Function-form `manualChunks` so we can route by *path* rather
+        // than by package name. The static-form map only matched the
+        // listed entries; everything else (lucide icons, Radix
+        // primitives, the Arch SDK, Borsh, @scure/@noble crypto, idb,
+        // bs58, Bitcoin signing libs, etc.) all collapsed into the
+        // 8 MB main bundle. This split puts each large family in its
+        // own cacheable file so a hot-fix to app code doesn't
+        // invalidate vendor cache and first-paint downloads less.
+        manualChunks: (id) => {
+          if (!id.includes('node_modules')) return undefined;
+
+          // React core. Keep `react-router*` separate from generic
+          // "react-…" packages by anchoring on the path separator.
+          if (/[\\/]react[\\/]/.test(id) || /[\\/]react-dom[\\/]/.test(id)) {
+            return 'react-vendor';
+          }
+
+          // Monaco editor + its language services.
+          if (id.includes('monaco-editor') || id.includes('@monaco-editor')) {
+            return 'monaco-vendor';
+          }
+
+          // Icons. Lucide ships hundreds of components; even with
+          // tree-shaking we import dozens, and they tend to dominate
+          // any "misc" bucket.
+          if (id.includes('lucide-react')) {
+            return 'icons-vendor';
+          }
+
+          // Radix primitives and shadcn-style wrappers + Headless
+          // UI (used in a couple of legacy menus we haven't migrated
+          // off yet — same role bucket).
+          if (id.includes('@radix-ui') || id.includes('@headlessui')) {
+            return 'radix-vendor';
+          }
+
+          // Arch network SDK (~hundreds of KB; pulls @noble/@scure).
+          if (id.includes('@arch-network')) {
+            return 'arch-vendor';
+          }
+
+          // Crypto: signing, hashing, encoding. Bitcoin libs and
+          // their ecosystem live here too — `@bitcoinerlab/*`,
+          // `bitcoinjs-message`, `@sats-connect/*`, `wif`, and
+          // `secp256k1` are large enough to benefit from a dedicated
+          // chunk that the codepath only loads when a wallet flow
+          // is engaged.
+          if (
+            id.includes('bitcoinjs-lib') ||
+            id.includes('bitcoinjs-message') ||
+            id.includes('@bitcoinerlab') ||
+            id.includes('@sats-connect') ||
+            id.includes('sats-connect') ||
+            id.includes('noble-secp256k1') ||
+            id.includes('tiny-secp256k1') ||
+            id.includes('/secp256k1/') ||
+            id.includes('@noble') ||
+            id.includes('@scure') ||
+            id.includes('bip322') ||
+            id.includes('borsh') ||
+            id.includes('bs58') ||
+            id.includes('/wif/') ||
+            id.includes('js-sha256')
+          ) {
+            return 'crypto-vendor';
+          }
+
+          // Archive (zip) for project import/export.
+          if (id.includes('jszip')) {
+            return 'archive-vendor';
+          }
+
+          // GitHub API client (auth, gists, repos). Only used by
+          // import/export flows so it shouldn't be in the hot path.
+          if (id.includes('@octokit')) {
+            return 'octokit-vendor';
+          }
+
+          // TanStack family (query, virtual, table). Used widely
+          // enough to keep on the hot path but bulky enough to split.
+          if (id.includes('@tanstack')) {
+            return 'tanstack-vendor';
+          }
+
+          // Browser polyfills for Node-style APIs (process, Buffer,
+          // streams). These pull in `web-streams-polyfill`,
+          // `vm-browserify`, etc. — none of which need to live in
+          // the app bundle.
+          if (
+            id.includes('vite-plugin-node-polyfills') ||
+            id.includes('@esbuild-plugins/node') ||
+            id.includes('web-streams-polyfill') ||
+            id.includes('vm-browserify') ||
+            id.includes('process/browser') ||
+            id.includes('crypto-browserify') ||
+            id.includes('readable-stream') ||
+            id.includes('buffer/')
+          ) {
+            return 'polyfills-vendor';
+          }
+
+          // HTTP client. Big enough to call out, small enough that
+          // route-based splitting isn't worth the effort.
+          if (id.includes('/axios/') || id.endsWith('/axios')) {
+            return 'http-vendor';
+          }
+
+          // Storage / persistence.
+          if (id.includes('/idb/') || id.endsWith('/idb')) {
+            return 'storage-vendor';
+          }
+
+          // Everything else from node_modules. Keeps unrelated
+          // dependency churn out of `index-*.js` so app-only edits
+          // don't bust the vendor cache.
+          return 'vendor';
+        },
+      },
     },
     reportCompressedSize: false,
     cssCodeSplit: true

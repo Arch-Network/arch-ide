@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '../../ui/button';
 import { getExplorerUrls } from '../../../utils/explorerLinks';
+import { decodeProgramError } from '../../../utils/idl/decodeError';
 import type {
   ArchIdl,
   InvokeHistoryEntry,
@@ -191,7 +192,7 @@ const HistoryRow: React.FC<HistoryRowProps> = ({ entry, idl, onReplay, onRemove 
           {isSuccess ? (
             <SuccessDetails entry={entry} explorerTxUrl={explorerTxUrl} />
           ) : (
-            <ErrorDetails message={entry.outcome.message} />
+            <ErrorDetails message={entry.outcome.message} idl={idl} />
           )}
           {entry.accounts && entry.accounts.length > 0 && (
             <div className="space-y-0.5">
@@ -261,14 +262,61 @@ const SuccessDetails: React.FC<{
   );
 };
 
-const ErrorDetails: React.FC<{ message: string }> = ({ message }) => (
-  <div className="space-y-0.5">
-    <span className="text-[10px] font-semibold uppercase tracking-wider text-danger/80">
-      Error
-    </span>
-    <p className="text-[11px] text-danger break-words">{message}</p>
-  </div>
-);
+/**
+ * Renders the failure outcome of a history entry.
+ *
+ * The submit pipeline joins multiple errors with " • " before
+ * persisting (see `InvokeTab.SubmitPanel.handleSubmit`), so we split
+ * them back out and decode each independently against the IDL. A
+ * matched program error gets a structured row (name, code, msg),
+ * while plain errors render as-is. This mirrors the live submission
+ * panel so re-runs and historical entries read consistently.
+ */
+const ErrorDetails: React.FC<{
+  message: string;
+  idl: ArchIdl | null;
+}> = ({ message, idl }) => {
+  const lines = message
+    .split(' • ')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const decoded = lines.map((line) => decodeProgramError(line, idl));
+  return (
+    <div className="space-y-0.5">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-danger/80">
+        Error
+      </span>
+      <ul className="space-y-1">
+        {decoded.map((d, i) => (
+          <li key={i} className="text-[11px] text-danger flex items-start gap-1">
+            <span aria-hidden="true">•</span>
+            {d.matched && d.match ? (
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-1.5 flex-wrap">
+                  <span className="font-mono font-semibold">{d.match.name}</span>
+                  <span className="text-danger/70">code {d.code}</span>
+                </div>
+                <p className="text-foreground/85 break-words">{d.match.msg}</p>
+                {d.raw !== d.pretty && (
+                  <details className="mt-0.5">
+                    <summary className="cursor-pointer text-[10px] text-muted-foreground hover:text-foreground">
+                      raw
+                    </summary>
+                    <pre className="mt-0.5 text-[10px] text-muted-foreground font-mono whitespace-pre-wrap break-all">
+                      {d.raw}
+                    </pre>
+                  </details>
+                )}
+              </div>
+            ) : (
+              <span className="break-words">{d.pretty}</span>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
 
 /**
  * Lightweight relative-time formatter for entry timestamps. We avoid
