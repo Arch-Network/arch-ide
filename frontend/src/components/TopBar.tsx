@@ -22,6 +22,8 @@ interface TopBarProps {
   canBuild: boolean;
   canRunClient: boolean;
   isBuilding: boolean;
+  buildDisabledReason?: string;
+  runDisabledReason?: string;
   onOpenSettings: () => void;
   onOpenMobileSidebar: () => void;
   onOpenCommandPalette: () => void;
@@ -52,6 +54,8 @@ export const TopBar: React.FC<TopBarProps> = ({
   canBuild,
   canRunClient,
   isBuilding,
+  buildDisabledReason,
+  runDisabledReason,
   onOpenSettings,
   onOpenMobileSidebar,
   onOpenCommandPalette,
@@ -126,6 +130,8 @@ export const TopBar: React.FC<TopBarProps> = ({
               canBuild={canBuild}
               canRunClient={canRunClient}
               isBuilding={isBuilding}
+              buildDisabledReason={buildDisabledReason}
+              runDisabledReason={runDisabledReason}
             />
           </div>
 
@@ -158,6 +164,8 @@ export const TopBar: React.FC<TopBarProps> = ({
           canBuild={canBuild}
           canRunClient={canRunClient}
           isBuilding={isBuilding}
+          buildDisabledReason={buildDisabledReason}
+          runDisabledReason={runDisabledReason}
         />
       </div>
     </nav>

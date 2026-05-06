@@ -1,4 +1,4 @@
-import { Plus, Import, Save, Loader2, Upload, Check, Circle, Rocket } from 'lucide-react';
+import { Plus, Import, Save, Loader2, Upload, Check, Circle, Rocket, Hammer, Play, X } from 'lucide-react';
 import { Button } from './ui/button';
 import { useState, useCallback, useRef } from 'react';
 import { ArchConnection, RpcConnection } from '@arch-network/arch-sdk';
@@ -18,6 +18,8 @@ import { AuthorityAccountPanel } from './AuthorityAccountPanel';
 import FormatToggleInput from './FormatToggleInput';
 import StepCard from './StepCard';
 import type { StepStatus } from './StepCard';
+
+const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
 
   interface BuildPanelProps {
     hasProjects: boolean;
@@ -77,6 +79,13 @@ import type { StepStatus } from './StepCard';
       const [isUploading, setIsUploading] = useState(false);
       const [isDragOver, setIsDragOver] = useState(false);
       const [authorityActions, setAuthorityActions] = useState<React.ReactNode>(null);
+      const [isWorkflowDismissed, setIsWorkflowDismissed] = useState(() => {
+        try {
+          return localStorage.getItem(WORKFLOW_DISMISSED_KEY) === 'true';
+        } catch {
+          return false;
+        }
+      });
       const fileInputRef = useRef<HTMLInputElement>(null);
       const { toast } = useToast();
       const [isRpcConnected, setIsRpcConnected] = useState(connected);
@@ -109,6 +118,64 @@ import type { StepStatus } from './StepCard';
 
       const readyCount = [hasKeypair, hasAuthority, hasBinary].filter(Boolean).length;
       const isDeployReady = hasKeypair && hasAuthority && hasBinary && connected;
+      const deployReadinessReason = !hasProjects
+        ? 'Create or select a project to begin.'
+        : !hasBinary
+          ? 'Build the program or import a .so artifact.'
+          : !hasKeypair
+            ? 'Generate or import a program keypair.'
+            : !hasAuthority
+              ? 'Generate or restore an authority account.'
+              : !connected
+                ? 'Connect to the selected network before deploying.'
+                : 'Ready to deploy this build.';
+
+      const WorkflowItem = ({
+        icon,
+        label,
+        detail,
+        done,
+        active,
+      }: {
+        icon: React.ReactNode;
+        label: string;
+        detail: string;
+        done?: boolean;
+        active?: boolean;
+      }) => (
+        <div className="flex items-start gap-2 min-w-0">
+          <div className={`mt-0.5 h-6 w-6 rounded-md flex items-center justify-center shrink-0 ${
+            done
+              ? 'bg-success/15 text-success'
+              : active
+                ? 'bg-brand/15 text-brand'
+                : 'bg-surface-3 text-muted-foreground'
+          }`}>
+            {done ? <Check className="h-3.5 w-3.5" aria-hidden="true" /> : icon}
+          </div>
+          <div className="min-w-0">
+            <p className={`text-xs font-medium ${done || active ? 'text-foreground' : 'text-muted-foreground'}`}>
+              {label}
+            </p>
+            <p className="text-[11px] leading-snug text-muted-foreground">
+              {detail}
+            </p>
+          </div>
+        </div>
+      );
+
+      const setWorkflowDismissed = (dismissed: boolean) => {
+        setIsWorkflowDismissed(dismissed);
+        try {
+          if (dismissed) {
+            localStorage.setItem(WORKFLOW_DISMISSED_KEY, 'true');
+          } else {
+            localStorage.removeItem(WORKFLOW_DISMISSED_KEY);
+          }
+        } catch {
+          // Ignore storage failures; the current session state still updates.
+        }
+      };
 
       // ── Handlers ─────────────────────────────────────────────────
       const handleImportBinary = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -321,22 +388,81 @@ import type { StepStatus } from './StepCard';
           {/* Header */}
           <div className="flex items-center justify-between gap-2 mb-5 min-w-0">
             <h2 className="text-base font-bold tracking-wide text-foreground truncate">BUILD &amp; DEPLOY</h2>
-            <span className={`flex-shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded-full tracking-wider whitespace-nowrap ${
-              config.network === 'mainnet'
-                ? 'bg-danger/15 text-danger ring-1 ring-danger/30'
-                : config.network === 'testnet'
-                  ? 'bg-warning/15 text-warning ring-1 ring-warning/30'
-                  : 'bg-info/15 text-info ring-1 ring-info/30'
-            }`}>
-              {config.network === 'mainnet' ? 'MAINNET' : config.network.toUpperCase()}
-            </span>
+            <div className="flex items-center gap-2 shrink-0">
+              {isWorkflowDismissed && (
+                <button
+                  type="button"
+                  onClick={() => setWorkflowDismissed(false)}
+                  className="text-[11px] font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  Show workflow
+                </button>
+              )}
+              <span className={`flex-shrink-0 text-[10px] font-semibold px-2.5 py-1 rounded-full tracking-wider whitespace-nowrap ${
+                config.network === 'mainnet'
+                  ? 'bg-danger/15 text-danger ring-1 ring-danger/30'
+                  : config.network === 'testnet'
+                    ? 'bg-warning/15 text-warning ring-1 ring-warning/30'
+                    : 'bg-info/15 text-info ring-1 ring-info/30'
+              }`}>
+                {config.network === 'mainnet' ? 'MAINNET' : config.network.toUpperCase()}
+              </span>
+            </div>
           </div>
+
+          {!isWorkflowDismissed && (
+            <section className="rounded-lg border border-border bg-surface-2/60 p-4 mb-5 space-y-3" aria-label="Project workflow">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-foreground/90">
+                    Project workflow
+                  </h3>
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Follow this path: build the Rust program, deploy it, then run a TypeScript client.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setWorkflowDismissed(true)}
+                  className="shrink-0 rounded-md p-1 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  aria-label="Dismiss project workflow"
+                  title="Dismiss workflow guidance"
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden="true" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <WorkflowItem
+                  icon={<Hammer className="h-3.5 w-3.5" aria-hidden="true" />}
+                  label="Build"
+                  detail={hasBinary ? `${binaryFileName || 'Program binary'} is ready.` : 'Compile the current project into a .so artifact.'}
+                  done={hasBinary}
+                  active={hasProjects && !hasBinary}
+                />
+                <WorkflowItem
+                  icon={<Rocket className="h-3.5 w-3.5" aria-hidden="true" />}
+                  label="Deploy"
+                  detail={deployReadinessReason}
+                  done={false}
+                  active={isDeployReady}
+                />
+                <WorkflowItem
+                  icon={<Play className="h-3.5 w-3.5" aria-hidden="true" />}
+                  label="Run"
+                  detail="Open a client/*.ts file after deployment to execute it against the selected network."
+                  active={hasProjects}
+                />
+              </div>
+            </section>
+          )}
 
           {/* Build button */}
           <Button
             className="w-full h-10 bg-brand hover:bg-brand-hover text-brand-foreground font-semibold rounded-lg shadow-sm shadow-brand/20 transition-all duration-200 mb-6"
             onClick={onBuild}
             disabled={!hasProjects || isBuilding}
+            title={!hasProjects ? 'Create or select a project before building.' : isBuilding ? 'Build already in progress.' : 'Build program'}
           >
             {isBuilding ? (
               <>
@@ -527,7 +653,8 @@ import type { StepStatus } from './StepCard';
             <Button
               data-tutorial="deploy"
               onClick={onDeploy}
-              disabled={isDeploying || !currentAccount || !hasProjects}
+              disabled={isDeploying || !isDeployReady}
+              title={isDeployReady ? 'Deploy program' : deployReadinessReason}
               className={`
                 w-full h-10 font-semibold rounded-lg transition-all duration-200
                 ${isDeployReady

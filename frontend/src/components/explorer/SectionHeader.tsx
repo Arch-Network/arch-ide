@@ -6,6 +6,7 @@ interface SectionHeaderAction {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  disabledReason?: string;
   emphasis?: 'primary' | 'default';
 }
 
@@ -31,6 +32,9 @@ const SectionHeader: React.FC<SectionHeaderProps> = ({ title, icon, actions, alw
           )}>
             {actions.map((action, idx) => {
               const isPrimary = action.emphasis === 'primary';
+              const actionTitle = action.disabled && action.disabledReason
+                ? action.disabledReason
+                : action.label;
               return (
                 <button
                   key={idx}
@@ -44,8 +48,8 @@ const SectionHeader: React.FC<SectionHeaderProps> = ({ title, icon, actions, alw
                   )}
                   onClick={action.onClick}
                   disabled={action.disabled}
-                  title={action.label}
-                  aria-label={action.label}
+                  title={actionTitle}
+                  aria-label={actionTitle}
                 >
                   {action.icon}
                   {isPrimary && <span className="text-xs">{action.label}</span>}

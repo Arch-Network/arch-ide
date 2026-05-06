@@ -20,8 +20,6 @@ import NewItemDialog from './components/NewItemDialog';
 import { OutputMessage } from './components/Output';
 import { ConfigPanel } from './components/ConfigPanel';
 import {
-  CheckCircle2,
-  AlertCircle,
   Hammer,
   Rocket,
   PlusCircle,
@@ -52,6 +50,7 @@ import { TutorialOverlay } from './components/TutorialOverlay';
 import { WelcomeModal } from './components/WelcomeModal';
 import { Toaster } from './components/ui/toaster';
 import { HomeScreen } from './components/HomeScreen';
+import ProjectContextStatus from './components/ProjectContextStatus';
 import { exampleProjectsService } from './services/exampleProjectsService';
 import { createHomeTab, isHomeTab, addHomeTabIfNotExists } from './utils/homeTab';
 import { type DroppedFile, getTargetRoot, stripLeadingRoot } from './utils/fileDropUtils';
@@ -2243,6 +2242,14 @@ const AppContent = () => {
   const cmdKey = isMac ? '⌘' : 'Ctrl';
   const hasProject = !!fullCurrentProject;
   const canRunClient = !!currentFile?.name?.endsWith('.ts');
+  const buildDisabledReason = !hasProject
+    ? 'Create or select a project before building.'
+    : isCompiling
+      ? 'Build already in progress.'
+      : undefined;
+  const runDisabledReason = !canRunClient
+    ? 'Open a TypeScript client file before running.'
+    : undefined;
   const commands: CommandItem[] = [
     {
       id: 'project.new',
@@ -2366,6 +2373,8 @@ const AppContent = () => {
         canBuild={hasProject && !isCompiling}
         canRunClient={canRunClient}
         isBuilding={isCompiling}
+        buildDisabledReason={buildDisabledReason}
+        runDisabledReason={runDisabledReason}
         onOpenSettings={() => setIsConfigOpen(true)}
         onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
@@ -2538,28 +2547,11 @@ const AppContent = () => {
         mobileConsoleBadgeCount={outputMessages.length}
         onOpenSettings={() => setIsConfigOpen(true)}
       >
-        <div
-          className="flex items-center gap-1.5 min-w-0"
-          role="status"
-          aria-live="polite"
-        >
-          {isConnected ? (
-            <div
-              className="flex items-center gap-1.5 min-w-0"
-              title={`Connected to ${config.network} (${actualConnectedUrl || config.rpcUrl})`}
-            >
-              <CheckCircle2 className="h-3 w-3 text-success flex-shrink-0" aria-hidden="true" />
-              <span className="truncate text-foreground/80">
-                Connected to {config.network}
-              </span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 min-w-0" title="Not connected to network">
-              <AlertCircle className="h-3 w-3 text-danger flex-shrink-0" aria-hidden="true" />
-              <span className="truncate text-foreground/80">Not connected</span>
-            </div>
-          )}
-        </div>
+        <ProjectContextStatus
+          project={fullCurrentProject}
+          currentFile={currentFile}
+          hasProgramBinary={Boolean(programBinary)}
+        />
       </StatusBar>
 
       <NewProjectDialog
