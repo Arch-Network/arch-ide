@@ -9,6 +9,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { findFileInProject } from '../utils/projectTree';
+import { isHomeTab } from '../utils/homeTab';
 
 interface TabBarProps {
   openFiles: FileNode[];
@@ -21,6 +22,8 @@ interface TabBarProps {
 }
 
 const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProject, isWordWrapEnabled = true, onToggleWordWrap }: TabBarProps) => {
+  const visibleOpenFiles = openFiles.filter((file) => !isHomeTab(file));
+
   const handleTabSelect = (file: FileNode) => {
     // Prefer the openFiles entry because it carries the latest in-memory edits;
     // fall back to the persisted project tree if the tab predates a save.
@@ -36,7 +39,7 @@ const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProj
   return (
     <div className="flex items-center bg-surface-1 border-b border-border" role="tablist" aria-label="Open files">
       <div className="flex overflow-x-auto flex-1 min-w-0">
-        {openFiles.map((file) => {
+        {visibleOpenFiles.map((file) => {
           const isActive = (currentFile?.path || currentFile?.name) === (file.path || file.name);
           return (
             <div

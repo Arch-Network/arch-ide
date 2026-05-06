@@ -170,10 +170,10 @@ const ProjectList: React.FC<ProjectListProps> = ({
   );
 
   return (
-    <div className="flex items-center gap-1.5 flex-nowrap min-w-0">
+    <div className="flex items-center gap-1 flex-nowrap min-w-0 shrink">
       {/* Project selector — compact chip style */}
       <Select value={selectedId} onValueChange={handleProjectSelect}>
-        <SelectTrigger className="w-[min(48vw,180px)] md:w-[200px] h-8 text-xs bg-background/60 text-foreground/80 border-border rounded-lg hover:bg-accent transition-colors">
+        <SelectTrigger className="w-[min(38vw,170px)] sm:w-[170px] md:w-[clamp(120px,16vw,200px)] xl:w-[clamp(160px,15vw,220px)] h-8 text-xs bg-background/60 text-foreground/80 border-border rounded-lg hover:bg-accent transition-colors">
           <SelectValue placeholder="Select a project" />
         </SelectTrigger>
         <SelectContent className="bg-popover border-border">

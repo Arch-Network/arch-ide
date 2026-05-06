@@ -40,6 +40,8 @@ interface SidePanelProps {
   onFileDrop?: (files: DroppedFile[]) => void;
   onBuild: () => void;
   onDeploy: () => void;
+  onRunClient: () => void;
+  canRunClient: boolean;
   isBuilding: boolean;
   isDeploying: boolean;
   programId: string | undefined;
@@ -76,7 +78,7 @@ interface SidePanelProps {
   isMobile?: boolean;
 }
 
-const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onFileDrop, onBuild, onDeploy, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, onProgramIdChange, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onSaveToHistory, onRestoreFromHistory, onDeleteFromHistory, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange, onIdlChange, inspectorMutations, isMobile = false }: SidePanelProps) => {
+const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onFileDrop, onBuild, onDeploy, onRunClient, canRunClient, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, onProgramIdChange, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onSaveToHistory, onRestoreFromHistory, onDeleteFromHistory, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange, onIdlChange, inspectorMutations, isMobile = false }: SidePanelProps) => {
   const { size: width, onMouseDown: handleResizeStart } = useResizablePanel({
     initial: SIDEBAR_DEFAULT_WIDTH,
     min: SIDEBAR_MIN_WIDTH,
@@ -142,9 +144,10 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
             onProjectUpdate={onProjectUpdate}
             onBuild={onBuild}
             onDeploy={onDeploy}
+            onRunClient={onRunClient}
+            canRunClient={canRunClient}
             isBuilding={isBuilding}
             isDeploying={isDeploying}
-            rpcUrl={config.rpcUrl}
           />
         )}
         {currentView === 'search' && (

@@ -2068,7 +2068,10 @@ const AppContent = () => {
                               type === 'command' ? 'command' : 'info';
             console.log('onMessage called with:', { type, message });
             addOutputMessage(messageType, message);
-          }
+          },
+          authorityAccount: fullCurrentProject?.authorityAccount || null,
+          rpcUrl: config.rpcUrl,
+          programAccount: fullCurrentProject?.account || null,
         });
       } catch (error: unknown) {
         if (error instanceof Error) {
@@ -2130,10 +2133,13 @@ const AppContent = () => {
     }
   };
 
-  const handleLoadExampleProject = async (exampleName: string) => {
+  const handleLoadExampleProject = async (
+    exampleName: string,
+    framework: import('./types').ProjectFramework = 'native',
+  ) => {
     try {
-      addOutputMessage('info', `Loading example project: ${exampleName}...`);
-      const project = await exampleProjectsService.loadExampleProject(exampleName);
+      addOutputMessage('info', `Loading example project: ${exampleName} (${framework})...`);
+      const project = await exampleProjectsService.loadExampleProject(exampleName, framework);
 
       // Update projects list
       const updatedProjects = await projectService.getAllProjects();
@@ -2150,7 +2156,7 @@ const AppContent = () => {
       setOpenFiles(homeTab ? [homeTab] : []);
       setCurrentFile(homeTab || null);
 
-      addOutputMessage('success', `Successfully loaded ${exampleName} example project!`);
+      addOutputMessage('success', `Successfully loaded ${exampleName} (${framework}) example project!`);
     } catch (error) {
       console.error('Failed to load example project:', error);
       addOutputMessage('error', `Failed to load example: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -2249,7 +2255,7 @@ const AppContent = () => {
     },
     {
       id: 'project.home',
-      title: 'Open Home Tab',
+      title: 'Open Home',
       description: 'Examples, recent projects, docs',
       group: 'Project',
       keywords: ['welcome', 'start'],
@@ -2353,6 +2359,13 @@ const AppContent = () => {
         onDeleteProject={handleDeleteProject}
         onProjectsChange={setProjects}
         onDeleteAllProjects={handleDeleteAllProjects}
+        onOpenHome={handleOpenHomeTab}
+        isHomeActive={isHomeTab(currentFile)}
+        onBuild={handleBuild}
+        onRunClient={runClientCode}
+        canBuild={hasProject && !isCompiling}
+        canRunClient={canRunClient}
+        isBuilding={isCompiling}
         onOpenSettings={() => setIsConfigOpen(true)}
         onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
@@ -2374,6 +2387,8 @@ const AppContent = () => {
             onFileDrop={handleFileDrop}
             onBuild={handleBuild}
             onDeploy={handleDeploy}
+            onRunClient={runClientCode}
+            canRunClient={canRunClient}
             isBuilding={isCompiling}
             isDeploying={isDeploying}
             programId={programId}
@@ -2427,6 +2442,8 @@ const AppContent = () => {
                 onFileDrop={handleFileDrop}
                 onBuild={handleBuild}
                 onDeploy={handleDeploy}
+                onRunClient={runClientCode}
+                canRunClient={canRunClient}
                 isBuilding={isCompiling}
                 isDeploying={isDeploying}
                 programId={programId}

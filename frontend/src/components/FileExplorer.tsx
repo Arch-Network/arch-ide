@@ -10,9 +10,7 @@ import {
   Upload,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { cn } from '../lib/utils';
 import type { FileNode, Project, ProjectAccount } from '../types';
-import { ArchPgClient } from '../utils/archPgClient';
 import { readDroppedItems, type DroppedFile } from '../utils/fileDropUtils';
 
 import FileExplorerItem from './explorer/FileExplorerItem';
@@ -38,9 +36,10 @@ interface FileExplorerProps {
   onProjectUpdate?: (project: Project) => void;
   onBuild?: () => void;
   onDeploy?: () => void;
+  onRunClient?: () => void;
+  canRunClient?: boolean;
   isBuilding?: boolean;
   isDeploying?: boolean;
-  rpcUrl?: string;
 }
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -103,35 +102,16 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
   onProjectUpdate,
   onBuild,
   onDeploy,
+  onRunClient,
+  canRunClient = false,
   isBuilding = false,
   isDeploying = false,
-  rpcUrl,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [worker, setWorker] = useState<Worker | null>(null);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [isDragOver, setIsDragOver] = useState(false);
   const dragCounterRef = useRef(0);
-
-  // Worker for running client code
-  useEffect(() => {
-    const newWorker = new Worker(new URL('../workers/clientWorker.ts', import.meta.url), { type: 'module' });
-    newWorker.onmessage = (event) => {
-      const { type, message } = event.data;
-      switch (type) {
-        case 'info':
-        case 'error':
-        case 'success':
-          addOutputMessage(type, message);
-          break;
-        default:
-          addOutputMessage('info', message);
-      }
-    };
-    setWorker(newWorker);
-    return () => { newWorker.terminate(); };
-  }, [addOutputMessage]);
 
   // Group and filter files
   const lowerQuery = searchQuery.toLowerCase();
@@ -162,37 +142,6 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     if (!fileList || fileList.length === 0) return;
     const file = fileList[0];
     onFileSelect({ name: file.name, type: 'file', content: '' });
-  };
-
-  const runClientCode = async () => {
-    if (!currentFile || !currentFile.name.endsWith('.ts')) {
-      addOutputMessage('error', 'No TypeScript file selected');
-      return;
-    }
-    const clientCode = currentFile.content;
-    if (!clientCode) {
-      addOutputMessage('error', 'Client code not found');
-      return;
-    }
-    addOutputMessage('info', 'Executing code...');
-    try {
-      await ArchPgClient.execute({
-        fileName: currentFile.name,
-        code: clientCode,
-        onMessage: (type: string, message: string) => {
-          addOutputMessage(type, message);
-        },
-        authorityAccount: project?.authorityAccount || null,
-        rpcUrl: rpcUrl,
-        programAccount: project?.account || null,
-      });
-    } catch (error: unknown) {
-      if (error instanceof Error) {
-        addOutputMessage('error', error.message);
-      } else {
-        addOutputMessage('error', 'An unknown error occurred');
-      }
-    }
   };
 
   const handleProjectUpdate = (updatedProject: Project) => {
@@ -304,8 +253,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
               type="button"
               className="hover:bg-accent p-1 rounded-md transition-colors text-muted-foreground hover:text-foreground"
               onClick={onOpenHomeTab}
-              title="Open Home Tab"
-              aria-label="Open home tab"
+              title="Open Home"
+              aria-label="Open home"
             >
               <Home size={14} aria-hidden="true" />
             </button>
@@ -376,7 +325,8 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                     {
                       icon: <Play size={14} />,
                       label: "Run",
-                      onClick: runClientCode,
+                      onClick: () => onRunClient?.(),
+                      disabled: !canRunClient,
                       emphasis: 'primary' as const,
                     },
                   ]}

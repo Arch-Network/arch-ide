@@ -1,19 +1,32 @@
 import React, { useState } from 'react';
 import { Button } from './ui/button';
 import { Plus, BookOpen, MessageSquare, Github, Clock, Package, Rocket, FileText, Loader2 } from 'lucide-react';
-import { Project } from '../types';
+import { Project, ProjectFramework } from '../types';
 import { cn } from '@/lib/utils';
 import { Logo } from './Logo';
+import { frameworksFor } from '../services/satelliteExamples';
 
 interface HomeScreenProps {
   recentProjects: Project[];
   onNewProject: () => void;
   onSelectProject: (project: Project) => void;
-  onLoadExample: (exampleName: string) => Promise<void>;
+  onLoadExample: (exampleName: string, framework: ProjectFramework) => Promise<void>;
 }
 
-// Example projects from https://github.com/Arch-Network/arch-examples/tree/main/examples
-const EXAMPLE_PROJECTS = [
+interface ExampleProject {
+  name: string;
+  title: string;
+  description: string;
+  icon: string;
+  difficulty: 'Beginner' | 'Intermediate' | 'Advanced';
+  tags: string[];
+}
+
+// Example projects from https://github.com/Arch-Network/arch-examples/tree/main/examples.
+// Whether a given example can be loaded as Satellite is decided by
+// `frameworksFor(name)` (which checks the inline satellite registry),
+// so this list intentionally stays framework-agnostic.
+const EXAMPLE_PROJECTS: ExampleProject[] = [
   {
     name: 'helloworld',
     title: 'Hello World',
@@ -104,6 +117,11 @@ const EXAMPLE_PROJECTS = [
   }
 ];
 
+const FRAMEWORK_META: Record<ProjectFramework, { label: string; emoji: string }> = {
+  native: { label: 'Native', emoji: '🦀' },
+  satellite: { label: 'Satellite', emoji: '🛰️' },
+};
+
 const QUICK_LINKS = [
   {
     title: 'Documentation',
@@ -141,20 +159,138 @@ const getDifficultyColor = (difficulty: string) => {
   }
 };
 
+interface ExampleCardProps {
+  example: ExampleProject;
+  /** Globally-loading example key in the form `<name>:<framework>`, or null. */
+  loadingKey: string | null;
+  onLoad: (exampleName: string, framework: ProjectFramework) => Promise<void>;
+}
+
+const ExampleCard: React.FC<ExampleCardProps> = ({ example, loadingKey, onLoad }) => {
+  const available = frameworksFor(example.name);
+  const [framework, setFramework] = useState<ProjectFramework>(available[0]);
+
+  const isLoading = loadingKey === `${example.name}:${framework}`;
+  const isAnyLoading = loadingKey !== null;
+  const hasMultipleFrameworks = available.length > 1;
+
+  return (
+    <div className="group relative bg-surface-2/50 backdrop-blur border border-border rounded-lg p-6 hover:border-brand transition-all duration-200">
+      <div className="space-y-4">
+        <div className="flex items-start justify-between">
+          <div className="text-4xl" aria-hidden="true">{example.icon}</div>
+          <span
+            className={cn(
+              'text-xs px-2 py-1 rounded-full border font-medium',
+              getDifficultyColor(example.difficulty)
+            )}
+          >
+            {example.difficulty}
+          </span>
+        </div>
+
+        <div>
+          <h3 className="font-semibold text-foreground text-lg">
+            {example.title}
+          </h3>
+          <p className="text-sm text-muted-foreground mt-2">
+            {example.description}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {example.tags.map((tag) => (
+            <span
+              key={tag}
+              className="text-xs px-2 py-1 bg-accent text-foreground/80 rounded"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+
+        {/* Framework selector / badge.
+            - Two frameworks  → segmented toggle (user picks).
+            - One framework   → static badge (informational). */}
+        {hasMultipleFrameworks ? (
+          <div
+            role="radiogroup"
+            aria-label="Select framework"
+            className="grid grid-cols-2 gap-1 p-1 bg-surface-3 rounded-md"
+          >
+            {available.map((fw) => {
+              const meta = FRAMEWORK_META[fw];
+              const selected = framework === fw;
+              return (
+                <button
+                  key={fw}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  disabled={isAnyLoading}
+                  onClick={() => setFramework(fw)}
+                  className={cn(
+                    'text-xs font-medium px-2 py-1.5 rounded transition-colors',
+                    selected
+                      ? 'bg-brand text-brand-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground'
+                  )}
+                >
+                  <span className="mr-1" aria-hidden="true">{meta.emoji}</span>
+                  {meta.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <div
+            className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-md border border-border bg-surface-3 text-muted-foreground"
+            title={`Only available as ${FRAMEWORK_META[available[0]].label}`}
+          >
+            <span aria-hidden="true">{FRAMEWORK_META[available[0]].emoji}</span>
+            {FRAMEWORK_META[available[0]].label} only
+          </div>
+        )}
+
+        <Button
+          onClick={() => onLoad(example.name, framework)}
+          disabled={isAnyLoading}
+          className="w-full bg-surface-3 hover:bg-brand hover:text-brand-foreground text-foreground transition-colors"
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
+              Loading...
+            </>
+          ) : (
+            <>
+              Load as <span className="ml-1">{FRAMEWORK_META[framework].emoji}</span>
+              <span className="ml-1">{FRAMEWORK_META[framework].label}</span>
+            </>
+          )}
+        </Button>
+      </div>
+    </div>
+  );
+};
+
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   recentProjects,
   onNewProject,
   onSelectProject,
   onLoadExample
 }) => {
-  const [loadingExample, setLoadingExample] = useState<string | null>(null);
+  // Track loading by `<name>:<framework>` so two cards in different states
+  // don't fight over a single loading flag (e.g. one shows spinner, the
+  // other stays clickable for a different framework choice).
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
 
-  const handleLoadExample = async (exampleName: string) => {
-    setLoadingExample(exampleName);
+  const handleLoadExample = async (exampleName: string, framework: ProjectFramework) => {
+    setLoadingKey(`${exampleName}:${framework}`);
     try {
-      await onLoadExample(exampleName);
+      await onLoadExample(exampleName, framework);
     } finally {
-      setLoadingExample(null);
+      setLoadingKey(null);
     }
   };
 
@@ -241,60 +377,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </span>
           </div>
           <p className="text-muted-foreground">
-            Start with a working example and learn by building. All examples come with documented code and client integration.
+            Start with a working example and learn by building. Each example can be loaded as
+            <span className="mx-1 font-medium text-foreground">🦀 Native</span>
+            (pure <code className="text-xs">arch_program</code>) or
+            <span className="mx-1 font-medium text-foreground">🛰️ Satellite</span>
+            (Anchor-style macros), where a satellite version is available.
           </p>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {EXAMPLE_PROJECTS.map((example) => (
-              <div
+              <ExampleCard
                 key={example.name}
-                className="group relative bg-surface-2/50 backdrop-blur border border-border rounded-lg p-6 hover:border-brand transition-all duration-200"
-              >
-                <div className="space-y-4">
-                  <div className="flex items-start justify-between">
-                    <div className="text-4xl" aria-hidden="true">{example.icon}</div>
-                    <span
-                      className={cn(
-                        'text-xs px-2 py-1 rounded-full border font-medium',
-                        getDifficultyColor(example.difficulty)
-                      )}
-                    >
-                      {example.difficulty}
-                    </span>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-foreground text-lg">
-                      {example.title}
-                    </h3>
-                    <p className="text-sm text-muted-foreground mt-2">
-                      {example.description}
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {example.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-xs px-2 py-1 bg-accent text-foreground/80 rounded"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                  </div>
-                  <Button
-                    onClick={() => handleLoadExample(example.name)}
-                    disabled={loadingExample !== null}
-                    className="w-full bg-surface-3 hover:bg-brand hover:text-brand-foreground text-foreground transition-colors"
-                  >
-                    {loadingExample === example.name ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden="true" />
-                        Loading...
-                      </>
-                    ) : (
-                      'Load Example'
-                    )}
-                  </Button>
-                </div>
-              </div>
+                example={example}
+                loadingKey={loadingKey}
+                onLoad={handleLoadExample}
+              />
             ))}
           </div>
         </section>

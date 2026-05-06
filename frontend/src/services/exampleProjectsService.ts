@@ -1,7 +1,8 @@
 import { v4 as uuidv4 } from 'uuid';
-import type { FileNode, Project } from '../types';
+import type { FileNode, Project, ProjectFramework } from '../types';
 import { projectService } from './projectService';
 import { DICE_GAME_LIB_RS, DICE_GAME_SETUP_TS, DICE_GAME_CLIENT_TS } from './diceGameInline';
+import { SATELLITE_EXAMPLES, isSatelliteAvailable } from './satelliteExamples';
 
 const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/Arch-Network/arch-examples/main/examples';
 
@@ -99,9 +100,33 @@ async function fetchRawFileContent(exampleName: string, filePath: string): Promi
 }
 
 /**
- * Builds the source file tree. Checks inline examples first, then falls back to GitHub.
+ * Builds the source file tree.
+ *
+ * For native projects: checks inline examples first, then falls back to
+ * fetching from the arch-examples GitHub repo.
+ *
+ * For satellite projects: pulls exclusively from the inline
+ * `SATELLITE_EXAMPLES` registry — there's no upstream satellite mirror
+ * of arch-examples, so an example with no inline satellite source is
+ * treated as not-supported (the UI prevents this combination).
  */
-async function buildSourceFiles(exampleName: string): Promise<FileNode[]> {
+async function buildSourceFiles(
+  exampleName: string,
+  framework: ProjectFramework,
+): Promise<FileNode[]> {
+  if (framework === 'satellite') {
+    const satellite = SATELLITE_EXAMPLES[exampleName];
+    if (!satellite) {
+      throw new Error(`No satellite version available for "${exampleName}"`);
+    }
+    return Object.entries(satellite.src).map(([name, content]) => ({
+      name,
+      type: 'file',
+      content,
+      path: name,
+    }));
+  }
+
   const structure = EXAMPLE_STRUCTURES[exampleName];
   if (!structure) {
     throw new Error(`Unknown example: ${exampleName}`);
@@ -149,9 +174,26 @@ function getExampleDescription(exampleName: string): string {
 }
 
 /**
- * Fetches client files. Checks inline examples first, then falls back to GitHub.
+ * Fetches client files.
+ *
+ * Native: checks inline examples first, then falls back to GitHub.
+ * Satellite: returns inline-only client files for the requested example.
  */
-async function buildClientFiles(exampleName: string): Promise<FileNode[]> {
+async function buildClientFiles(
+  exampleName: string,
+  framework: ProjectFramework,
+): Promise<FileNode[]> {
+  if (framework === 'satellite') {
+    const satellite = SATELLITE_EXAMPLES[exampleName];
+    if (!satellite) return [];
+    return Object.entries(satellite.client).map(([name, content]) => ({
+      name,
+      type: 'file',
+      content,
+      path: name,
+    }));
+  }
+
   const structure = EXAMPLE_STRUCTURES[exampleName];
   if (!structure || !structure.client) {
     console.log(`✓ No client files defined for ${exampleName}`);
@@ -198,19 +240,33 @@ async function generateUniqueProjectName(baseName: string): Promise<string> {
   return newName;
 }
 
-export async function loadExampleProject(exampleName: string): Promise<Project> {
-  console.log(`📦 Loading example project: ${exampleName}`);
+export async function loadExampleProject(
+  exampleName: string,
+  framework: ProjectFramework = 'native',
+): Promise<Project> {
+  console.log(`📦 Loading example project: ${exampleName} (${framework})`);
+
+  if (framework === 'satellite' && !isSatelliteAvailable(exampleName)) {
+    throw new Error(
+      `"${exampleName}" doesn't have a satellite version yet — only native is available.`,
+    );
+  }
 
   try {
-    const uniqueName = await generateUniqueProjectName(exampleName);
-    if (uniqueName !== exampleName) {
+    // Suffix the project name with the framework so loading the same
+    // example in both flavors yields two distinct, easy-to-distinguish
+    // projects in the sidebar (rather than `counter` and `counter (1)`).
+    const baseName =
+      framework === 'satellite' ? `${exampleName}-satellite` : exampleName;
+    const uniqueName = await generateUniqueProjectName(baseName);
+    if (uniqueName !== baseName) {
       console.log(`📝 Project name already exists, using: ${uniqueName}`);
     }
 
-    const srcFiles = await buildSourceFiles(exampleName);
+    const srcFiles = await buildSourceFiles(exampleName, framework);
     console.log(`✓ Loaded ${srcFiles.length} source files`);
 
-    const clientFiles = await buildClientFiles(exampleName);
+    const clientFiles = await buildClientFiles(exampleName, framework);
 
     const files: FileNode[] = [
       {
@@ -231,6 +287,9 @@ export async function loadExampleProject(exampleName: string): Promise<Project> 
       id: uuidv4(),
       name: uniqueName,
       description: getExampleDescription(exampleName),
+      // Critical: the build server uses `framework` to pick the right
+      // Cargo.toml template (arch-satellite-lang vs. plain arch_program).
+      framework,
       files,
       created: new Date(),
       lastModified: new Date()

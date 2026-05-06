@@ -81,8 +81,10 @@ apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"]
 apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
 apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
 
-# Satellite framework
-arch-satellite-lang = "0.31.5"
+# Satellite framework. The `init-if-needed` feature unlocks the
+# `init_if_needed` account constraint used by examples that are designed
+# to be re-runnable from the IDE client.
+arch-satellite-lang = { version = "0.31.5", features = ["init-if-needed"] }
 arch-satellite-apl = "0.31.5"
 
 # Core serialization/encoding (use "borsh" in code, not "borsh09")
@@ -247,7 +249,7 @@ apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
 apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
 
 # Satellite framework (published crate)
-arch-satellite-lang = "0.31.5"
+arch-satellite-lang = { version = "0.31.5", features = ["init-if-needed"] }
 arch-satellite-apl = "0.31.5"
 
 # Core serialization/encoding
