@@ -130,6 +130,46 @@ pub async fn rpc_proxy(
     ))
 }
 
+#[cfg(test)]
+mod tests {
+    use super::is_allowed_rpc_target;
+
+    const DEFAULT: &str = "https://rpc.testnet.arch.network";
+
+    #[test]
+    fn allows_default_and_arch_hosts() {
+        assert!(is_allowed_rpc_target(DEFAULT, DEFAULT));
+        assert!(is_allowed_rpc_target("https://rpc.mainnet.arch.network", DEFAULT));
+        assert!(is_allowed_rpc_target("https://arch.network", DEFAULT));
+        assert!(is_allowed_rpc_target("https://RPC.TESTNET.ARCH.NETWORK", DEFAULT));
+    }
+
+    #[test]
+    fn rejects_non_arch_and_internal_targets() {
+        assert!(!is_allowed_rpc_target("http://169.254.169.254/latest/meta-data", DEFAULT));
+        assert!(!is_allowed_rpc_target("http://localhost:8080/admin", DEFAULT));
+        assert!(!is_allowed_rpc_target("https://evil.com", DEFAULT));
+        // Suffix spoofing: not a subdomain of arch.network.
+        assert!(!is_allowed_rpc_target("https://notarch.network", DEFAULT));
+        assert!(!is_allowed_rpc_target("https://arch.network.evil.com", DEFAULT));
+    }
+
+    #[test]
+    fn rejects_malformed_and_non_http_schemes() {
+        assert!(!is_allowed_rpc_target("not a url", DEFAULT));
+        assert!(!is_allowed_rpc_target("", DEFAULT));
+        assert!(!is_allowed_rpc_target("file:///etc/passwd", DEFAULT));
+        assert!(!is_allowed_rpc_target("ftp://arch.network", DEFAULT));
+    }
+
+    #[test]
+    fn allows_operator_configured_default_host() {
+        let custom_default = "http://my-devnet.internal:9002";
+        assert!(is_allowed_rpc_target("http://my-devnet.internal:9002", custom_default));
+        assert!(!is_allowed_rpc_target("http://other.internal:9002", custom_default));
+    }
+}
+
 /// Handle OPTIONS preflight requests
 pub async fn rpc_proxy_options() -> impl IntoResponse {
     (

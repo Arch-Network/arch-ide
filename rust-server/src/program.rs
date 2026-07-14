@@ -1113,6 +1113,27 @@ pub async fn cleanup_old_builds(ttl_secs: u64) -> anyhow::Result<()> {
     .map_err(|e| anyhow!("cleanup join error: {}", e))?
 }
 
+#[cfg(test)]
+mod tests {
+    use super::is_valid_uuid;
+
+    #[test]
+    fn accepts_canonical_uuids() {
+        assert!(is_valid_uuid("550e8400-e29b-41d4-a716-446655440000"));
+        assert!(is_valid_uuid(&uuid::Uuid::new_v4().to_string()));
+    }
+
+    #[test]
+    fn rejects_path_traversal_and_junk() {
+        assert!(!is_valid_uuid("../../etc/passwd"));
+        assert!(!is_valid_uuid("..%2F..%2Fetc"));
+        assert!(!is_valid_uuid("550e8400-e29b-41d4-a716-446655440000/../other"));
+        assert!(!is_valid_uuid(""));
+        assert!(!is_valid_uuid("warmup-cache"));
+        assert!(!is_valid_uuid("target"));
+    }
+}
+
 // Instead, create a wrapper type for binary data
 #[derive(Debug)]
 pub struct BinaryData(pub Vec<u8>);
