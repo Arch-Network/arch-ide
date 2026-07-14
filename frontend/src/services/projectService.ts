@@ -3,7 +3,6 @@ import type { FileNode, Project, ProjectFramework } from '../types';
 import JSZip from 'jszip';
 import { StorageService } from './storage';
 import { ProjectAccount } from '../types/types';
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 
 const CARGO_TOML_TEMPLATE = `[package]
 name = "arch-ide"
@@ -1378,62 +1377,6 @@ export class ProjectService {
       await this.addHistoricalAuthorityAccount(id, project.authorityAccount, 'project_deleted');
     }
     await this.storage.deleteProject(id);
-  }
-
-  async compileProject(project: Project) {
-    const files: { path: string, content: string }[] = [];
-    // Find the program directory
-    const programDir = project.files.find((node: FileNode) =>
-      node.type === 'directory' && node.name === 'program'
-    );
-
-    if (!programDir || programDir.type !== 'directory' || !programDir.children) {
-      throw new Error('Program directory not found or invalid');
-    }
-
-    // Only collect required files from the program directory
-    const requiredFiles = [
-      'src/lib.rs',
-      'Cargo.toml'
-    ];
-
-    const collectRequiredFiles = (nodes: FileNode[], currentPath = '') => {
-      for (const node of nodes) {
-        const nodePath = currentPath ? `${currentPath}/${node.name}` : node.name;
-
-        if (node.type === 'file' && requiredFiles.includes(nodePath)) {
-          if (typeof node.content === 'string') {
-            files.push({
-              path: nodePath,
-              content: node.content
-            });
-          } else {
-            throw new Error(`Invalid content type for file: ${nodePath}`);
-          }
-        } else if (node.type === 'directory' && node.children) {
-          collectRequiredFiles(node.children, nodePath);
-        }
-      }
-    };
-
-    collectRequiredFiles(programDir.children);
-    // Verify we have all required files
-    for (const requiredFile of requiredFiles) {
-      if (!files.some(f => f.path === requiredFile)) {
-        throw new Error(`Missing required file: ${requiredFile}`);
-      }
-    }
-
-    // Make API call to compile
-    const response = await fetch(`${API_URL}/compile`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ files })
-      });
-
-    return response.json();
   }
 
   exportProject(project: Project): Blob {
