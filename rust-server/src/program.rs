@@ -410,6 +410,10 @@ pub struct BuildOutcome {
     pub stderr: String,
     pub program_name: String,
     pub idl_json: Option<String>,
+    /// Authoritative success signal: the deployable `.so` exists after the
+    /// compile. Any stale binary is deleted before the build starts, so this
+    /// can't be satisfied by a previous run's artifact.
+    pub success: bool,
 }
 
 /// Placeholder program id in Satellite/counter template; substituted at build time when program_id_hex is provided.
@@ -490,6 +494,16 @@ pub async fn build(
     // Create program-specific Cargo.toml with sanitized name
     println!("Creating Cargo.toml...");
     let safe_program_name = program_name.replace(|c: char| !c.is_alphanumeric(), "_");
+
+    // Remove any stale binary from a previous build under this UUID so that
+    // post-build "does the .so exist" is a trustworthy success signal.
+    let binary_path = program_path
+        .join("target/deploy")
+        .join(format!("{}.so", safe_program_name));
+    if binary_path.exists() {
+        println!("Removing stale binary from previous build: {:?}", binary_path);
+        fs::remove_file(&binary_path)?;
+    }
     let cargo_toml = render_program_cargo_toml(&safe_program_name, framework);
     let manifest_path = program_path.join("Cargo.toml");
 
@@ -832,10 +846,24 @@ pub async fn build(
 
     let stdout_lines = stdout_result.unwrap_or_default();
     let mut stderr_lines = stderr_result.unwrap_or_default();
-    let build_succeeded = stdout_lines.contains("Finished release") || stderr_lines.contains("Finished release");
 
-    // Instead of returning error, we return the stderr output along with the status
-    if !status.success() && !build_succeeded {
+    // Success requires the deployable binary to exist (stale ones were removed
+    // pre-build). The exit status is the primary signal; the "Finished release"
+    // marker keeps the historical tolerance for toolchain versions that exit
+    // nonzero despite producing a valid binary.
+    let binary_created = binary_path.exists();
+    let finished_marker = stdout_lines.contains("Finished release")
+        || stderr_lines.contains("Finished release");
+    let build_succeeded = binary_created && (status.success() || finished_marker);
+    println!(
+        "Build result: exit={:?}, binary_created={}, finished_marker={}, succeeded={}",
+        status.code(),
+        binary_created,
+        finished_marker,
+        build_succeeded
+    );
+
+    if !build_succeeded {
         // Include pre-build diagnostics to help identify the source of getrandom
         if !getrandom_diag.is_empty() {
             stderr_lines.push_str(&getrandom_diag);
@@ -846,33 +874,22 @@ pub async fn build(
             stderr: stderr_lines,
             program_name: safe_program_name,
             idl_json: None,
+            success: false,
         });
     }
 
     println!("Build command executed successfully.");
 
-    // Check if binary was created using safe program name
-    let binary_path = program_path
-        .join("target/deploy")
-        .join(format!("{}.so", safe_program_name));
-    println!("Checking for binary at: {:?}", binary_path);
-
     // After successful build, upload to GCS
-    if binary_path.exists() {
-        println!("Binary file created successfully");
-        if use_gcs() {
-            let binary_data = fs::read(&binary_path)?;
-            let uuid = uuid.to_string();
-            let safe_program_name = safe_program_name.clone();
-            let binary_data = binary_data.to_vec();
-            tokio::spawn(async move {
-                if let Err(e) = upload_to_gcs(&uuid, &safe_program_name, &binary_data).await {
-                    eprintln!("Failed to upload binary to GCS: {}", e);
-                }
-            });
-        }
-    } else {
-        println!("Warning: Binary file not found at expected location");
+    if use_gcs() {
+        let binary_data = fs::read(&binary_path)?;
+        let uuid = uuid.to_string();
+        let safe_program_name = safe_program_name.clone();
+        tokio::spawn(async move {
+            if let Err(e) = upload_to_gcs(&uuid, &safe_program_name, &binary_data).await {
+                eprintln!("Failed to upload binary to GCS: {}", e);
+            }
+        });
     }
 
     // Best-effort IDL extraction (Satellite framework only). We run this
@@ -913,6 +930,7 @@ pub async fn build(
         stderr: stderr_lines,
         program_name: safe_program_name,
         idl_json,
+        success: true,
     })
 }
 
