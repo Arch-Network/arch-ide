@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
+use tokio::sync::{OwnedSemaphorePermit, RwLock, Semaphore};
 use serde::Serialize;
 
 #[derive(Debug, Clone, Serialize)]
@@ -31,13 +31,31 @@ pub struct BuildInfo {
 #[derive(Clone)]
 pub struct BuildTracker {
     builds: Arc<RwLock<HashMap<String, BuildInfo>>>,
+    /// Caps how many compiles run concurrently. Each build task holds a
+    /// permit for its full duration; excess requests queue instead of
+    /// spawning unbounded `cargo-build-sbf` processes.
+    build_semaphore: Arc<Semaphore>,
 }
 
 impl BuildTracker {
-    pub fn new() -> Self {
+    pub fn new(max_concurrent_builds: usize) -> Self {
         Self {
             builds: Arc::new(RwLock::new(HashMap::new())),
+            build_semaphore: Arc::new(Semaphore::new(max_concurrent_builds.max(1))),
         }
+    }
+
+    /// Acquire a build slot, waiting if all slots are in use. The returned
+    /// permit must be held for the lifetime of the build; dropping it frees
+    /// the slot for the next queued build.
+    pub async fn acquire_build_permit(&self) -> OwnedSemaphorePermit {
+        // `acquire_owned` only errors if the semaphore is closed, which we
+        // never do, so this is effectively infallible.
+        self.build_semaphore
+            .clone()
+            .acquire_owned()
+            .await
+            .expect("build semaphore closed unexpectedly")
     }
 
     pub async fn start_build(&self, uuid: String, program_name: String) {

@@ -20,6 +20,34 @@ struct JsonRpcRequest {
     params: Vec<Value>,
 }
 
+/// Whether `url` is an acceptable proxy target. We only forward to Arch
+/// Network endpoints (or an operator-configured `RPC_URL`) so this endpoint
+/// can't be abused as an open relay / SSRF into cloud metadata or internal
+/// services (e.g. `http://169.254.169.254/`).
+fn is_allowed_rpc_target(url: &str, default_url: &str) -> bool {
+    let host_of = |u: &str| {
+        reqwest::Url::parse(u)
+            .ok()
+            .filter(|p| matches!(p.scheme(), "http" | "https"))
+            .and_then(|p| p.host_str().map(|h| h.to_ascii_lowercase()))
+    };
+
+    let host = match host_of(url) {
+        Some(h) => h,
+        None => return false,
+    };
+
+    // Always allow the configured/default upstream.
+    if let Some(default_host) = host_of(default_url) {
+        if host == default_host {
+            return true;
+        }
+    }
+
+    // Allow the canonical Arch Network domains.
+    host == "arch.network" || host.ends_with(".arch.network")
+}
+
 /// Proxy endpoint for RPC requests to avoid CORS issues
 pub async fn rpc_proxy(
     Query(query): Query<RpcProxyQuery>,
@@ -31,6 +59,15 @@ pub async fn rpc_proxy(
         .unwrap_or_else(|_| "https://rpc.testnet.arch.network".to_string());
 
     let target_url = query.target.as_deref().unwrap_or(&default_rpc_url);
+
+    // Reject targets outside the allowlist before making any outbound request.
+    if !is_allowed_rpc_target(target_url, &default_rpc_url) {
+        error!("Rejected RPC proxy target (not allowlisted): {}", target_url);
+        return Err((
+            StatusCode::FORBIDDEN,
+            "RPC proxy target not allowed".to_string(),
+        ));
+    }
 
     info!("Proxying RPC request to: {}", target_url);
 

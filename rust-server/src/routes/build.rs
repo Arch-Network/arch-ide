@@ -68,6 +68,11 @@ pub async fn build(
 
     // Spawn the build task in the background
     tokio::spawn(async move {
+        // Wait for a build slot before doing any work. This bounds how many
+        // `cargo-build-sbf` processes run at once; the permit is held until
+        // this task returns.
+        let _permit = tracker_clone.acquire_build_permit().await;
+
         println!("[BUILD] Starting background build task for UUID: {} (framework: {:?})", uuid_clone, framework);
 
         let (tx, mut rx) = mpsc::channel::<String>(256);

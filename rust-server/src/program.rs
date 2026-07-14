@@ -24,6 +24,24 @@ fn use_gcs() -> bool {
     std::env::var("USE_GCS").is_ok()
 }
 
+/// True when `s` is a canonical UUID. Build/deploy use the UUID as a path
+/// segment, so this guards against traversal (`../`) and other filesystem
+/// escapes before we ever join it onto `programs/`.
+pub fn is_valid_uuid(s: &str) -> bool {
+    uuid::Uuid::try_parse(s).is_ok()
+}
+
+/// Wall-clock ceiling for a single compile. A hung or maliciously slow build
+/// (deep recursion, runaway proc-macros) is killed once this elapses instead
+/// of pinning a worker forever. Override with `BUILD_TIMEOUT_SECS`.
+fn build_timeout_secs() -> u64 {
+    env::var("BUILD_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(300)
+}
+
 static INIT: OnceCell<()> = OnceCell::const_new();
 static GCS_CLIENT: OnceLock<Client> = OnceLock::new();
 
@@ -408,6 +426,12 @@ pub async fn build(
 ) -> anyhow::Result<BuildOutcome> {
     println!("Starting build for program: {} (framework: {:?})", program_name, framework);
 
+    // Defense-in-depth: the caller validates the UUID, but this value becomes a
+    // filesystem path below, so reject non-UUID input here too.
+    if !is_valid_uuid(uuid) {
+        return Err(anyhow!("Invalid UUID"));
+    }
+
     // Check file count
     if files.len() > MAX_FILE_AMOUNT {
         return Err(anyhow!("Exceeded maximum file amount({MAX_FILE_AMOUNT})"));
@@ -782,13 +806,32 @@ pub async fn build(
         lines
     });
 
-    // Wait for both streams to complete in parallel
-    let (stdout_result, stderr_result) = tokio::join!(stdout_handle, stderr_handle);
+    // Wait for the streams to drain and the process to exit, bounded by a
+    // hard timeout. Reads happen before `wait()` because the child can block
+    // on a full pipe buffer; a hung compile keeps both pending, so the timeout
+    // wraps the whole thing and we kill the child if it fires.
+    let timeout = std::time::Duration::from_secs(build_timeout_secs());
+    let wait_future = async {
+        let (stdout_result, stderr_result) = tokio::join!(stdout_handle, stderr_handle);
+        let status = child.wait().await?;
+        Ok::<_, anyhow::Error>((stdout_result, stderr_result, status))
+    };
+
+    let (stdout_result, stderr_result, status) =
+        match tokio::time::timeout(timeout, wait_future).await {
+            Ok(res) => res?,
+            Err(_) => {
+                // Dropping `wait_future` released the mutable borrow on `child`.
+                let _ = child.start_kill();
+                return Err(anyhow!(
+                    "Build timed out after {}s and was terminated",
+                    timeout.as_secs()
+                ));
+            }
+        };
+
     let stdout_lines = stdout_result.unwrap_or_default();
     let mut stderr_lines = stderr_result.unwrap_or_default();
-
-    // Wait for the command to complete
-    let status = child.wait().await?;
     let build_succeeded = stdout_lines.contains("Finished release") || stderr_lines.contains("Finished release");
 
     // Instead of returning error, we return the stderr output along with the status
@@ -985,35 +1028,71 @@ pub async fn get_binary(uuid: &str, program_name: &str) -> std::io::Result<Vec<u
         });
     }
 
-    // If not found, try to find the binary in any project directory
-    println!("Binary not found at exact UUID path, searching in all project directories");
-    let programs_dir = Path::new(PROGRAMS_DIR);
-
-    if let Ok(entries) = fs::read_dir(programs_dir) {
-        for entry in entries.flatten() {
-            if let Ok(file_type) = entry.file_type() {
-                if file_type.is_dir() {
-                    let potential_path = entry.path().join("target/deploy").join(&binary_filename);
-                    if potential_path.exists() {
-                        println!("Found binary in alternative location: {:?}", potential_path);
-                        return fs::read(potential_path).map_err(|e| {
-                            println!("Failed to read local binary: {}", e);
-                            e
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    // If still not found locally, try to get from GCS
-    println!("Binary not found locally, attempting to fetch from GCS");
+    // Only ever serve the binary for the requested UUID. We deliberately do
+    // NOT scan other build directories for a matching program name — doing so
+    // would leak one user's compiled binary to anyone who guesses the name.
+    // If it isn't under this UUID locally, fall back to GCS (also UUID-scoped).
+    println!("Binary not found locally for UUID, attempting to fetch from GCS");
     download_from_gcs(uuid, &safe_program_name)
         .await
         .map_err(|e| {
             println!("Failed to download binary from GCS: {}", e);
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })
+}
+
+/// Remove build directories older than `ttl_secs`, reclaiming disk from
+/// abandoned builds. Only UUID-named directories are eligible, so the shared
+/// caches (`target`, `.cargo`, `warmup-cache`) and the root `Cargo.toml` are
+/// never touched. Runs on a background interval from `main`.
+pub async fn cleanup_old_builds(ttl_secs: u64) -> anyhow::Result<()> {
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let programs_dir = Path::new(PROGRAMS_DIR);
+        let entries = match fs::read_dir(programs_dir) {
+            Ok(e) => e,
+            Err(_) => return Ok(()), // nothing to clean yet
+        };
+
+        let now = std::time::SystemTime::now();
+        let ttl = std::time::Duration::from_secs(ttl_secs);
+        let mut removed = 0usize;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+
+            // Only ever delete per-build directories (UUID-named). This
+            // protects the shared cache dirs from being swept.
+            if !path.is_dir() || !is_valid_uuid(name) {
+                continue;
+            }
+
+            let age = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok());
+
+            if let Some(age) = age {
+                if age > ttl {
+                    match fs::remove_dir_all(&path) {
+                        Ok(()) => removed += 1,
+                        Err(e) => println!("[CLEANUP] Failed to remove {:?}: {}", path, e),
+                    }
+                }
+            }
+        }
+
+        if removed > 0 {
+            println!("[CLEANUP] Removed {} stale build director{}", removed, if removed == 1 { "y" } else { "ies" });
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| anyhow!("cleanup join error: {}", e))?
 }
 
 // Instead, create a wrapper type for binary data
