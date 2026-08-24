@@ -16,7 +16,7 @@ const PROGRAMS_DIR: &str = "programs";
 const MAX_FILE_AMOUNT: usize = 256;
 const MAX_PATH_LENGTH: usize = 128;
 
-/// Arch crate version used by the compilation server: 0.6.4
+/// Arch crate version used by the compilation server: 0.8.4
 /// All arch_program, apl-token, apl-associated-token-account, and apl-token-metadata
 /// crates are pulled from crates.io at this version.
 
@@ -69,7 +69,7 @@ fn find_solana_rustc_path() -> Option<String> {
     None
 }
 
-/// Cargo.toml template for Satellite framework: arch_program 0.6.4 + arch-satellite-lang 0.31.5.
+/// Cargo.toml template for Satellite framework: arch_program 0.8.4 + arch-satellite-lang 0.32.0.
 ///
 /// The `[features]` block at the bottom is required for IDL extraction. The
 /// IdlBuilder spawns a host-target `cargo build --features idl-build` which
@@ -94,16 +94,16 @@ cpi = ["no-entrypoint"]
 idl-build = ["arch-satellite-lang/idl-build", "arch-satellite-apl/idl-build"]
 
 [dependencies]
-arch_program = "0.6.4"
-apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
+arch_program = "0.8.4"
+apl-associated-token-account = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.8.4", features = ["no-entrypoint"] }
 
 # Satellite framework. The `init-if-needed` feature unlocks the
 # `init_if_needed` account constraint used by examples that are designed
 # to be re-runnable from the IDE client.
-arch-satellite-lang = { version = "0.31.5", features = ["init-if-needed"] }
-arch-satellite-apl = "0.31.5"
+arch-satellite-lang = { version = "0.32.0", features = ["init-if-needed"] }
+arch-satellite-apl = "0.32.0"
 
 # Core serialization/encoding (use "borsh" in code, not "borsh09")
 borsh = "^1.5.3"
@@ -153,7 +153,7 @@ incremental = true
 codegen-units = 256
 "#;
 
-/// Cargo.toml template for native / latest: arch_program 0.6.4.
+/// Cargo.toml template for native / latest: arch_program 0.8.4.
 const CARGO_TOML_TEMPLATE_NATIVE: &str = r#"[package]
 name = "__PROGRAM_NAME__"
 version = "0.1.0"
@@ -163,14 +163,14 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-arch_program = "0.6.4"
-apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
+arch_program = "0.8.4"
+apl-associated-token-account = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.8.4", features = ["no-entrypoint"] }
 
 # Satellite framework
-arch-satellite-lang = "0.31.5"
-arch-satellite-apl = "0.31.5"
+arch-satellite-lang = "0.32.0"
+arch-satellite-apl = "0.32.0"
 
 # Core serialization/encoding (use "borsh" in code, not "borsh09")
 borsh = "^1.5.3"
@@ -218,9 +218,9 @@ codegen-units = 256
 /// Framework / SDK version selector. Used to pick the right Cargo.toml dependency set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuildFramework {
-    /// Satellite framework: arch_program 0.6.4 + arch-satellite-lang 0.31.5.
+    /// Satellite framework: arch_program 0.8.4 + arch-satellite-lang 0.32.0.
     Satellite,
-    /// Native / latest: arch_program 0.6.4.
+    /// Native / latest: arch_program 0.8.4.
     Native,
 }
 
@@ -261,14 +261,14 @@ overflow-checks = true
 incremental = true
 
 [dependencies]
-arch_program = "0.6.4"
-apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
+arch_program = "0.8.4"
+apl-associated-token-account = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.8.4", features = ["no-entrypoint"] }
 
 # Satellite framework (published crate)
-arch-satellite-lang = { version = "0.31.5", features = ["init-if-needed"] }
-arch-satellite-apl = "0.31.5"
+arch-satellite-lang = { version = "0.32.0", features = ["init-if-needed"] }
+arch-satellite-apl = "0.32.0"
 
 # Core serialization/encoding
 borsh = { version = "1.5.1", features = ["derive"] }
@@ -936,7 +936,7 @@ pub async fn build(
 
 /// Best-effort IDL extraction for a satellite-framework program.
 ///
-/// Strategy: hand the program's path to `satellite-lang-idl`'s public
+/// Strategy: hand the program's path to `arch-satellite-lang-idl`'s public
 /// `IdlBuilder`, which:
 ///   1. Spawns `cargo build --features idl-build,no-entrypoint` against a
 ///      host target (NOT SBF) under a separate `target/` directory.
@@ -961,7 +961,7 @@ async fn extract_idl(
         // (a) doesn't compile at all, (b) has no `#[program]` macros, or
         // (c) the satellite tooling rejected the manifest. In all cases we
         // want to return None rather than propagate.
-        let idl = match satellite_lang_idl::build::IdlBuilder::new()
+        let idl = match arch_satellite_lang_idl::build::IdlBuilder::new()
             .program_path(path)
             .skip_lint(true)
             .no_docs(false)

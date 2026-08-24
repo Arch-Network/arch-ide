@@ -172,7 +172,7 @@ resource "aws_ecs_task_definition" "server" {
   requires_compatibilities = ["FARGATE"]
   network_mode             = "awsvpc"
   # Bumped from 1024/2048 to 2048/4096 to support concurrent SBF + IDL host
-  # builds. The IDL extraction (satellite-lang-idl IdlBuilder) spawns its
+  # builds. The IDL extraction (arch-satellite-lang-idl IdlBuilder) spawns its
   # own host-target `cargo build` after each SBF compile, which can OOM at
   # 2 GB when running alongside an active SBF build.
   cpu                      = "2048"

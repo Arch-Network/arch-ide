@@ -20,7 +20,7 @@ pub struct BuildInfo {
     pub stderr: Option<String>,
     pub started_at: chrono::DateTime<chrono::Utc>,
     pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
-    /// JSON-serialized IDL extracted via `satellite-lang-idl`. Populated only
+    /// JSON-serialized IDL extracted via `arch-satellite-lang-idl`. Populated only
     /// for satellite-framework projects whose source actually uses the
     /// satellite macros — `None` for native projects, programs without
     /// `#[program]` decorators, or when extraction fails (extraction

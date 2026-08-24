@@ -10,10 +10,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-arch_program = "0.6.4"
-apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
+arch_program = "0.8.4"
+apl-associated-token-account = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.8.4", features = ["no-entrypoint"] }
 borsh = { version = "1.5.1", features = ["derive"] }
 hashbrown = ">=0.14.0, <0.17.0"
 indexmap = ">=2.0.0, <2.14.0"
