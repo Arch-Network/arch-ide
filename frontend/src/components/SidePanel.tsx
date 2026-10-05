@@ -28,7 +28,7 @@ interface SidePanelProps {
   currentView: SidebarView;
   onViewChange: (view: SidebarView) => void;
   files: FileNode[];
-  onFileSelect: (file: FileNode) => void;
+  onFileSelect: (file: FileNode, line?: number) => void;
   onUpdateTree: (
     operation: 'create' | 'delete' | 'rename' | 'move',
     path: string[],
