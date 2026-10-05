@@ -137,13 +137,11 @@ const fileTreeOperations = {
 
   rename: (nodes: FileNode[], path: string[], newName: string): FileNode[] => {
     const parentPath = pathUtils.getParentPath(path);
-    const fullPath = pathUtils.normalize([...parentPath, newName]);
 
-    return updateNodeInTree(nodes, path, (node) => ({
-      ...node,
-      name: newName,
-      path: fullPath
-    }));
+    // Re-path descendants too, or a renamed folder's files keep their old paths.
+    return updateNodeInTree(nodes, path, (node) =>
+      fileTreeOperations.cloneWithNewPaths({ ...node, name: newName }, pathUtils.normalize(parentPath))
+    );
   },
 
   /** Clone a node and all descendants with paths under newPathPrefix (e.g. "src/util") */
@@ -836,7 +834,7 @@ const AppContent = () => {
 
     // Update open files with new content
     setOpenFiles(prev => prev.map(f =>
-      (f.path === currentFile.path || f.name === currentFile.name)
+      (f.path || f.name) === (currentFile.path || currentFile.name)
         ? { ...f, content: newContent }
         : f
     ));
@@ -952,15 +950,17 @@ const AppContent = () => {
       case 'delete': {
         updatedFiles = fileTreeOperations.delete(fullCurrentProject.files, operation.path);
         const deletedPath = operation.path.join('/');
+        const isDeleted = (filePath: string) =>
+          filePath === deletedPath || filePath.startsWith(`${deletedPath}/`);
         setOpenFiles(prevFiles => {
           const remainingFiles = prevFiles.filter(file => {
             const filePath = file.path || constructFullPath(file, fullCurrentProject.files);
-            return !filePath.startsWith(deletedPath);
+            return !isDeleted(filePath);
           });
           if (currentFile) {
             const currentFilePath = currentFile.path ||
               constructFullPath(currentFile, fullCurrentProject.files);
-            if (currentFilePath.startsWith(deletedPath)) {
+            if (isDeleted(currentFilePath)) {
               setCurrentFile(remainingFiles.length > 0 ? remainingFiles[remainingFiles.length - 1] : null);
             }
           }
@@ -968,13 +968,25 @@ const AppContent = () => {
         });
         break;
       }
-      case 'rename':
+      case 'rename': {
+        const newName = operation.newName || '';
         updatedFiles = fileTreeOperations.rename(
           fullCurrentProject.files,
           operation.path,
-          operation.newName || ''
+          newName
         );
+        const oldPath = operation.path.join('/');
+        const newPath = pathUtils.normalize([...pathUtils.getParentPath(operation.path), newName]);
+        const retarget = (file: FileNode): FileNode => {
+          const filePath = file.path || constructFullPath(file, fullCurrentProject.files);
+          if (filePath === oldPath) return { ...file, name: newName, path: newPath };
+          if (filePath.startsWith(`${oldPath}/`)) return { ...file, path: newPath + filePath.slice(oldPath.length) };
+          return file;
+        };
+        setOpenFiles(prevFiles => prevFiles.map(retarget));
+        setCurrentFile(prev => (prev ? retarget(prev) : prev));
         break;
+      }
       case 'move': {
         const { sourcePath, targetParentPath } = operation;
         updatedFiles = fileTreeOperations.move(
@@ -2629,12 +2641,8 @@ const updateFileContent = (nodes: FileNode[], targetFile: FileNode, newContent: 
 
   const updateNode = (node: FileNode): FileNode => {
     if (node.type === 'file') {
-      // Normalize paths by removing leading src/, client/, and any leading slashes
-      const normalizeFilePath = (path: string) => {
-        return path
-          .replace(/^(src\/|client\/)/, '') // Remove leading src/ or client/
-          .replace(/^\/+/, ''); // Remove any leading slashes
-      };
+      // Only strip leading slashes: src/x and client/x are different files.
+      const normalizeFilePath = (path: string) => path.replace(/^\/+/, '');
 
       // Ensure both nodes have paths for comparison
       const nodePath = normalizeFilePath(node.path || constructFullPath(node, nodes));

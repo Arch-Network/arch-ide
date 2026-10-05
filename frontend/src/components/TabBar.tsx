@@ -23,11 +23,15 @@ interface TabBarProps {
 
 const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProject, isWordWrapEnabled = true, onToggleWordWrap }: TabBarProps) => {
   const visibleOpenFiles = openFiles.filter((file) => !isHomeTab(file));
+  const nameCounts = new Map<string, number>();
+  visibleOpenFiles.forEach((f) => nameCounts.set(f.name, (nameCounts.get(f.name) || 0) + 1));
+  const parentDir = (file: FileNode) =>
+    file.path && file.path.includes('/') ? file.path.slice(0, file.path.lastIndexOf('/')) : '';
 
   const handleTabSelect = (file: FileNode) => {
     // Prefer the openFiles entry because it carries the latest in-memory edits;
     // fall back to the persisted project tree if the tab predates a save.
-    const openFile = openFiles.find(f => f.path === file.path || f.name === file.name);
+    const openFile = openFiles.find(f => (f.path || f.name) === (file.path || file.name));
     if (openFile) {
       onSelectFile(openFile);
       return;
@@ -66,6 +70,9 @@ const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProj
                   <TooltipTrigger asChild>
                     <span className="text-sm">
                       {file.name}
+                      {(nameCounts.get(file.name) || 0) > 1 && parentDir(file) && (
+                        <span className="ml-1.5 text-xs text-muted-foreground">{parentDir(file)}</span>
+                      )}
                     </span>
                   </TooltipTrigger>
                   <TooltipContent>
