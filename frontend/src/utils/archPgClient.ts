@@ -453,30 +453,23 @@ export class ArchPgClient {
         window.walletProxy = {
           isAvailable: function() {
             return new Promise((resolve) => {
-              console.log('[walletProxy] isAvailable called');
-              console.log('[walletProxy] window === window.parent:', window === window.parent);
               const messageId = Math.random().toString(36);
-              console.log('[walletProxy] Sending wallet-check with id:', messageId);
 
               const handler = (event) => {
                 // Only process messages FROM parent
                 if (event.source !== window.parent) {
                   return;
                 }
-                console.log('[walletProxy] Received message from parent:', event.data?.type);
                 if (event.data.type === 'wallet-check-response' && event.data.id === messageId) {
-                  console.log('[walletProxy] Got response, available:', event.data.available);
                   window.removeEventListener('message', handler);
                   resolve(event.data.available);
                 }
               };
               window.addEventListener('message', handler);
-              console.log('[walletProxy] Posting message to parent');
               window.parent.postMessage({ type: 'wallet-check', id: messageId }, '*');
 
               setTimeout(() => {
                 window.removeEventListener('message', handler);
-                console.log('[walletProxy] isAvailable timed out - no response from parent');
                 resolve(false);
               }, 3000);
             });
@@ -554,26 +547,19 @@ export class ArchPgClient {
             if (!protocol) protocol = 'bip322-simple';
             return new Promise((resolve, reject) => {
               const messageId = Math.random().toString(36);
-              console.log('[walletProxy] signMessage called, messageId:', messageId);
-              console.log('[walletProxy] message:', message);
-              console.log('[walletProxy] protocol:', protocol);
 
               const handler = (event) => {
                 if (event.source !== window.parent) return;
-                console.log('[walletProxy] Received response:', event.data?.type, 'id match:', event.data?.id === messageId);
                 if (event.data.type === 'wallet-sign-response' && event.data.id === messageId) {
                   window.removeEventListener('message', handler);
                   if (event.data.error) {
-                    console.error('[walletProxy] Sign error:', event.data.error);
                     reject(new Error(event.data.error));
                   } else {
-                    console.log('[walletProxy] Sign success!');
                     resolve(event.data.signature);
                   }
                 }
               };
               window.addEventListener('message', handler);
-              console.log('[walletProxy] Sending wallet-sign-message to parent');
               window.parent.postMessage({
                 type: 'wallet-sign-message',
                 id: messageId,
@@ -583,7 +569,6 @@ export class ArchPgClient {
 
               setTimeout(() => {
                 window.removeEventListener('message', handler);
-                console.error('[walletProxy] Sign timeout');
                 reject(new Error('Timeout or user rejected signing'));
               }, 60000);
             });
@@ -592,7 +577,6 @@ export class ArchPgClient {
           sendBitcoin: function(toAddress, amount) {
             return new Promise((resolve, reject) => {
               const messageId = Math.random().toString(36);
-              console.log('[walletProxy] sendBitcoin called:', toAddress, amount, 'sats');
 
               const handler = (event) => {
                 if (event.source !== window.parent) return;

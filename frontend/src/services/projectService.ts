@@ -98,7 +98,7 @@ pub struct HelloWorldParams {
 // Satellite Program Template
 // Uses the Satellite framework (Anchor fork adapted for Arch Network)
 // Satellite provides macros and abstractions for cleaner, safer program development
-// See: https://github.com/Arch-Network/arch-satellite
+// See: https://github.com/Arch-Network/satellite
 const SATELLITE_PROGRAM = `use arch_satellite_lang::prelude::*;
 
 declare_id!("1111111111111111111111111111111111111111111111111111111111111111");
@@ -210,7 +210,6 @@ let useWallet;
 try {
   console.log("Calling setupAccount...");
   const result = await ClientTransactionUtil.setupAccount(conn);
-  console.log("setupAccount returned:", result);
   accountPubkey = result.accountPubkey;
   accountAddress = result.accountAddress;
   useWallet = result.useWallet;
@@ -528,7 +527,7 @@ console.log("  - Handles serialization automatically with Borsh");
 console.log("  - Supports PDAs (Program Derived Addresses) with seeds");
 console.log("  - Provides clean, maintainable program structure");
 console.log("\\n🔗 Learn more:");
-console.log("  - Satellite: https://github.com/Arch-Network/arch-satellite");
+console.log("  - Satellite: https://github.com/Arch-Network/satellite");
 console.log("  - Arch Network: https://docs.arch.network");
 `;
 
