@@ -82,6 +82,10 @@ const CARGO_TOML_TEMPLATE_SATELLITE: &str = r#"[package]
 name = "__PROGRAM_NAME__"
 version = "0.1.0"
 edition = "2021"
+# platform-tools ships Cargo/rustc 1.84. The MSRV-aware resolver (resolver 3)
+# skips releases whose rust-version is newer, e.g. edition2024 crates.
+rust-version = "1.84"
+resolver = "3"
 
 [lib]
 crate-type = ["cdylib"]
@@ -158,6 +162,10 @@ const CARGO_TOML_TEMPLATE_NATIVE: &str = r#"[package]
 name = "__PROGRAM_NAME__"
 version = "0.1.0"
 edition = "2021"
+# platform-tools ships Cargo/rustc 1.84. The MSRV-aware resolver (resolver 3)
+# skips releases whose rust-version is newer, e.g. edition2024 crates.
+rust-version = "1.84"
+resolver = "3"
 
 [lib]
 crate-type = ["cdylib"]
