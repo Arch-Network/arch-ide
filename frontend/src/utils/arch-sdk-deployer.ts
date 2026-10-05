@@ -13,7 +13,7 @@
  */
 
 import { Buffer } from 'buffer/';
-import { RpcConnection, Instruction, RuntimeTransaction, Message } from '@arch-network/arch-sdk';
+import { RpcConnection, Instruction, RuntimeTransaction } from '@arch-network/arch-sdk';
 import { MessageUtil } from '@arch-network/arch-sdk';
 import { signMessage } from './bitcoin-signer';
 import { bitcoinRpcRequest } from '../api/bitcoin/rpc';
@@ -66,15 +66,16 @@ console.log('[Constants] BPF_LOADER_ID:', BPF_LOADER_ID.toString('hex'), `(${BPF
 const LOADER_STATE_SIZE = 40;
 
 /**
- * Runtime Transaction Size Limit (matches Rust SDK)
+ * Validator limit for one RuntimeTransaction::serialize() blob.
  *
- * From sdk/src/types/runtime_transaction.rs:
- * pub const RUNTIME_TX_SIZE_LIMIT: usize = 10240;
+ * Published JS/Rust SDKs still export 10240, but testnet/mainnet reject
+ * anything above 1232 (Solana PACKET_DATA_SIZE). A 9940-byte write chunk
+ * produced a 10175-byte tx and failed with code 1005.
  *
- * This is the limit for a SINGLE RuntimeTransaction when serialized (binary).
- * With batch sending (send_transactions), each transaction can be up to 10KB!
+ * send_transactions batches many txs in one RPC call; each tx still has
+ * to be ≤ this limit on its own.
  */
-const RUNTIME_TX_SIZE_LIMIT = 10240; // 10KB per transaction (binary)
+const RUNTIME_TX_SIZE_LIMIT = 1232;
 
 // ============================================================================
 // LOADER INSTRUCTION VARIANTS (bincode 1.3 serialization)
@@ -257,72 +258,38 @@ function serializeAssignInstruction(owner: Buffer): Buffer {
 // ============================================================================
 
 /**
- * Calculate maximum chunk size for ELF data
- * Matches the Rust SDK's extend_bytes_max_len() function
+ * Max ELF bytes per Loader Write instruction so the serialized
+ * RuntimeTransaction stays ≤ RUNTIME_TX_SIZE_LIMIT.
  *
- * Returns RUNTIME_TX_SIZE_LIMIT (10KB) minus transaction overhead.
- * With batch sending, we can use much larger chunks (~9.7KB vs ~577 bytes)!
+ * Layout matches RuntimeTransaction::serialize + ArchMessage::serialize
+ * (the size check_tx_size_limit uses). One write ix, one signature,
+ * three account keys (authority, program, BPF loader).
+ *
+ * Production confirmed overhead: 9940-byte chunk → 10175-byte tx (235 bytes).
  */
 function calculateMaxChunkSize(): number {
-  // Create a dummy write instruction with 256 bytes
-  const dummyInstruction: Instruction = {
-    program_id: BPF_LOADER_ID,
-    accounts: [
-      { pubkey: ZERO_PUBKEY, is_signer: false, is_writable: true },
-      { pubkey: ZERO_PUBKEY, is_signer: true, is_writable: false },
-    ],
-    data: serializeWriteInstruction(0, Buffer.alloc(256)),
-  };
-
-  // Create a dummy message
-  const dummyMessage: Message = {
-    signers: [ZERO_PUBKEY],
-    instructions: [dummyInstruction],
-  };
-
-  // Create a dummy transaction (using any to avoid type issues)
-  const dummyTx: any = {
-    version: 0,
-    signatures: [Buffer.alloc(64)],
-    message: dummyMessage,
-  };
-
-  // Calculate RuntimeTransaction overhead more accurately:
-  // - Version: 1 byte
-  // - Signatures count: 4 bytes (u32)
-  // - Signatures: 64 bytes per signature
-  // - ArchMessage header: 3 bytes (num_required_signatures, num_readonly_signed, num_readonly_unsigned)
-  // - Account keys count: 4 bytes (u32)
-  // - Account keys: 32 bytes × 2 (program + loader)
-  // - Recent blockhash: 32 bytes
-  // - Instructions count: 4 bytes (u32)
-  // - Instruction: program_id_index (1) + accounts_count (4) + accounts (2) + data_length (4)
-  // - Write instruction data overhead: variant(1) + offset(4) + vec_length(8) = 13 bytes (Rust #[repr(u8)])
-
-  const versionSize = 1;
-  const sigCountSize = 4;
-  const signatureSize = 64; // One signature
+  const versionSize = 4; // u32 LE
+  const sigCountSize = 1; // u8
+  const signatureSize = 64;
   const headerSize = 3;
   const accountKeysCountSize = 4;
-  const accountKeysSize = 32 * 2; // program + loader
+  const accountKeysSize = 32 * 3; // authority + program + BPF loader
   const blockhashSize = 32;
   const instructionsCountSize = 4;
-  const instructionMetadataSize = 1 + 4 + 2 + 4; // program_id_index + accounts_count + accounts + data_length
-  const writeInstructionOverhead = 1 + 4 + 8; // variant (u8) + offset (u32) + length (u64)
+  const instructionMetadataSize = 1 + 4 + 2 + 4; // program_id_index + n_accounts + 2 idxs + data_len
+  const writeInstructionOverhead = 4 + 4 + 8; // bincode variant u32 + offset u32 + vec_len u64
 
   const txOverhead = versionSize + sigCountSize + signatureSize + headerSize +
                      accountKeysCountSize + accountKeysSize + blockhashSize +
                      instructionsCountSize + instructionMetadataSize + writeInstructionOverhead;
 
-  // Calculate max chunk size using RUNTIME_TX_SIZE_LIMIT (10KB per transaction)
-  // With batch sending, the 10KB limit is per individual transaction (binary), not per RPC call!
-  const safetyMargin = 100; // Small safety margin
-  const maxChunkSize = RUNTIME_TX_SIZE_LIMIT - txOverhead - safetyMargin;
+  // Validator rejects serialized_len > limit, so equality is allowed. Spare 1 byte.
+  const maxChunkSize = RUNTIME_TX_SIZE_LIMIT - txOverhead - 1;
 
   console.log('[Chunk Size] Calculated max chunk size:', maxChunkSize);
-  console.log('[Chunk Size] TX overhead:', txOverhead, 'Safety margin:', safetyMargin);
+  console.log('[Chunk Size] TX overhead:', txOverhead);
   console.log('[Chunk Size] RUNTIME_TX_SIZE_LIMIT:', RUNTIME_TX_SIZE_LIMIT);
-  return maxChunkSize; // Should be ~9937 bytes ≈ 9.7KB per chunk!
+  return maxChunkSize;
 }
 
 // ============================================================================
@@ -1819,6 +1786,7 @@ async function uploadChunks(
   onMessage: (type: 'info' | 'success' | 'error', message: string) => void,
   label: 'Uploading' | 'Repairing',
 ): Promise<string[]> {
+  // Independent 1-write txs per RPC batch — not 25 instructions in one tx.
   const CHUNK_TX_BATCH_SIZE = 25;
   const txids: string[] = [];
   let done = 0;
