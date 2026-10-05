@@ -34,6 +34,9 @@ import { StatusBar } from './components/StatusBar';
 import { ArchProgramLoader, deployProgram } from './utils/arch-sdk-deployer';
 import { storage, type SidebarView } from './utils/storage';
 import { hexToBase58 } from './utils/base58';
+import { builtProgramId, programBinaryDataUrl, setDeclaredId } from './utils/declareId';
+import { ArchConnection, RpcConnection, type Provider } from '@arch-network/arch-sdk';
+import { getSmartRpcUrl } from './utils/smartRpcConnection';
 import { getExplorerUrls } from './utils/explorerLinks';
 import { FileChange } from './types/types';
 import { Buffer } from 'buffer/';
@@ -642,6 +645,13 @@ const AppContent = () => {
       return;
     }
 
+    const builtFor = programBinary && builtProgramId(programBinary);
+    const deployKey = fullCurrentProject?.account?.pubkey;
+    if (builtFor && deployKey && builtFor !== deployKey) {
+      addOutputMessage('error', `Cannot deploy: this build has declare_id! set to ${hexToBase58(builtFor)}, but the program keypair is now ${hexToBase58(deployKey)}. Build again before deploying.`);
+      return;
+    }
+
     // Open the deployment modal instead of immediately deploying
     setIsDeploymentModalOpen(true);
   };
@@ -1098,6 +1108,30 @@ const AppContent = () => {
         );
       }
 
+      // A Satellite program rejects every call made under any id but its declare_id!
+      // (DeclaredProgramIdMismatch, 4100), so the deploy key must exist before it is compiled.
+      const framework = fullCurrentProject.framework ?? 'satellite';
+      let programAccount = fullCurrentProject.account;
+      if (framework === 'satellite' && !programAccount) {
+        // arch-sdk's RpcConnection typing omits getBestFinalizedBlockHash, so it doesn't type as a Provider.
+        const provider = new RpcConnection(getSmartRpcUrl(config.rpcUrl)) as unknown as Provider;
+        programAccount = await ArchConnection(provider)
+          .createNewAccount()
+          .catch((error: Error) => {
+            throw new Error(`could not generate the program keypair a Satellite build needs: ${error.message}`);
+          });
+        await handleProjectAccountChange(programAccount);
+        setProgramId(programAccount.pubkey);
+        addOutputMessage('info', 'Generated a program keypair for this project');
+      }
+      const programIdHex = framework === 'satellite' ? programAccount?.pubkey : undefined;
+      const buildFiles = programIdHex
+        ? rsFiles.map(([path, content]): [string, string] => [path, setDeclaredId(content, programIdHex)])
+        : rsFiles;
+      if (programIdHex) {
+        addOutputMessage('info', `Program ID ${hexToBase58(programIdHex)} (declare_id! is set to it for this build)`);
+      }
+
       console.log('Sending Rust files to compile server:', rsFiles.map(([path]) => path));
 
       // Start the build (returns immediately)
@@ -1109,9 +1143,9 @@ const AppContent = () => {
         },
         body: JSON.stringify({
           program_name: fullCurrentProject.name,
-          files: rsFiles,
+          files: buildFiles,
           uuid: fullCurrentProject.id,
-          framework: fullCurrentProject.framework ?? 'satellite'
+          framework
         })
       });
 
@@ -1206,7 +1240,7 @@ const AppContent = () => {
 
             const arrayBuffer = await binaryResponse.arrayBuffer();
             const base64Binary = Buffer.from(arrayBuffer).toString('base64');
-            setProgramBinary(`data:application/octet-stream;base64,${base64Binary}`);
+            setProgramBinary(programBinaryDataUrl(base64Binary, programIdHex));
             setBinaryFileName(`${fullCurrentProject.name}.so`);
             addOutputMessage('info', `Program binary retrieved successfully (${arrayBuffer.byteLength} bytes)`);
           } catch (error: any) {
@@ -1751,7 +1785,8 @@ const AppContent = () => {
     if (!fullCurrentProject) return;
     try {
       await projectService.setProjectIdl(fullCurrentProject.id, idl);
-      setFullCurrentProject({ ...fullCurrentProject, idl });
+      // Merge into the latest project: a build calls this from a closure older than the program key it may have generated.
+      setFullCurrentProject(prev => (prev?.id === fullCurrentProject.id ? { ...prev, idl } : prev));
     } catch (err) {
       console.error('Failed to persist IDL', err);
       addOutputMessage('error', err instanceof Error ? err.message : String(err));
