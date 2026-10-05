@@ -25,6 +25,9 @@ interface EditorProps {
   code: string;
   onChange: (value: string | undefined) => void;
   onSave?: (value: string) => void;
+  /** Cmd/Ctrl+K and Cmd/Ctrl+B from inside the editor, which App's window listener never sees. */
+  onCommandPalette?: () => void;
+  onBuild?: () => void;
   currentFile?: FileNode | null;
   currentProject?: any;
   onSelectFile: (file: FileNode) => void;
@@ -310,6 +313,8 @@ const Editor = ({
   code,
   onChange,
   onSave,
+  onCommandPalette,
+  onBuild,
   currentFile,
   currentProject,
   onSelectFile,
@@ -330,6 +335,9 @@ const Editor = ({
   const displayCode = isWelcomeScreen ? DEFAULT_WELCOME_MESSAGE : decodeBase64Content(code);
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoFsRef = useRef<MonacoFileSystem | null>(null);
+  // Read at keypress time: the editor actions below are registered once per mount.
+  const shortcutsRef = useRef({ onCommandPalette, onBuild });
+  shortcutsRef.current = { onCommandPalette, onBuild };
   const [disposables, setDisposables] = useState<Disposable[]>([]);
   const { resolvedTheme } = useTheme();
   const monacoTheme =
@@ -487,6 +495,23 @@ const Editor = ({
             const keyboardEvent = e as unknown as KeyboardEvent;
             handleKeyDown(keyboardEvent);
           });
+          // Monaco keeps these keys for itself (Cmd/Ctrl+K starts its chords), so the
+          // app shortcuts have to be editor actions to work while the editor has focus.
+          const shortcuts = [
+            editor.addAction({
+              id: 'arch.commandPalette',
+              label: 'Command Palette',
+              keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK],
+              run: () => shortcutsRef.current.onCommandPalette?.(),
+            }),
+            editor.addAction({
+              id: 'arch.build',
+              label: 'Build Program',
+              keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyB],
+              run: () => shortcutsRef.current.onBuild?.(),
+            }),
+          ];
+          editor.onDidDispose(() => shortcuts.forEach((s) => s.dispose()));
 
           const language = getLanguage(currentFile?.name || '');
           console.log('Initial language:', language);
