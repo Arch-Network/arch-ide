@@ -79,7 +79,7 @@ interface SidePanelProps {
 }
 
 const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onFileDrop, onBuild, onDeploy, onRunClient, canRunClient, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, onProgramIdChange, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onSaveToHistory, onRestoreFromHistory, onDeleteFromHistory, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange, onIdlChange, inspectorMutations, isMobile = false }: SidePanelProps) => {
-  const { size: width, onMouseDown: handleResizeStart } = useResizablePanel({
+  const { size: width, separatorProps } = useResizablePanel({
     initial: SIDEBAR_DEFAULT_WIDTH,
     min: SIDEBAR_MIN_WIDTH,
     max: SIDEBAR_MAX_WIDTH,
@@ -189,7 +189,7 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
           />
         )}
       </div>
-      {!isMobile && <VerticalResizeHandle onMouseDown={handleResizeStart} />}
+      {!isMobile && <VerticalResizeHandle {...separatorProps} />}
     </div>
   );
 };

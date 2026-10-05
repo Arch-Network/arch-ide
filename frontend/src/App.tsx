@@ -284,7 +284,7 @@ const AppContent = () => {
   const [isCompiling, setIsCompiling] = useState(false);
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [openFiles, setOpenFiles] = useState<FileNode[]>([]);
-  const { size: terminalHeight, onMouseDown: handleResizeStart } = useResizablePanel({
+  const { size: terminalHeight, separatorProps: terminalSeparatorProps } = useResizablePanel({
     initial: 192,
     min: 100,
     max: 800,
@@ -2548,7 +2548,7 @@ const AppContent = () => {
               {!isMobile && (
                 <BottomPanel
                   height={terminalHeight}
-                  onResizeStart={handleResizeStart}
+                  resizeHandleProps={terminalSeparatorProps}
                   messages={outputMessages}
                   onClear={clearOutputMessages}
                 />
