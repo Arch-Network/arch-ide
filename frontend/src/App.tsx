@@ -43,6 +43,7 @@ import { ThemeProvider } from './theme/ThemeContext';
 import { findFileInProject, findFileByPath, constructFullPath } from './utils/projectTree';
 import { useResizablePanel } from './hooks/useResizablePanel';
 import { useEditorPreferences } from './hooks/useEditorPreferences';
+import { useBeforeUnloadGuard } from './hooks/useBeforeUnloadGuard';
 import { DeploymentModal } from './components/DeploymentModal';
 import { BrowserCompatibilityAlert } from './components/BrowserCompatibilityAlert';
 import { TutorialProvider, useTutorial } from './context/TutorialContext';
@@ -306,6 +307,7 @@ const AppContent = () => {
   const [pendingChanges, setPendingChanges] = useState<Map<string, FileChange>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
   const autosaveErrorRef = useRef<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { prefs: editorPrefs, updatePrefs: updateEditorPref } = useEditorPreferences();
   const isWordWrapEnabled = editorPrefs.wordWrap;
   const [currentAccount, setCurrentAccount] = useState<{
@@ -1920,10 +1922,12 @@ const AppContent = () => {
         // Clear pending changes
         setPendingChanges(new Map());
         autosaveErrorRef.current = null;
+        setSaveError(null);
       } catch (error) {
         console.error('Autosave failed:', error);
         // Failed changes stay pending and retry every cycle, so report each distinct error once.
         const message = error instanceof Error ? error.message : String(error);
+        setSaveError(message);
         if (autosaveErrorRef.current !== message) {
           autosaveErrorRef.current = message;
           addOutputMessage('error', `Autosave failed: ${message}`);
@@ -1935,6 +1939,8 @@ const AppContent = () => {
 
     return () => clearTimeout(saveTimeout);
   }, [pendingChanges, fullCurrentProject, isSaving]);
+
+  useBeforeUnloadGuard(pendingChanges.size > 0 || isSaving || isDeploying);
 
   const handleNewProject = () => {
     setIsNewProjectOpen(true);
@@ -2514,6 +2520,8 @@ const AppContent = () => {
                 currentProject={fullCurrentProject}
                 isWordWrapEnabled={isWordWrapEnabled}
                 onToggleWordWrap={handleToggleWordWrap}
+                unsavedPaths={pendingChanges}
+                saveError={saveError}
               />
               <div className="flex-1 min-h-0 overflow-hidden">
               <Suspense

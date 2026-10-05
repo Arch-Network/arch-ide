@@ -82,7 +82,6 @@ const DEFAULT_WELCOME_MESSAGE = `
 //
 // Cmd/Ctrl + S     →  Save current file
 // Cmd/Ctrl + B     →  Build program
-// Cmd/Ctrl + W     →  Close current tab
 
 
 // 📚 LEARN MORE

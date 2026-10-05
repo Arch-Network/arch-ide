@@ -1,5 +1,5 @@
 import React from 'react';
-import { WrapText, X } from 'lucide-react';
+import { AlertCircle, WrapText, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { FileNode, Project } from '../types';
 import {
@@ -19,9 +19,13 @@ interface TabBarProps {
   currentProject: Project | null;
   isWordWrapEnabled?: boolean;
   onToggleWordWrap?: () => void;
+  /** Paths with edits that have not reached storage yet. */
+  unsavedPaths?: ReadonlyMap<string, unknown>;
+  /** Error from the last failed save; unsaved tabs show it until a save succeeds. */
+  saveError?: string | null;
 }
 
-const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProject, isWordWrapEnabled = true, onToggleWordWrap }: TabBarProps) => {
+const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProject, isWordWrapEnabled = true, onToggleWordWrap, unsavedPaths, saveError }: TabBarProps) => {
   const visibleOpenFiles = openFiles.filter((file) => !isHomeTab(file));
   const nameCounts = new Map<string, number>();
   visibleOpenFiles.forEach((f) => nameCounts.set(f.name, (nameCounts.get(f.name) || 0) + 1));
@@ -45,6 +49,8 @@ const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProj
       <div className="flex overflow-x-auto flex-1 min-w-0">
         {visibleOpenFiles.map((file) => {
           const isActive = (currentFile?.path || currentFile?.name) === (file.path || file.name);
+          const isUnsaved = unsavedPaths?.has(file.path || file.name) ?? false;
+          const saveFailed = isUnsaved && !!saveError;
           return (
             <div
               key={file.path || file.name}
@@ -68,15 +74,28 @@ const TabBar = ({ openFiles, currentFile, onSelectFile, onCloseFile, currentProj
               <TooltipProvider>
                 <Tooltip>
                   <TooltipTrigger asChild>
-                    <span className="text-sm">
+                    <span className={cn("flex items-center text-sm", saveFailed && "text-danger")}>
                       {file.name}
                       {(nameCounts.get(file.name) || 0) > 1 && parentDir(file) && (
                         <span className="ml-1.5 text-xs text-muted-foreground">{parentDir(file)}</span>
+                      )}
+                      {saveFailed ? (
+                        <AlertCircle className="ml-1.5 h-3.5 w-3.5" aria-hidden="true" />
+                      ) : isUnsaved && (
+                        <span className="ml-1.5 h-2 w-2 rounded-full bg-foreground/70" aria-hidden="true" />
+                      )}
+                      {isUnsaved && (
+                        <span className="sr-only">{saveFailed ? ', not saved' : ', unsaved changes'}</span>
                       )}
                     </span>
                   </TooltipTrigger>
                   <TooltipContent>
                     <p>{file.path ? file.path : file.name}</p>
+                    {saveFailed ? (
+                      <p className="text-danger">Not saved: {saveError}. Retrying automatically.</p>
+                    ) : isUnsaved && (
+                      <p className="text-muted-foreground">Unsaved changes</p>
+                    )}
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
