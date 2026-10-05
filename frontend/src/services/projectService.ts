@@ -3,6 +3,7 @@ import type { FileNode, Project, ProjectFramework } from '../types';
 import JSZip from 'jszip';
 import { StorageService } from './storage';
 import { ProjectAccount } from '../types/types';
+import { artifactStore } from './artifactStore';
 
 const CARGO_TOML_TEMPLATE = `[package]
 name = "arch-ide"
@@ -1377,6 +1378,7 @@ export class ProjectService {
       await this.addHistoricalAuthorityAccount(id, project.authorityAccount, 'project_deleted');
     }
     await this.storage.deleteProject(id);
+    await artifactStore.delete(id);
   }
 
   exportProject(project: Project): Blob {
