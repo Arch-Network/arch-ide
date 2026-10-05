@@ -1,6 +1,6 @@
 import { transpile, ScriptTarget, ModuleKind } from "typescript";
 import { RpcConnection, ArchConnection, PubkeyUtil, MessageUtil, UtxoMetaUtil, SignatureUtil, SanitizedMessageUtil, TransactionUtil } from "@arch-network/arch-sdk";
-import { base16, base58, base58check } from '@scure/base';
+import { hex, base58, base58check } from '@scure/base';
 import { sha256 } from '@noble/hashes/sha256';
 import { Signer as Bip322Signer } from 'bip322-js';
 import * as bitcoinjsLib from 'bitcoinjs-lib';
@@ -291,7 +291,8 @@ export class ArchPgClient {
           // - testnet/regtest prefix: 0xEF
           const isTestnetish = address.startsWith('tb1') || address.startsWith('bcrt1') || address.startsWith('m') || address.startsWith('n') || address.startsWith('2');
           const prefix = isTestnetish ? 0xef : 0x80;
-          const privBytes = base16.decode(privkeyHex);
+          // createNewAccount() returns lowercase hex; base16 only accepts uppercase.
+          const privBytes = hex.decode(privkeyHex);
           const payload = new Uint8Array(1 + privBytes.length + 1);
           payload[0] = prefix;
           payload.set(privBytes, 1);
@@ -675,7 +676,9 @@ export class ArchPgClient {
                   privkey: privkeyHex,
                   wif: window.__archPrivkeyHexToWif ? window.__archPrivkeyHexToWif(privkeyHex, accountAddress) : null
                 };
-              } catch (_) {}
+              } catch (e) {
+                console.error("✗ Could not prepare local signer:", e?.message || e);
+              }
               try { await conn.requestAirdrop(accountPubkey); } catch (_) {}
               return { accountPubkey, accountAddress, useWallet, privkey: privkeyHex };
             } catch (error) {
