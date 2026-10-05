@@ -1,7 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { FileNode, Project, ProjectFramework } from '../types';
-import JSZip from 'jszip';
 import { StorageService } from './storage';
+import { buildProjectZip, readProjectZip } from './projectArchive';
 import { ProjectAccount } from '../types/types';
 
 const CARGO_TOML_TEMPLATE = `[package]
@@ -1524,54 +1524,18 @@ export class ProjectService {
 
   async importProjectAsZip(file: File): Promise<Project> {
     await this.ensureInitialized();
-    const zip = await JSZip.loadAsync(file);
-    const fileNodes: FileNode[] = [];
-    const fileMap = new Map<string, FileNode>()
+    const { manifest, files } = await readProjectZip(file);
+    const uniqueName = await this.getUniqueProjectName(manifest?.name ?? file.name.replace(/\.zip$/i, ''));
 
-    // Get the root directory name from the zip
-    const rootDirName = Object.keys(zip.files)[0].split('/')[0];
-    const projectName = rootDirName || file.name.replace('.zip', '');
-    const uniqueName = await this.getUniqueProjectName(projectName);
-
-    for (const [path, zipEntry] of Object.entries(zip.files)) {
-      if (!zipEntry.dir) {
-        const content = await zipEntry.async('text');
-        const parts = path.split('/');
-        let currentPath = '';
-
-        for (const [index, part] of parts.entries()) {
-          const isFile = index === parts.length - 1;
-          const fullPath = currentPath + part;
-
-          if (!fileMap.has(fullPath)) {
-            const node: FileNode = {
-              name: part,
-              type: isFile ? 'file' : 'directory',
-              path: fullPath,
-              ...(isFile ? { content } : { children: [] })
-            };
-
-            fileMap.set(fullPath, node);
-
-            if (currentPath === '') {
-              fileNodes.push(node);
-            } else {
-              const parent = fileMap.get(currentPath.slice(0, -1));
-              parent?.children?.push(node);
-            }
-          }
-
-          if (!isFile) {
-            currentPath += part + '/';
-          }
-        }
-      }
-    }
-
-    const project = {
+    const project: Project = {
       id: uuidv4(),
       name: uniqueName,
-      files: fileNodes,
+      description: manifest?.description,
+      framework: manifest?.framework,
+      idl: manifest?.idl,
+      account: manifest?.account,
+      authorityAccount: manifest?.authorityAccount,
+      files,
       created: new Date(),
       lastModified: new Date()
     };
@@ -1688,23 +1652,8 @@ export class ProjectService {
     return project;
   }
 
-  async exportProjectAsZip(project: Project): Promise<Blob> {
-    await this.ensureInitialized();
-    const zip = new JSZip();
-
-    const addToZip = (nodes: FileNode[], currentPath: string = '') => {
-      for (const node of nodes) {
-        const path = currentPath ? `${currentPath}/${node.name}` : node.name;
-        if (node.type === 'file' && node.content) {
-          zip.file(path, node.content);
-        } else if (node.type === 'directory' && node.children) {
-          addToZip(node.children, path);
-        }
-      }
-    };
-
-    addToZip(project.files);
-    return await zip.generateAsync({ type: 'blob' });
+  async exportProjectAsZip(project: Project, { includeKeypairs = false } = {}): Promise<Blob> {
+    return buildProjectZip(project, includeKeypairs);
   }
 }
 
