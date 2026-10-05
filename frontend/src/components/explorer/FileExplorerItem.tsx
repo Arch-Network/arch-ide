@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import RenameDialog from '../RenameDialog';
 import FileContextMenu from './FileContextMenu';
 import { getFileIcon, getNodePath } from './fileIcons';
+import { getChildNames } from '../../utils/projectTree';
 import type { FileNode } from '../../types';
 
 const INDENT_PX = 16;
@@ -20,6 +21,8 @@ interface FileExplorerItemProps {
   onExpandedFoldersChange: (folders: Set<string>) => void;
   currentFile: FileNode | null;
   searchQuery?: string;
+  /** The project's unfiltered tree, for checking a rename against the real siblings. */
+  rootFiles: FileNode[];
 }
 
 const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
@@ -33,6 +36,7 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
   onExpandedFoldersChange,
   currentFile,
   searchQuery,
+  rootFiles,
 }) => {
   const nodePath = getNodePath(node, path);
   const fullPath = [...path, node.name];
@@ -250,6 +254,7 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
         onRename={handleRenameSubmit}
         currentName={node.name}
         type={node.type}
+        existingNames={isRenameDialogOpen ? getChildNames(rootFiles, path).filter((name) => name !== node.name) : []}
       />
 
       {/* Children */}
@@ -279,6 +284,7 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
                 onExpandedFoldersChange={onExpandedFoldersChange}
                 currentFile={currentFile}
                 searchQuery={searchQuery}
+                rootFiles={rootFiles}
               />
             ))}
         </div>

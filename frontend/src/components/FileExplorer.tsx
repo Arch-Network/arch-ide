@@ -211,6 +211,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
     onExpandedFoldersChange,
     currentFile,
     searchQuery: searchQuery || undefined,
+    rootFiles: files,
   };
 
   return (
