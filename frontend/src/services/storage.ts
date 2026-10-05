@@ -144,18 +144,18 @@ export class StorageService implements IStorageService {
     return content;
   }
 
+  // Empty files are valid (New File creates ''); only missing or undecodable content is not.
   private isValidContent = (content: string | undefined): boolean => {
-    if (!content) return false;
+    if (typeof content !== 'string') return false;
     if (content.startsWith('data:text/plain;base64,')) {
       try {
-        const base64Content = content.replace(/^data:text\/plain;base64,/, '');
-        const decoded = atob(base64Content);
-        return decoded.length > 0;
+        atob(content.replace(/^data:text\/plain;base64,/, ''));
+        return true;
       } catch {
         return false;
       }
     }
-    return content.length > 0;
+    return true;
   };
 
   async saveProject(project: Project): Promise<void> {
@@ -167,7 +167,7 @@ export class StorageService implements IStorageService {
       for (const node of nodes) {
         const fullPath = path ? `${path}/${node.name}` : node.name;
         if (node.type === 'file' && !this.isValidContent(node.content)) {
-          console.error(`Invalid or empty content detected for file: ${fullPath}`);
+          console.error(`Invalid content detected for file: ${fullPath}`);
           invalidFiles.push(fullPath);
         }
         if (node.type === 'directory' && node.children) {
@@ -179,8 +179,8 @@ export class StorageService implements IStorageService {
 
     const invalidFiles = validateFileNodes(project.files);
     if (invalidFiles.length > 0) {
-      console.error('Cannot save project with empty files:', invalidFiles);
-      throw new Error(`Cannot save project with empty files: ${invalidFiles.join(', ')}`);
+      console.error('Cannot save project with invalid files:', invalidFiles);
+      throw new Error(`Cannot save project with invalid files: ${invalidFiles.join(', ')}`);
     }
 
     // Add detailed logging for the initial project state

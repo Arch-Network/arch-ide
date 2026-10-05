@@ -307,6 +307,7 @@ const AppContent = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, FileChange>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
+  const autosaveErrorRef = useRef<string | null>(null);
   const { prefs: editorPrefs, updatePrefs: updateEditorPref } = useEditorPreferences();
   const isWordWrapEnabled = editorPrefs.wordWrap;
   const [currentAccount, setCurrentAccount] = useState<{
@@ -823,13 +824,7 @@ const AppContent = () => {
   };
 
   const handleFileChange = useCallback((newContent: string | undefined) => {
-    if (!newContent || !currentFile || !fullCurrentProject) {
-      console.warn('Attempted to save empty content - operation blocked');
-      return;
-    }
-
-    if (newContent.trim().length === 0) {
-      addOutputMessage('error', 'Cannot save empty file content');
+    if (newContent === undefined || !currentFile || !fullCurrentProject) {
       return;
     }
 
@@ -1030,6 +1025,7 @@ const AppContent = () => {
     setFullCurrentProject(projectToUpdate);
     projectService.saveProject(projectToUpdate).catch(error => {
       console.error('Failed to save project:', error);
+      addOutputMessage('error', `Failed to save project: ${error instanceof Error ? error.message : String(error)}`);
     });
   };
 
@@ -1499,6 +1495,7 @@ const AppContent = () => {
     setFullCurrentProject(projectToUpdate);
     projectService.saveProject(projectToUpdate).catch(error => {
       console.error('Failed to save project after file drop:', error);
+      addOutputMessage('error', `Failed to save project: ${error instanceof Error ? error.message : String(error)}`);
     });
 
     // Expand all affected folders
@@ -1625,6 +1622,7 @@ const AppContent = () => {
       }
     } catch (error) {
       console.error('Save failed:', error);
+      addOutputMessage('error', `Failed to save file: ${error instanceof Error ? error.message : String(error)}`);
     }
   }, [currentFile, fullCurrentProject, openFiles]);
 
@@ -1909,6 +1907,15 @@ const AppContent = () => {
 
         // Clear pending changes
         setPendingChanges(new Map());
+        autosaveErrorRef.current = null;
+      } catch (error) {
+        console.error('Autosave failed:', error);
+        // Failed changes stay pending and retry every cycle, so report each distinct error once.
+        const message = error instanceof Error ? error.message : String(error);
+        if (autosaveErrorRef.current !== message) {
+          autosaveErrorRef.current = message;
+          addOutputMessage('error', `Autosave failed: ${message}`);
+        }
       } finally {
         setIsSaving(false);
       }
