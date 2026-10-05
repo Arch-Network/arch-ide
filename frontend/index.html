@@ -37,9 +37,38 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" />
+    <!--
+      Boot skeleton: painted from this file alone while the app bundle downloads.
+      It lives inside #root, so React's first render replaces it. Colors come from
+      the theme variables in index.css, which follow the .dark class set above.
+    -->
+    <style>
+      .boot { position: fixed; inset: 0; display: flex; flex-direction: column; background: hsl(var(--background)); }
+      .boot-bar { flex: none; height: 45px; display: flex; align-items: center; padding: 0 16px; border-bottom: 1px solid hsl(var(--border)); }
+      .boot-body { flex: 1; display: flex; min-height: 0; }
+      .boot-side { flex: none; width: min(460px, 32vw); padding: 56px 16px 0; border-right: 1px solid hsl(var(--border)); }
+      .boot-status { flex: none; height: 24px; border-top: 1px solid hsl(var(--border)); }
+      .boot-line { height: 10px; margin-bottom: 14px; border-radius: 4px; background: hsl(var(--border)); animation: boot-pulse 1.2s ease-in-out infinite alternate; }
+      @keyframes boot-pulse { to { opacity: 0.4; } }
+      @media (prefers-reduced-motion: reduce) { .boot-line { animation: none; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div class="boot" role="status" aria-label="Loading Arch IDE">
+        <div class="boot-bar"><div class="boot-line" style="width: 88px; margin: 0"></div></div>
+        <div class="boot-body">
+          <div class="boot-side">
+            <div class="boot-line" style="width: 35%"></div>
+            <div class="boot-line" style="width: 60%"></div>
+            <div class="boot-line" style="width: 50%"></div>
+            <div class="boot-line" style="width: 70%"></div>
+            <div class="boot-line" style="width: 45%"></div>
+          </div>
+        </div>
+        <div class="boot-status"></div>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
