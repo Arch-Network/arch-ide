@@ -15,6 +15,8 @@ import {
   TEXT_SECONDARY,
 } from '../theme/theme';
 import { MonacoFileSystem } from '../services/MonacoFileSystem';
+import '../editor/setupMonaco';
+import { trackModelDiagnostics } from '../editor/diagnostics';
 import * as monaco from 'monaco-editor';
 import { editor as monacoEditor } from 'monaco-editor';
 import { isHomeTab } from '../utils/homeTab';
@@ -465,10 +467,13 @@ const Editor = ({
     <div className="h-full w-full">
       <MonacoEditor
         height="100%"
-        language={getLanguage(currentFile?.name || '')}
         // defaultLanguage="plaintext"
         theme={monacoTheme}
         key={currentFile?.path || 'welcome'}
+        // Without a path the wrapper creates an extra in-memory model holding the same
+        // code, and the TS service reports every top-level declaration as a duplicate.
+        // No `language` prop: Monaco infers it from the path's extension (json, md, ...).
+        path={currentFile ? `file:///${currentFile.path || currentFile.name}` : undefined}
         value={displayCode}
         onChange={handleChange}
         beforeMount={(monaco) => {
@@ -517,6 +522,8 @@ const Editor = ({
             }
 
             editor.setModel(model);
+            const diagnostics = trackModelDiagnostics(monaco, model, filePath);
+            editor.onDidDispose(() => diagnostics.dispose());
           }
 
           // Rest of your code remains the same...
