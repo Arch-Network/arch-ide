@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   History,
   ExternalLink,
@@ -11,10 +11,17 @@ import {
   Activity,
   XCircle,
   Clock,
+  RefreshCw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '../../ui/button';
 import { getExplorerUrls } from '../../../utils/explorerLinks';
+import {
+  fetchProgramTransactions,
+  isExplorerApiAvailable,
+  type ExplorerTransaction,
+  type ExplorerTxStatus,
+} from '../../../utils/explorerApi';
 import { decodeProgramError } from '../../../utils/idl/decodeError';
 import {
   useArchWebSocket,
@@ -73,26 +80,6 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
     );
   }
 
-  const showEmpty = history.length === 0 && liveFeed.events.length === 0;
-  if (showEmpty) {
-    return (
-      <div className="space-y-3 px-3 py-3">
-        <LiveFeedPanel
-          status={liveFeed.status}
-          events={liveFeed.events}
-          network={config.network}
-          hasProgram={!!programIdHex}
-        />
-        <div className="flex flex-col items-center gap-2 px-4 py-10 text-center">
-          <History className="h-5 w-5 text-muted-foreground/50" aria-hidden="true" />
-          <p className="text-xs text-muted-foreground">
-            No transactions yet. Submit an instruction from the Invoke tab to start tracking history.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-3 px-3 py-3">
       <LiveFeedPanel
@@ -102,33 +89,44 @@ export const HistoryTab: React.FC<HistoryTabProps> = ({
         hasProgram={!!programIdHex}
       />
 
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            {history.length} {history.length === 1 ? 'entry' : 'entries'}
-          </span>
-          <button
-            type="button"
-            onClick={() => mutations.clearInvokeHistory()}
-            className="text-[10px] text-muted-foreground hover:text-danger transition-colors"
-            aria-label="Clear all history entries"
-          >
-            Clear all
-          </button>
-        </div>
+      <OnChainHistoryPanel network={config.network} programIdHex={programIdHex} />
 
-        <ul className="space-y-1.5" role="list">
-          {history.map((entry) => (
-            <HistoryRow
-              key={entry.id}
-              entry={entry}
-              idl={idl}
-              onReplay={() => onReplay(entry)}
-              onRemove={() => mutations.removeInvokeHistoryEntry(entry.id)}
-            />
-          ))}
-        </ul>
-      </div>
+      {history.length === 0 ? (
+        <div className="flex flex-col items-center gap-2 px-4 py-8 text-center">
+          <History className="h-5 w-5 text-muted-foreground/50" aria-hidden="true" />
+          <p className="text-xs text-muted-foreground">
+            No local history yet. Submit an instruction from the Invoke tab to track your own attempts here.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {history.length} local {history.length === 1 ? 'entry' : 'entries'}
+            </span>
+            <button
+              type="button"
+              onClick={() => mutations.clearInvokeHistory()}
+              className="text-[10px] text-muted-foreground hover:text-danger transition-colors"
+              aria-label="Clear all history entries"
+            >
+              Clear all
+            </button>
+          </div>
+
+          <ul className="space-y-1.5" role="list">
+            {history.map((entry) => (
+              <HistoryRow
+                key={entry.id}
+                entry={entry}
+                idl={idl}
+                onReplay={() => onReplay(entry)}
+                onRemove={() => mutations.removeInvokeHistoryEntry(entry.id)}
+              />
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 };
@@ -194,6 +192,239 @@ const useProgramTxStream = (
   }, [programIdHex, ws.generation]);
 
   return { status: ws.status, events };
+};
+
+/** How many indexed transactions to pull per page from the Explorer API. */
+const ONCHAIN_PAGE_SIZE = 25;
+
+/**
+ * Loads a program's real transaction history from the Arch Explorer indexer.
+ *
+ * Unlike the live feed (in-memory, from the moment the tab opens) and the
+ * persisted local history (only *our own* submissions), this is the program's
+ * full on-chain record from Postgres — including transactions from other
+ * clients and from before this IDE session existed.
+ *
+ * The indexer only covers canonical networks; on devnet (`available === false`)
+ * the hook stays inert and the panel hides itself.
+ */
+const useProgramOnChainHistory = (
+  network: string,
+  programIdHex: string | null,
+) => {
+  const available = isExplorerApiAvailable(network);
+  const [transactions, setTransactions] = useState<ExplorerTransaction[]>([]);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const offsetRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const load = useCallback(
+    async (append: boolean) => {
+      if (!programIdHex || !available) return;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      setLoading(true);
+      setError(null);
+
+      try {
+        const offset = append ? offsetRef.current : 0;
+        const page = await fetchProgramTransactions(network, programIdHex, {
+          limit: ONCHAIN_PAGE_SIZE,
+          offset,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) return;
+
+        offsetRef.current = offset + page.transactions.length;
+        setTotalCount(page.totalCount);
+        setTransactions((prev) => {
+          if (!append) return page.transactions;
+          // Guard against overlap if new txs arrived between pages.
+          const seen = new Set(prev.map((t) => t.txid));
+          return [...prev, ...page.transactions.filter((t) => !seen.has(t.txid))];
+        });
+      } catch (e) {
+        if (
+          controller.signal.aborted ||
+          (e instanceof DOMException && e.name === 'AbortError')
+        ) {
+          return;
+        }
+        setError(e instanceof Error ? e.message : String(e));
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
+      }
+    },
+    [network, programIdHex, available],
+  );
+
+  // Reset and reload whenever the program or network changes.
+  useEffect(() => {
+    offsetRef.current = 0;
+    setTransactions([]);
+    setTotalCount(null);
+    setError(null);
+    if (programIdHex && available) {
+      void load(false);
+    }
+    return () => abortRef.current?.abort();
+  }, [programIdHex, network, available, load]);
+
+  const hasMore =
+    totalCount != null ? transactions.length < totalCount : false;
+
+  return {
+    available,
+    transactions,
+    totalCount,
+    loading,
+    error,
+    hasMore,
+    loadMore: () => load(true),
+    refresh: () => load(false),
+  };
+};
+
+interface OnChainHistoryPanelProps {
+  network: Config['network'];
+  programIdHex: string | null;
+}
+
+/**
+ * Collapsible panel showing the deployed program's indexed transaction
+ * history from the Arch Explorer. Hidden entirely when there's no deployed
+ * program or the network isn't indexed, so it never adds noise on devnet.
+ */
+const OnChainHistoryPanel: React.FC<OnChainHistoryPanelProps> = ({
+  network,
+  programIdHex,
+}) => {
+  const {
+    available,
+    transactions,
+    totalCount,
+    loading,
+    error,
+    hasMore,
+    loadMore,
+    refresh,
+  } = useProgramOnChainHistory(network, programIdHex);
+
+  if (!programIdHex || !available) return null;
+
+  const explorerUrls = getExplorerUrls(network);
+
+  return (
+    <section className="rounded-lg border border-border bg-surface-2/30">
+      <header className="flex items-center justify-between gap-2 px-2.5 py-1.5 border-b border-border/60">
+        <div className="flex items-center gap-2 min-w-0">
+          <History className="h-3 w-3 text-muted-foreground" aria-hidden="true" />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            On-chain history
+          </span>
+          {totalCount != null && (
+            <span className="text-[10px] text-muted-foreground/70 tabular-nums">
+              {totalCount.toLocaleString()}
+            </span>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={refresh}
+          disabled={loading}
+          className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+          aria-label="Refresh on-chain history"
+          title="Refresh from Arch Explorer"
+        >
+          <RefreshCw
+            className={cn('h-3 w-3', loading && 'animate-spin')}
+            aria-hidden="true"
+          />
+        </button>
+      </header>
+
+      {error ? (
+        <div className="px-3 py-3 text-[11px] text-danger">
+          Couldn{'\u2019'}t load on-chain history: {error}
+        </div>
+      ) : transactions.length === 0 ? (
+        <div className="px-3 py-3 text-[11px] text-muted-foreground italic">
+          {loading
+            ? 'Loading indexed transactions\u2026'
+            : 'No indexed transactions for this program yet.'}
+        </div>
+      ) : (
+        <>
+          <ul role="list" className="divide-y divide-border/40">
+            {transactions.map((tx) => (
+              <li
+                key={tx.txid}
+                className="px-2.5 py-1.5 flex items-center gap-2 text-[11px]"
+              >
+                <OnChainStatusGlyph status={tx.status} />
+                <code
+                  className="flex-1 font-mono text-foreground/85 truncate"
+                  title={tx.failure ?? tx.txid}
+                >
+                  {tx.txid}
+                </code>
+                {tx.blockHeight != null && (
+                  <span className="text-[10px] text-muted-foreground shrink-0 tabular-nums">
+                    #{tx.blockHeight}
+                  </span>
+                )}
+                {tx.createdAt && (
+                  <span className="text-[10px] text-muted-foreground shrink-0">
+                    {formatRelativeIso(tx.createdAt)}
+                  </span>
+                )}
+                {explorerUrls && (
+                  <a
+                    href={explorerUrls.tx(tx.txid)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-brand hover:text-brand-hover shrink-0"
+                    aria-label="Open transaction in explorer"
+                  >
+                    <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+          {hasMore && (
+            <div className="border-t border-border/40 px-2.5 py-1.5">
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loading}
+                className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                {loading ? 'Loading\u2026' : 'Load more'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </section>
+  );
+};
+
+const OnChainStatusGlyph: React.FC<{ status: ExplorerTxStatus }> = ({
+  status,
+}) => {
+  switch (status) {
+    case 'processed':
+      return <CheckCircle2 className="h-3 w-3 text-success shrink-0" aria-hidden="true" />;
+    case 'failed':
+      return <XCircle className="h-3 w-3 text-danger shrink-0" aria-hidden="true" />;
+    case 'unknown':
+    default:
+      return <Clock className="h-3 w-3 text-muted-foreground shrink-0" aria-hidden="true" />;
+  }
 };
 
 interface LiveFeedPanelProps {
@@ -625,6 +856,12 @@ const formatRelativeTime = (ts: number): string => {
   const days = Math.floor(hr / 24);
   if (days < 7) return `${days}d ago`;
   return new Date(ts).toLocaleDateString();
+};
+
+/** Same relative formatter, but for the indexer's ISO-8601 timestamps. */
+const formatRelativeIso = (iso: string): string => {
+  const ms = Date.parse(iso);
+  return Number.isNaN(ms) ? '' : formatRelativeTime(ms);
 };
 
 export default HistoryTab;

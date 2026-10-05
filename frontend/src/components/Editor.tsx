@@ -492,15 +492,17 @@ const Editor = ({
           console.log('Initial language:', language);
 
           if (currentFile && monacoFsRef.current) {
+            // Key by full path: same-name files in different folders must not share a model.
+            const filePath = currentFile.path || currentFile.name;
             // Ensure the current file is registered with decoded content
             const decodedContent = currentFile.content ? decodeBase64Content(currentFile.content) : '';
             monacoFsRef.current.registerFile(
-              currentFile.name,
+              filePath,
               decodedContent
             );
 
             // Create model with proper URI and decoded content
-            const uri = monaco.Uri.parse(`file:///${currentFile.name}`);
+            const uri = monaco.Uri.parse(`file:///${filePath}`);
             let model = monaco.editor.getModel(uri);
 
             if (!model) {

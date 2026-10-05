@@ -327,6 +327,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                       label: "Run",
                       onClick: () => onRunClient?.(),
                       disabled: !canRunClient,
+                      disabledReason: "Open a TypeScript client file before running.",
                       emphasis: 'primary' as const,
                     },
                   ]}

@@ -39,7 +39,20 @@ async fn main() -> Result<()> {
         e
     })?;
 
-    let build_tracker = BuildTracker::new();
+    let build_tracker = BuildTracker::new(config.max_concurrent_builds);
+
+    // Background janitor: periodically remove stale per-build directories so
+    // abandoned builds don't fill the disk over time.
+    let cleanup_ttl = config.build_ttl_secs;
+    tokio::spawn(async move {
+        let mut interval = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            interval.tick().await;
+            if let Err(e) = program::cleanup_old_builds(cleanup_ttl).await {
+                error!("Build cleanup failed: {}", e);
+            }
+        }
+    });
 
     let app = Router::new()
         .route("/health", get(health))

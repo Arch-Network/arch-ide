@@ -1,6 +1,6 @@
 import { transpile, ScriptTarget, ModuleKind } from "typescript";
 import { RpcConnection, ArchConnection, PubkeyUtil, MessageUtil, UtxoMetaUtil, SignatureUtil, SanitizedMessageUtil, TransactionUtil } from "@arch-network/arch-sdk";
-import { base16, base58, base58check } from '@scure/base';
+import { hex, base58, base58check } from '@scure/base';
 import { sha256 } from '@noble/hashes/sha256';
 import { Signer as Bip322Signer } from 'bip322-js';
 import * as bitcoinjsLib from 'bitcoinjs-lib';
@@ -291,7 +291,8 @@ export class ArchPgClient {
           // - testnet/regtest prefix: 0xEF
           const isTestnetish = address.startsWith('tb1') || address.startsWith('bcrt1') || address.startsWith('m') || address.startsWith('n') || address.startsWith('2');
           const prefix = isTestnetish ? 0xef : 0x80;
-          const privBytes = base16.decode(privkeyHex);
+          // createNewAccount() returns lowercase hex; base16 only accepts uppercase.
+          const privBytes = hex.decode(privkeyHex);
           const payload = new Uint8Array(1 + privBytes.length + 1);
           payload[0] = prefix;
           payload.set(privBytes, 1);
@@ -675,7 +676,9 @@ export class ArchPgClient {
                   privkey: privkeyHex,
                   wif: window.__archPrivkeyHexToWif ? window.__archPrivkeyHexToWif(privkeyHex, accountAddress) : null
                 };
-              } catch (_) {}
+              } catch (e) {
+                console.error("✗ Could not prepare local signer:", e?.message || e);
+              }
               try { await conn.requestAirdrop(accountPubkey); } catch (_) {}
               return { accountPubkey, accountAddress, useWallet, privkey: privkeyHex };
             } catch (error) {
@@ -689,7 +692,6 @@ export class ArchPgClient {
             const PubkeyUtil = window.PubkeyUtil;
             const walletProxy = window.walletProxy;
             const SignatureUtil = window.SignatureUtil;
-            const Bip322Signer = window.Bip322Signer;
 
             // Normalize pubkeys: iframe-realm Uint8Arrays can fail instanceof checks
             // in the parent-realm SDK. Round-trip through hex to get parent-realm Uint8Arrays.
@@ -819,28 +821,22 @@ export class ArchPgClient {
               // No wallet: try local signing using the account generated in setupAccount()
               try {
                 const local = window.__archLocalAccount;
-                if (!local || !local.wif || !local.address) {
+                if (!local || !local.privkey || !local.address) {
                   console.log("⚠️  No wallet connected and no local signer available");
                   return undefined;
                 }
-                if (!Bip322Signer || typeof Bip322Signer.sign !== 'function') {
+                if (typeof window.__bip322SignWithKey !== 'function') {
                   console.log("⚠️  BIP322 signer not available in this environment");
                   return undefined;
                 }
 
                 console.log("✓ Using locally generated account for signing (no wallet)");
-                const signatureBase64OrBuf = Bip322Signer.sign(local.wif, local.address, hashHex);
-                const sigStr = typeof signatureBase64OrBuf === 'string'
-                  ? signatureBase64OrBuf
-                  : btoa(String.fromCharCode(...Array.from(signatureBase64OrBuf)));
+                // local.address is the account's Arch address, which this key does not control;
+                // __bip322SignWithKey signs for the key's own P2TR address.
+                const network = local.address.startsWith('bc1') ? 'mainnet' : 'testnet';
+                const signature = window.__bip322SignWithKey(local.privkey, hashHex, network);
 
-                let signature = Uint8Array.from(atob(sigStr), c => c.charCodeAt(0));
-                if (signature.length === 65) signature = signature.slice(0, 64);
-                if (typeof SignatureUtil !== 'undefined') {
-                  try { signature = SignatureUtil.adjustSignature(signature); } catch (_) {}
-                }
-
-                const transaction = { version: 1, signatures: [Array.from(signature)], message: sendMessage };
+                const transaction = { version: 0, signatures: [Array.from(signature)], message: sendMessage };
                 // NOTE: This code is injected via a template string; avoid \\n escapes here because
                 // they can become literal newlines in the generated JS and break parsing.
                 console.log("--- Sending Transaction (local signer) ---");

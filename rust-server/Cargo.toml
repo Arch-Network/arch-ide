@@ -27,9 +27,8 @@ socket2 = "0.5"
 # IDL extraction for Satellite framework projects. The `build` feature
 # enables IdlBuilder, which orchestrates a host-target compile against the
 # user's program with `--features idl-build` and returns the typed IDL.
-# Pinned to 0.31.6 (matches arch-cli's working version against
-# arch-satellite-lang 0.31.5 in the user's synthesized Cargo.toml).
-satellite-lang-idl = { version = "0.31.6", features = ["build"] }
+# Pinned to 0.32.0 (matches arch-satellite-lang 0.32.0 in the synthesized Cargo.toml).
+arch-satellite-lang-idl = { version = "0.32.0", features = ["build"] }
 
 [profile.dev]
 opt-level = 0

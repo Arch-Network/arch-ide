@@ -11,6 +11,8 @@ interface WorkbenchActionsProps {
   canBuild: boolean;
   canRunClient: boolean;
   isBuilding: boolean;
+  buildDisabledReason?: string;
+  runDisabledReason?: string;
   className?: string;
   variant?: 'inline' | 'mobile';
 }
@@ -23,10 +25,14 @@ export const WorkbenchActions: React.FC<WorkbenchActionsProps> = ({
   canBuild,
   canRunClient,
   isBuilding,
+  buildDisabledReason,
+  runDisabledReason,
   className,
   variant = 'inline',
 }) => {
   const isMobile = variant === 'mobile';
+  const buildTitle = isBuilding ? 'Building program' : buildDisabledReason || 'Build program';
+  const runTitle = runDisabledReason || 'Run current TypeScript client file';
 
   return (
     <div
@@ -64,7 +70,8 @@ export const WorkbenchActions: React.FC<WorkbenchActionsProps> = ({
         )}
         onClick={onBuild}
         disabled={!canBuild || isBuilding}
-        aria-label={isBuilding ? 'Building program' : 'Build program'}
+        title={buildTitle}
+        aria-label={buildTitle}
       >
         {isBuilding ? (
           <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
@@ -84,7 +91,8 @@ export const WorkbenchActions: React.FC<WorkbenchActionsProps> = ({
         )}
         onClick={onRunClient}
         disabled={!canRunClient}
-        aria-label="Run current TypeScript client file"
+        title={runTitle}
+        aria-label={runTitle}
       >
         <Play className="h-4 w-4" aria-hidden="true" />
         <span className={isMobile ? 'whitespace-nowrap' : 'hidden lg:inline'}>Run</span>

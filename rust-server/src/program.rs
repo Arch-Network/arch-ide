@@ -16,12 +16,30 @@ const PROGRAMS_DIR: &str = "programs";
 const MAX_FILE_AMOUNT: usize = 256;
 const MAX_PATH_LENGTH: usize = 128;
 
-/// Arch crate version used by the compilation server: 0.6.4
+/// Arch crate version used by the compilation server: 0.8.4
 /// All arch_program, apl-token, apl-associated-token-account, and apl-token-metadata
 /// crates are pulled from crates.io at this version.
 
 fn use_gcs() -> bool {
     std::env::var("USE_GCS").is_ok()
+}
+
+/// True when `s` is a canonical UUID. Build/deploy use the UUID as a path
+/// segment, so this guards against traversal (`../`) and other filesystem
+/// escapes before we ever join it onto `programs/`.
+pub fn is_valid_uuid(s: &str) -> bool {
+    uuid::Uuid::try_parse(s).is_ok()
+}
+
+/// Wall-clock ceiling for a single compile. A hung or maliciously slow build
+/// (deep recursion, runaway proc-macros) is killed once this elapses instead
+/// of pinning a worker forever. Override with `BUILD_TIMEOUT_SECS`.
+fn build_timeout_secs() -> u64 {
+    env::var("BUILD_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .filter(|&n| n > 0)
+        .unwrap_or(300)
 }
 
 static INIT: OnceCell<()> = OnceCell::const_new();
@@ -51,7 +69,7 @@ fn find_solana_rustc_path() -> Option<String> {
     None
 }
 
-/// Cargo.toml template for Satellite framework: arch_program 0.6.4 + arch-satellite-lang 0.31.5.
+/// Cargo.toml template for Satellite framework: arch_program 0.8.4 + arch-satellite-lang 0.32.0.
 ///
 /// The `[features]` block at the bottom is required for IDL extraction. The
 /// IdlBuilder spawns a host-target `cargo build --features idl-build` which
@@ -64,6 +82,10 @@ const CARGO_TOML_TEMPLATE_SATELLITE: &str = r#"[package]
 name = "__PROGRAM_NAME__"
 version = "0.1.0"
 edition = "2021"
+# platform-tools ships Cargo/rustc 1.84. The MSRV-aware resolver (resolver 3)
+# skips releases whose rust-version is newer, e.g. edition2024 crates.
+rust-version = "1.84"
+resolver = "3"
 
 [lib]
 crate-type = ["cdylib"]
@@ -76,16 +98,16 @@ cpi = ["no-entrypoint"]
 idl-build = ["arch-satellite-lang/idl-build", "arch-satellite-apl/idl-build"]
 
 [dependencies]
-arch_program = "0.6.4"
-apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
+arch_program = "0.8.4"
+apl-associated-token-account = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.8.4", features = ["no-entrypoint"] }
 
 # Satellite framework. The `init-if-needed` feature unlocks the
 # `init_if_needed` account constraint used by examples that are designed
 # to be re-runnable from the IDE client.
-arch-satellite-lang = { version = "0.31.5", features = ["init-if-needed"] }
-arch-satellite-apl = "0.31.5"
+arch-satellite-lang = { version = "0.32.0", features = ["init-if-needed"] }
+arch-satellite-apl = "0.32.0"
 
 # Core serialization/encoding (use "borsh" in code, not "borsh09")
 borsh = "^1.5.3"
@@ -135,24 +157,28 @@ incremental = true
 codegen-units = 256
 "#;
 
-/// Cargo.toml template for native / latest: arch_program 0.6.4.
+/// Cargo.toml template for native / latest: arch_program 0.8.4.
 const CARGO_TOML_TEMPLATE_NATIVE: &str = r#"[package]
 name = "__PROGRAM_NAME__"
 version = "0.1.0"
 edition = "2021"
+# platform-tools ships Cargo/rustc 1.84. The MSRV-aware resolver (resolver 3)
+# skips releases whose rust-version is newer, e.g. edition2024 crates.
+rust-version = "1.84"
+resolver = "3"
 
 [lib]
 crate-type = ["cdylib"]
 
 [dependencies]
-arch_program = "0.6.4"
-apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
+arch_program = "0.8.4"
+apl-associated-token-account = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.8.4", features = ["no-entrypoint"] }
 
 # Satellite framework
-arch-satellite-lang = "0.31.5"
-arch-satellite-apl = "0.31.5"
+arch-satellite-lang = "0.32.0"
+arch-satellite-apl = "0.32.0"
 
 # Core serialization/encoding (use "borsh" in code, not "borsh09")
 borsh = "^1.5.3"
@@ -200,9 +226,9 @@ codegen-units = 256
 /// Framework / SDK version selector. Used to pick the right Cargo.toml dependency set.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BuildFramework {
-    /// Satellite framework: arch_program 0.6.4 + arch-satellite-lang 0.31.5.
+    /// Satellite framework: arch_program 0.8.4 + arch-satellite-lang 0.32.0.
     Satellite,
-    /// Native / latest: arch_program 0.6.4.
+    /// Native / latest: arch_program 0.8.4.
     Native,
 }
 
@@ -243,14 +269,14 @@ overflow-checks = true
 incremental = true
 
 [dependencies]
-arch_program = "0.6.4"
-apl-associated-token-account = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token = { version = "0.6.4", features = ["no-entrypoint"] }
-apl-token-metadata = { version = "0.6.4", features = ["no-entrypoint"] }
+arch_program = "0.8.4"
+apl-associated-token-account = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token = { version = "0.8.4", features = ["no-entrypoint"] }
+apl-token-metadata = { version = "0.8.4", features = ["no-entrypoint"] }
 
 # Satellite framework (published crate)
-arch-satellite-lang = { version = "0.31.5", features = ["init-if-needed"] }
-arch-satellite-apl = "0.31.5"
+arch-satellite-lang = { version = "0.32.0", features = ["init-if-needed"] }
+arch-satellite-apl = "0.32.0"
 
 # Core serialization/encoding
 borsh = { version = "1.5.1", features = ["derive"] }
@@ -392,6 +418,10 @@ pub struct BuildOutcome {
     pub stderr: String,
     pub program_name: String,
     pub idl_json: Option<String>,
+    /// Authoritative success signal: the deployable `.so` exists after the
+    /// compile. Any stale binary is deleted before the build starts, so this
+    /// can't be satisfied by a previous run's artifact.
+    pub success: bool,
 }
 
 /// Placeholder program id in Satellite/counter template; substituted at build time when program_id_hex is provided.
@@ -407,6 +437,12 @@ pub async fn build(
     output_tx: Option<mpsc::Sender<String>>, // if present, each line is sent for live UI updates
 ) -> anyhow::Result<BuildOutcome> {
     println!("Starting build for program: {} (framework: {:?})", program_name, framework);
+
+    // Defense-in-depth: the caller validates the UUID, but this value becomes a
+    // filesystem path below, so reject non-UUID input here too.
+    if !is_valid_uuid(uuid) {
+        return Err(anyhow!("Invalid UUID"));
+    }
 
     // Check file count
     if files.len() > MAX_FILE_AMOUNT {
@@ -466,6 +502,16 @@ pub async fn build(
     // Create program-specific Cargo.toml with sanitized name
     println!("Creating Cargo.toml...");
     let safe_program_name = program_name.replace(|c: char| !c.is_alphanumeric(), "_");
+
+    // Remove any stale binary from a previous build under this UUID so that
+    // post-build "does the .so exist" is a trustworthy success signal.
+    let binary_path = program_path
+        .join("target/deploy")
+        .join(format!("{}.so", safe_program_name));
+    if binary_path.exists() {
+        println!("Removing stale binary from previous build: {:?}", binary_path);
+        fs::remove_file(&binary_path)?;
+    }
     let cargo_toml = render_program_cargo_toml(&safe_program_name, framework);
     let manifest_path = program_path.join("Cargo.toml");
 
@@ -782,17 +828,50 @@ pub async fn build(
         lines
     });
 
-    // Wait for both streams to complete in parallel
-    let (stdout_result, stderr_result) = tokio::join!(stdout_handle, stderr_handle);
+    // Wait for the streams to drain and the process to exit, bounded by a
+    // hard timeout. Reads happen before `wait()` because the child can block
+    // on a full pipe buffer; a hung compile keeps both pending, so the timeout
+    // wraps the whole thing and we kill the child if it fires.
+    let timeout = std::time::Duration::from_secs(build_timeout_secs());
+    let wait_future = async {
+        let (stdout_result, stderr_result) = tokio::join!(stdout_handle, stderr_handle);
+        let status = child.wait().await?;
+        Ok::<_, anyhow::Error>((stdout_result, stderr_result, status))
+    };
+
+    let (stdout_result, stderr_result, status) =
+        match tokio::time::timeout(timeout, wait_future).await {
+            Ok(res) => res?,
+            Err(_) => {
+                // Dropping `wait_future` released the mutable borrow on `child`.
+                let _ = child.start_kill();
+                return Err(anyhow!(
+                    "Build timed out after {}s and was terminated",
+                    timeout.as_secs()
+                ));
+            }
+        };
+
     let stdout_lines = stdout_result.unwrap_or_default();
     let mut stderr_lines = stderr_result.unwrap_or_default();
 
-    // Wait for the command to complete
-    let status = child.wait().await?;
-    let build_succeeded = stdout_lines.contains("Finished release") || stderr_lines.contains("Finished release");
+    // Success requires the deployable binary to exist (stale ones were removed
+    // pre-build). The exit status is the primary signal; the "Finished release"
+    // marker keeps the historical tolerance for toolchain versions that exit
+    // nonzero despite producing a valid binary.
+    let binary_created = binary_path.exists();
+    let finished_marker = stdout_lines.contains("Finished release")
+        || stderr_lines.contains("Finished release");
+    let build_succeeded = binary_created && (status.success() || finished_marker);
+    println!(
+        "Build result: exit={:?}, binary_created={}, finished_marker={}, succeeded={}",
+        status.code(),
+        binary_created,
+        finished_marker,
+        build_succeeded
+    );
 
-    // Instead of returning error, we return the stderr output along with the status
-    if !status.success() && !build_succeeded {
+    if !build_succeeded {
         // Include pre-build diagnostics to help identify the source of getrandom
         if !getrandom_diag.is_empty() {
             stderr_lines.push_str(&getrandom_diag);
@@ -803,33 +882,22 @@ pub async fn build(
             stderr: stderr_lines,
             program_name: safe_program_name,
             idl_json: None,
+            success: false,
         });
     }
 
     println!("Build command executed successfully.");
 
-    // Check if binary was created using safe program name
-    let binary_path = program_path
-        .join("target/deploy")
-        .join(format!("{}.so", safe_program_name));
-    println!("Checking for binary at: {:?}", binary_path);
-
     // After successful build, upload to GCS
-    if binary_path.exists() {
-        println!("Binary file created successfully");
-        if use_gcs() {
-            let binary_data = fs::read(&binary_path)?;
-            let uuid = uuid.to_string();
-            let safe_program_name = safe_program_name.clone();
-            let binary_data = binary_data.to_vec();
-            tokio::spawn(async move {
-                if let Err(e) = upload_to_gcs(&uuid, &safe_program_name, &binary_data).await {
-                    eprintln!("Failed to upload binary to GCS: {}", e);
-                }
-            });
-        }
-    } else {
-        println!("Warning: Binary file not found at expected location");
+    if use_gcs() {
+        let binary_data = fs::read(&binary_path)?;
+        let uuid = uuid.to_string();
+        let safe_program_name = safe_program_name.clone();
+        tokio::spawn(async move {
+            if let Err(e) = upload_to_gcs(&uuid, &safe_program_name, &binary_data).await {
+                eprintln!("Failed to upload binary to GCS: {}", e);
+            }
+        });
     }
 
     // Best-effort IDL extraction (Satellite framework only). We run this
@@ -870,12 +938,13 @@ pub async fn build(
         stderr: stderr_lines,
         program_name: safe_program_name,
         idl_json,
+        success: true,
     })
 }
 
 /// Best-effort IDL extraction for a satellite-framework program.
 ///
-/// Strategy: hand the program's path to `satellite-lang-idl`'s public
+/// Strategy: hand the program's path to `arch-satellite-lang-idl`'s public
 /// `IdlBuilder`, which:
 ///   1. Spawns `cargo build --features idl-build,no-entrypoint` against a
 ///      host target (NOT SBF) under a separate `target/` directory.
@@ -900,7 +969,7 @@ async fn extract_idl(
         // (a) doesn't compile at all, (b) has no `#[program]` macros, or
         // (c) the satellite tooling rejected the manifest. In all cases we
         // want to return None rather than propagate.
-        let idl = match satellite_lang_idl::build::IdlBuilder::new()
+        let idl = match arch_satellite_lang_idl::build::IdlBuilder::new()
             .program_path(path)
             .skip_lint(true)
             .no_docs(false)
@@ -985,35 +1054,92 @@ pub async fn get_binary(uuid: &str, program_name: &str) -> std::io::Result<Vec<u
         });
     }
 
-    // If not found, try to find the binary in any project directory
-    println!("Binary not found at exact UUID path, searching in all project directories");
-    let programs_dir = Path::new(PROGRAMS_DIR);
-
-    if let Ok(entries) = fs::read_dir(programs_dir) {
-        for entry in entries.flatten() {
-            if let Ok(file_type) = entry.file_type() {
-                if file_type.is_dir() {
-                    let potential_path = entry.path().join("target/deploy").join(&binary_filename);
-                    if potential_path.exists() {
-                        println!("Found binary in alternative location: {:?}", potential_path);
-                        return fs::read(potential_path).map_err(|e| {
-                            println!("Failed to read local binary: {}", e);
-                            e
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    // If still not found locally, try to get from GCS
-    println!("Binary not found locally, attempting to fetch from GCS");
+    // Only ever serve the binary for the requested UUID. We deliberately do
+    // NOT scan other build directories for a matching program name — doing so
+    // would leak one user's compiled binary to anyone who guesses the name.
+    // If it isn't under this UUID locally, fall back to GCS (also UUID-scoped).
+    println!("Binary not found locally for UUID, attempting to fetch from GCS");
     download_from_gcs(uuid, &safe_program_name)
         .await
         .map_err(|e| {
             println!("Failed to download binary from GCS: {}", e);
             std::io::Error::new(std::io::ErrorKind::Other, e.to_string())
         })
+}
+
+/// Remove build directories older than `ttl_secs`, reclaiming disk from
+/// abandoned builds. Only UUID-named directories are eligible, so the shared
+/// caches (`target`, `.cargo`, `warmup-cache`) and the root `Cargo.toml` are
+/// never touched. Runs on a background interval from `main`.
+pub async fn cleanup_old_builds(ttl_secs: u64) -> anyhow::Result<()> {
+    tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+        let programs_dir = Path::new(PROGRAMS_DIR);
+        let entries = match fs::read_dir(programs_dir) {
+            Ok(e) => e,
+            Err(_) => return Ok(()), // nothing to clean yet
+        };
+
+        let now = std::time::SystemTime::now();
+        let ttl = std::time::Duration::from_secs(ttl_secs);
+        let mut removed = 0usize;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = match path.file_name().and_then(|n| n.to_str()) {
+                Some(n) => n,
+                None => continue,
+            };
+
+            // Only ever delete per-build directories (UUID-named). This
+            // protects the shared cache dirs from being swept.
+            if !path.is_dir() || !is_valid_uuid(name) {
+                continue;
+            }
+
+            let age = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|modified| now.duration_since(modified).ok());
+
+            if let Some(age) = age {
+                if age > ttl {
+                    match fs::remove_dir_all(&path) {
+                        Ok(()) => removed += 1,
+                        Err(e) => println!("[CLEANUP] Failed to remove {:?}: {}", path, e),
+                    }
+                }
+            }
+        }
+
+        if removed > 0 {
+            println!("[CLEANUP] Removed {} stale build director{}", removed, if removed == 1 { "y" } else { "ies" });
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| anyhow!("cleanup join error: {}", e))?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_valid_uuid;
+
+    #[test]
+    fn accepts_canonical_uuids() {
+        assert!(is_valid_uuid("550e8400-e29b-41d4-a716-446655440000"));
+        assert!(is_valid_uuid(&uuid::Uuid::new_v4().to_string()));
+    }
+
+    #[test]
+    fn rejects_path_traversal_and_junk() {
+        assert!(!is_valid_uuid("../../etc/passwd"));
+        assert!(!is_valid_uuid("..%2F..%2Fetc"));
+        assert!(!is_valid_uuid("550e8400-e29b-41d4-a716-446655440000/../other"));
+        assert!(!is_valid_uuid(""));
+        assert!(!is_valid_uuid("warmup-cache"));
+        assert!(!is_valid_uuid("target"));
+    }
 }
 
 // Instead, create a wrapper type for binary data

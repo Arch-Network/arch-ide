@@ -11,7 +11,7 @@ pub struct BuildRequest {
     program_name: String,
     files: Files,
     uuid: Option<String>,
-    /// "satellite" → arch_program 0.6.4 + arch-satellite-lang 0.31.5. "native" → arch_program 0.6.4. Default: "satellite".
+    /// "satellite" → arch_program 0.8.4 + arch-satellite-lang 0.32.0. "native" → arch_program 0.8.4. Default: "satellite".
     #[serde(default)]
     framework: Option<String>,
     /// When set, substitute declare_id! placeholder with declare_id!(program_id_hex) in lib.rs. Satellite/Solana BPF expects 64 hex chars, not base58.
@@ -60,7 +60,7 @@ pub async fn build(
     let tracker_clone = tracker.clone();
     let framework = match payload.framework.as_deref() {
         Some("native") => program::BuildFramework::Native,
-        _ => program::BuildFramework::Satellite, // "satellite" or missing → Satellite (0.6.4)
+        _ => program::BuildFramework::Satellite, // "satellite" or missing → Satellite (0.8.4)
     };
 
     // Start tracking the build
@@ -68,6 +68,11 @@ pub async fn build(
 
     // Spawn the build task in the background
     tokio::spawn(async move {
+        // Wait for a build slot before doing any work. This bounds how many
+        // `cargo-build-sbf` processes run at once; the permit is held until
+        // this task returns.
+        let _permit = tracker_clone.acquire_build_permit().await;
+
         println!("[BUILD] Starting background build task for UUID: {} (framework: {:?})", uuid_clone, framework);
 
         let (tx, mut rx) = mpsc::channel::<String>(256);
@@ -100,18 +105,12 @@ pub async fn build(
                 let idl_json = outcome.idl_json;
                 println!("[BUILD] Build Ok for UUID: {}", uuid_clone);
                 println!("[BUILD] stderr length: {} bytes", stderr.len());
-                println!("[BUILD] stderr contains 'Finished': {}", stderr.contains("Finished"));
-                println!("[BUILD] stderr contains 'release': {}", stderr.contains("release"));
-                println!("[BUILD] stderr contains '`release`': {}", stderr.contains("`release`"));
-                println!("[BUILD] stderr contains 'error: could not compile': {}", stderr.contains("error: could not compile"));
                 println!("[BUILD] idl_json present: {}", idl_json.is_some());
 
-                // Check if build actually succeeded by looking for compilation success indicators
-                let build_succeeded = stderr.contains("Finished") &&
-                                     (stderr.contains("release") || stderr.contains("`release`")) &&
-                                     !stderr.contains("error: could not compile");
-
-                println!("[BUILD] build_succeeded: {}", build_succeeded);
+                // Success is determined inside program::build from the process
+                // exit status + presence of the compiled binary — not by
+                // string-matching the build log.
+                let build_succeeded = outcome.success;
                 println!("[BUILD] Calling complete_build for UUID: {} with status: {}", uuid_clone, if build_succeeded { "Success" } else { "Failed" });
 
                 // Only attach the IDL to the tracker on a successful build —

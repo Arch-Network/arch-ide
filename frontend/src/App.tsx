@@ -20,8 +20,6 @@ import NewItemDialog from './components/NewItemDialog';
 import { OutputMessage } from './components/Output';
 import { ConfigPanel } from './components/ConfigPanel';
 import {
-  CheckCircle2,
-  AlertCircle,
   Hammer,
   Rocket,
   PlusCircle,
@@ -52,6 +50,7 @@ import { TutorialOverlay } from './components/TutorialOverlay';
 import { WelcomeModal } from './components/WelcomeModal';
 import { Toaster } from './components/ui/toaster';
 import { HomeScreen } from './components/HomeScreen';
+import ProjectContextStatus from './components/ProjectContextStatus';
 import { exampleProjectsService } from './services/exampleProjectsService';
 import { createHomeTab, isHomeTab, addHomeTabIfNotExists } from './utils/homeTab';
 import { type DroppedFile, getTargetRoot, stripLeadingRoot } from './utils/fileDropUtils';
@@ -138,13 +137,11 @@ const fileTreeOperations = {
 
   rename: (nodes: FileNode[], path: string[], newName: string): FileNode[] => {
     const parentPath = pathUtils.getParentPath(path);
-    const fullPath = pathUtils.normalize([...parentPath, newName]);
 
-    return updateNodeInTree(nodes, path, (node) => ({
-      ...node,
-      name: newName,
-      path: fullPath
-    }));
+    // Re-path descendants too, or a renamed folder's files keep their old paths.
+    return updateNodeInTree(nodes, path, (node) =>
+      fileTreeOperations.cloneWithNewPaths({ ...node, name: newName }, pathUtils.normalize(parentPath))
+    );
   },
 
   /** Clone a node and all descendants with paths under newPathPrefix (e.g. "src/util") */
@@ -308,6 +305,7 @@ const AppContent = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, FileChange>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
+  const autosaveErrorRef = useRef<string | null>(null);
   const { prefs: editorPrefs, updatePrefs: updateEditorPref } = useEditorPreferences();
   const isWordWrapEnabled = editorPrefs.wordWrap;
   const [currentAccount, setCurrentAccount] = useState<{
@@ -824,13 +822,7 @@ const AppContent = () => {
   };
 
   const handleFileChange = useCallback((newContent: string | undefined) => {
-    if (!newContent || !currentFile || !fullCurrentProject) {
-      console.warn('Attempted to save empty content - operation blocked');
-      return;
-    }
-
-    if (newContent.trim().length === 0) {
-      addOutputMessage('error', 'Cannot save empty file content');
+    if (newContent === undefined || !currentFile || !fullCurrentProject) {
       return;
     }
 
@@ -842,7 +834,7 @@ const AppContent = () => {
 
     // Update open files with new content
     setOpenFiles(prev => prev.map(f =>
-      (f.path === currentFile.path || f.name === currentFile.name)
+      (f.path || f.name) === (currentFile.path || currentFile.name)
         ? { ...f, content: newContent }
         : f
     ));
@@ -958,15 +950,17 @@ const AppContent = () => {
       case 'delete': {
         updatedFiles = fileTreeOperations.delete(fullCurrentProject.files, operation.path);
         const deletedPath = operation.path.join('/');
+        const isDeleted = (filePath: string) =>
+          filePath === deletedPath || filePath.startsWith(`${deletedPath}/`);
         setOpenFiles(prevFiles => {
           const remainingFiles = prevFiles.filter(file => {
             const filePath = file.path || constructFullPath(file, fullCurrentProject.files);
-            return !filePath.startsWith(deletedPath);
+            return !isDeleted(filePath);
           });
           if (currentFile) {
             const currentFilePath = currentFile.path ||
               constructFullPath(currentFile, fullCurrentProject.files);
-            if (currentFilePath.startsWith(deletedPath)) {
+            if (isDeleted(currentFilePath)) {
               setCurrentFile(remainingFiles.length > 0 ? remainingFiles[remainingFiles.length - 1] : null);
             }
           }
@@ -974,13 +968,25 @@ const AppContent = () => {
         });
         break;
       }
-      case 'rename':
+      case 'rename': {
+        const newName = operation.newName || '';
         updatedFiles = fileTreeOperations.rename(
           fullCurrentProject.files,
           operation.path,
-          operation.newName || ''
+          newName
         );
+        const oldPath = operation.path.join('/');
+        const newPath = pathUtils.normalize([...pathUtils.getParentPath(operation.path), newName]);
+        const retarget = (file: FileNode): FileNode => {
+          const filePath = file.path || constructFullPath(file, fullCurrentProject.files);
+          if (filePath === oldPath) return { ...file, name: newName, path: newPath };
+          if (filePath.startsWith(`${oldPath}/`)) return { ...file, path: newPath + filePath.slice(oldPath.length) };
+          return file;
+        };
+        setOpenFiles(prevFiles => prevFiles.map(retarget));
+        setCurrentFile(prev => (prev ? retarget(prev) : prev));
         break;
+      }
       case 'move': {
         const { sourcePath, targetParentPath } = operation;
         updatedFiles = fileTreeOperations.move(
@@ -1031,6 +1037,7 @@ const AppContent = () => {
     setFullCurrentProject(projectToUpdate);
     projectService.saveProject(projectToUpdate).catch(error => {
       console.error('Failed to save project:', error);
+      addOutputMessage('error', `Failed to save project: ${error instanceof Error ? error.message : String(error)}`);
     });
   };
 
@@ -1500,6 +1507,7 @@ const AppContent = () => {
     setFullCurrentProject(projectToUpdate);
     projectService.saveProject(projectToUpdate).catch(error => {
       console.error('Failed to save project after file drop:', error);
+      addOutputMessage('error', `Failed to save project: ${error instanceof Error ? error.message : String(error)}`);
     });
 
     // Expand all affected folders
@@ -1626,6 +1634,7 @@ const AppContent = () => {
       }
     } catch (error) {
       console.error('Save failed:', error);
+      addOutputMessage('error', `Failed to save file: ${error instanceof Error ? error.message : String(error)}`);
     }
   }, [currentFile, fullCurrentProject, openFiles]);
 
@@ -1910,6 +1919,15 @@ const AppContent = () => {
 
         // Clear pending changes
         setPendingChanges(new Map());
+        autosaveErrorRef.current = null;
+      } catch (error) {
+        console.error('Autosave failed:', error);
+        // Failed changes stay pending and retry every cycle, so report each distinct error once.
+        const message = error instanceof Error ? error.message : String(error);
+        if (autosaveErrorRef.current !== message) {
+          autosaveErrorRef.current = message;
+          addOutputMessage('error', `Autosave failed: ${message}`);
+        }
       } finally {
         setIsSaving(false);
       }
@@ -2243,6 +2261,14 @@ const AppContent = () => {
   const cmdKey = isMac ? '⌘' : 'Ctrl';
   const hasProject = !!fullCurrentProject;
   const canRunClient = !!currentFile?.name?.endsWith('.ts');
+  const buildDisabledReason = !hasProject
+    ? 'Create or select a project before building.'
+    : isCompiling
+      ? 'Build already in progress.'
+      : undefined;
+  const runDisabledReason = !canRunClient
+    ? 'Open a TypeScript client file before running.'
+    : undefined;
   const commands: CommandItem[] = [
     {
       id: 'project.new',
@@ -2366,6 +2392,8 @@ const AppContent = () => {
         canBuild={hasProject && !isCompiling}
         canRunClient={canRunClient}
         isBuilding={isCompiling}
+        buildDisabledReason={buildDisabledReason}
+        runDisabledReason={runDisabledReason}
         onOpenSettings={() => setIsConfigOpen(true)}
         onOpenMobileSidebar={() => setIsMobileSidebarOpen(true)}
         onOpenCommandPalette={() => setIsCommandPaletteOpen(true)}
@@ -2538,28 +2566,11 @@ const AppContent = () => {
         mobileConsoleBadgeCount={outputMessages.length}
         onOpenSettings={() => setIsConfigOpen(true)}
       >
-        <div
-          className="flex items-center gap-1.5 min-w-0"
-          role="status"
-          aria-live="polite"
-        >
-          {isConnected ? (
-            <div
-              className="flex items-center gap-1.5 min-w-0"
-              title={`Connected to ${config.network} (${actualConnectedUrl || config.rpcUrl})`}
-            >
-              <CheckCircle2 className="h-3 w-3 text-success flex-shrink-0" aria-hidden="true" />
-              <span className="truncate text-foreground/80">
-                Connected to {config.network}
-              </span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-1.5 min-w-0" title="Not connected to network">
-              <AlertCircle className="h-3 w-3 text-danger flex-shrink-0" aria-hidden="true" />
-              <span className="truncate text-foreground/80">Not connected</span>
-            </div>
-          )}
-        </div>
+        <ProjectContextStatus
+          project={fullCurrentProject}
+          currentFile={currentFile}
+          hasProgramBinary={Boolean(programBinary)}
+        />
       </StatusBar>
 
       <NewProjectDialog
@@ -2630,12 +2641,8 @@ const updateFileContent = (nodes: FileNode[], targetFile: FileNode, newContent: 
 
   const updateNode = (node: FileNode): FileNode => {
     if (node.type === 'file') {
-      // Normalize paths by removing leading src/, client/, and any leading slashes
-      const normalizeFilePath = (path: string) => {
-        return path
-          .replace(/^(src\/|client\/)/, '') // Remove leading src/ or client/
-          .replace(/^\/+/, ''); // Remove any leading slashes
-      };
+      // Only strip leading slashes: src/x and client/x are different files.
+      const normalizeFilePath = (path: string) => path.replace(/^\/+/, '');
 
       // Ensure both nodes have paths for comparison
       const nodePath = normalizeFilePath(node.path || constructFullPath(node, nodes));

@@ -24,7 +24,7 @@ variable "arch_network_git" {
 variable "arch_network_rev" {
   description = "Immutable commit SHA for arch-network (preferred for stable compilation)"
   type        = string
-  default     = "7675ee9b7d264fcc6c41c98909e4c47893147509"
+  default     = "854713edfae969a86f217c1c1cdc673628faf54d"
 }
 
 variable "arch_network_branch" {
