@@ -2178,6 +2178,7 @@ const AppContent = () => {
     } catch (error) {
       console.error('Failed to load example project:', error);
       addOutputMessage('error', `Failed to load example: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
     }
   };
 
