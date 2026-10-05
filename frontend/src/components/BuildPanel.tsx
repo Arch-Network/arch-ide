@@ -488,7 +488,7 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
                   <div className="flex items-center gap-0.5">
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button data-tutorial="generate-key" variant="ghost" size="sm" onClick={handleNewKeypairClick} className="h-7 w-7 p-0 hover:bg-accent rounded-lg" aria-label="New keypair">
+                        <Button variant="ghost" size="sm" onClick={handleNewKeypairClick} className="h-7 w-7 p-0 hover:bg-accent rounded-lg" aria-label="New keypair">
                           <Plus className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
                         </Button>
                       </TooltipTrigger>
@@ -528,7 +528,7 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
                 onChange={handleImportKeypair}
               />
               {programPubkeyHex ? (
-                <div className="min-w-0" data-tutorial="keypair-generated">
+                <div className="min-w-0">
                   <FormatToggleInput label="Program ID" hex={programPubkeyHex} />
                 </div>
               ) : (
@@ -651,7 +651,6 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
 
             {/* Deploy button */}
             <Button
-              data-tutorial="deploy"
               onClick={onDeploy}
               disabled={isDeploying || !isDeployReady}
               title={isDeployReady ? 'Deploy program' : deployReadinessReason}

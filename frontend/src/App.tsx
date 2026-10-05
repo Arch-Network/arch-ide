@@ -45,8 +45,7 @@ import { useResizablePanel } from './hooks/useResizablePanel';
 import { useEditorPreferences } from './hooks/useEditorPreferences';
 import { DeploymentModal } from './components/DeploymentModal';
 import { BrowserCompatibilityAlert } from './components/BrowserCompatibilityAlert';
-import { TutorialProvider, useTutorial } from './context/TutorialContext';
-import { TutorialOverlay } from './components/TutorialOverlay';
+import { completeOnboardingStep, setOnboardingOpen } from './hooks/useOnboarding';
 import { WelcomeModal } from './components/WelcomeModal';
 import { Toaster } from './components/ui/toaster';
 import { HomeScreen } from './components/HomeScreen';
@@ -256,7 +255,6 @@ if (typeof window !== 'undefined') {
 }
 
 const AppContent = () => {
-  const { isActive, startTutorial, skipTutorial } = useTutorial();
   const [projects, setProjects] = useState<Project[]>([]);
   const [fullCurrentProjectRaw, setFullCurrentProjectRaw] = useState<Project | null>(null);
 
@@ -700,6 +698,7 @@ const AppContent = () => {
         addOutputMessage('info', `Program ID: ${programIdBase58}`, explorerUrls?.program(programIdBase58));
         setProgramId(result.programId);
         setBinaryFileName(`${fullCurrentProject.name}.so`);
+        completeOnboardingStep('deploy');
       }
     } catch (error: any) {
       addOutputMessage('error', `Deploy error: ${error.message}`);
@@ -720,6 +719,7 @@ const AppContent = () => {
     const updatedProjects = await projectService.getAllProjects();
     setProjects(updatedProjects.map(stripProjectContent));
     setFullCurrentProject(newProject);
+    completeOnboardingStep('create');
 
     // Clear all program-related states
     setCurrentAccount(null);
@@ -1208,6 +1208,7 @@ const AppContent = () => {
             const base64Binary = Buffer.from(arrayBuffer).toString('base64');
             setProgramBinary(`data:application/octet-stream;base64,${base64Binary}`);
             setBinaryFileName(`${fullCurrentProject.name}.so`);
+            completeOnboardingStep('build');
             addOutputMessage('info', `Program binary retrieved successfully (${arrayBuffer.byteLength} bytes)`);
           } catch (error: any) {
             addOutputMessage('error', `Failed to retrieve program binary: ${error.message}`);
@@ -2165,6 +2166,7 @@ const AppContent = () => {
 
       // Set as current project
       setFullCurrentProject(project);
+      completeOnboardingStep('create');
       setCurrentAccount(project.account || null);
       setProgramId(project.account?.pubkey);
       setProgramBinary(null);
@@ -2200,8 +2202,7 @@ const AppContent = () => {
   }, [openFiles]);
 
   useEffect(() => {
-    const hasCompletedTutorial = storage.getHasCompletedTutorial();
-    if (!hasCompletedTutorial && !isActive) {
+    if (!storage.getHasCompletedTutorial()) {
       setShowWelcome(true);
     }
   }, []);
@@ -2612,11 +2613,12 @@ const AppContent = () => {
         isOpen={showWelcome}
         onStart={() => {
           setShowWelcome(false);
-          startTutorial();
+          storage.saveHasCompletedTutorial(true);
+          setOnboardingOpen(true);
         }}
         onSkip={() => {
           setShowWelcome(false);
-          skipTutorial();
+          storage.saveHasCompletedTutorial(true);
         }}
       />
     </div>
@@ -2733,13 +2735,10 @@ function debounce<T extends (...args: any[]) => any>(
 const App = () => {
   return (
     <ThemeProvider>
-      <TutorialProvider>
-        <TutorialOverlay />
-        <QueryClientProvider client={queryClient}>
-          <AppContent />
-          <Toaster />
-        </QueryClientProvider>
-      </TutorialProvider>
+      <QueryClientProvider client={queryClient}>
+        <AppContent />
+        <Toaster />
+      </QueryClientProvider>
     </ThemeProvider>
   );
 };

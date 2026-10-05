@@ -18,7 +18,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { projectService } from '../services/projectService';
 import DeleteProjectDialog from './DeleteProjectDialog';
-import { useTutorial } from '../context/TutorialContext';
+import { setOnboardingOpen } from '../hooks/useOnboarding';
 import { MoreVertical } from 'lucide-react';
 
 interface ProjectListProps {
@@ -42,7 +42,6 @@ const ProjectList: React.FC<ProjectListProps> = ({
 }) => {
   const [selectedId, setSelectedId] = useState(currentProject?.id || '');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
-  const { startTutorial } = useTutorial();
 
   useEffect(() => {
     setSelectedId(currentProject?.id || '');
@@ -124,7 +123,6 @@ const ProjectList: React.FC<ProjectListProps> = ({
   const menuItems = (
     <>
       <DropdownMenuItem
-        data-tutorial="create-project-button"
         onClick={onNewProject}
         className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer text-xs"
       >
@@ -148,11 +146,11 @@ const ProjectList: React.FC<ProjectListProps> = ({
       </DropdownMenuItem>
       <DropdownMenuSeparator className="bg-border" />
       <DropdownMenuItem
-        onClick={() => startTutorial()}
+        onClick={() => setOnboardingOpen(true)}
         className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer text-xs"
       >
         <HelpCircle className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
-        Tutorial
+        Getting Started
       </DropdownMenuItem>
       {currentProject && (
         <>
