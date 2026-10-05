@@ -14,6 +14,7 @@ import {
   import { Project, ProjectAccount } from '../types';
   import { useToast } from "@/components/ui/use-toast";
   import { getSmartRpcUrl } from '../utils/smartRpcConnection';
+import { type BinaryOrigin, decodeProgramBinary, describeOrigin, hasElfMagic, shortSha256 } from '../utils/programArtifact';
 import { AuthorityAccountPanel } from './AuthorityAccountPanel';
 import FormatToggleInput from './FormatToggleInput';
 import StepCard from './StepCard';
@@ -30,6 +31,8 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
     programId?: string;
     programBinary?: string | null;
     onProgramBinaryChange?: (binary: string | null) => void;
+    binaryOrigin?: BinaryOrigin | null;
+    onBinaryOriginChange?: (origin: BinaryOrigin) => void;
     config: Config;
     onConfigChange?: (config: Config) => void;
     onConnectionStatusChange?: (connected: boolean) => void;
@@ -60,6 +63,8 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
     programId,
     programBinary,
     onProgramBinaryChange,
+    binaryOrigin,
+    onBinaryOriginChange,
     config,
     onConnectionStatusChange,
     onProgramIdChange,
@@ -105,6 +110,21 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
       useEffect(() => {
         setIsRpcConnected(connected);
       }, [connected]);
+
+      const [uploadError, setUploadError] = useState<string | null>(null);
+      const [artifactIdentity, setArtifactIdentity] = useState<{ binary: string; size: number; sha256: string } | null>(null);
+      useEffect(() => {
+        setUploadError(null);
+        if (!programBinary) return;
+        let cancelled = false;
+        const bytes = decodeProgramBinary(programBinary);
+        shortSha256(bytes).then((sha256) => {
+          if (!cancelled) setArtifactIdentity({ binary: programBinary, size: bytes.length, sha256 });
+        });
+        return () => {
+          cancelled = true;
+        };
+      }, [programBinary]);
 
       // ── Step status computation ──────────────────────────────────
       const programPubkeyHex = currentAccount?.pubkey || project?.account?.pubkey;
@@ -182,15 +202,19 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
         const file = event.target.files?.[0];
         if (!file) return;
         await processBinaryFile(file);
+        // Clear the input so choosing the same file again still fires onChange.
+        event.target.value = '';
       };
 
       const processBinaryFile = async (file: File) => {
+        setUploadError(null);
         if (!file.name.endsWith('.so')) {
-          toast({
-            title: "Invalid file type",
-            description: "Please upload a .so binary file",
-            variant: "destructive"
-          });
+          setUploadError(`${file.name} was not loaded: please upload a .so binary file.`);
+          return;
+        }
+
+        if (!hasElfMagic(new Uint8Array(await file.slice(0, 4).arrayBuffer()))) {
+          setUploadError(`${file.name} was not loaded: it is not an ELF program (it does not start with the bytes 7f 45 4c 46). Upload the .so produced by cargo build-sbf.`);
           return;
         }
 
@@ -203,6 +227,7 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
             if (binary) {
               setBinaryFileName(file.name);
               onProgramBinaryChange?.(binary as string);
+              onBinaryOriginChange?.({ source: 'uploaded', fileName: file.name, at: new Date(), binary: binary as string });
               toast({
                 title: "Success",
                 description: "Program binary loaded successfully",
@@ -596,7 +621,14 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
                 /* Binary loaded state */
                 <div className="flex items-center gap-2.5 rounded-lg bg-success/5 border border-success/20 px-3 py-2.5">
                   <div className="h-2 w-2 rounded-full bg-success shadow-sm shadow-success/50" />
-                  <span className="text-xs font-mono text-foreground truncate flex-1">{binaryFileName}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-mono text-foreground truncate">{binaryFileName}</p>
+                    {programBinary && artifactIdentity?.binary === programBinary && (
+                      <p className="text-[10px] leading-snug font-mono text-muted-foreground break-words">
+                        {artifactIdentity.size.toLocaleString()} bytes · sha256 {artifactIdentity.sha256} · {describeOrigin(binaryOrigin, programBinary)}
+                      </p>
+                    )}
+                  </div>
                 </div>
               ) : (
                 /* Drop zone */
@@ -621,6 +653,9 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
                     <p className="text-[10px] text-muted-foreground/70 mt-1">.so binary files</p>
                   </div>
                 </div>
+              )}
+              {uploadError && (
+                <p role="alert" className="mt-2 text-[11px] leading-snug text-destructive">{uploadError}</p>
               )}
             </StepCard>
           </div>

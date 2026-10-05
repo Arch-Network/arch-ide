@@ -19,6 +19,7 @@ import TabBar from './components/TabBar';
 import NewItemDialog from './components/NewItemDialog';
 import { OutputMessage } from './components/Output';
 import { ConfigPanel } from './components/ConfigPanel';
+import type { BinaryOrigin } from './utils/programArtifact';
 import {
   Hammer,
   Rocket,
@@ -302,6 +303,7 @@ const AppContent = () => {
   const [programId, setProgramId] = useState<string>();
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [programBinary, setProgramBinary] = useState<string | null>(null);
+  const [binaryOrigin, setBinaryOrigin] = useState<BinaryOrigin | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, FileChange>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
@@ -1206,7 +1208,9 @@ const AppContent = () => {
 
             const arrayBuffer = await binaryResponse.arrayBuffer();
             const base64Binary = Buffer.from(arrayBuffer).toString('base64');
-            setProgramBinary(`data:application/octet-stream;base64,${base64Binary}`);
+            const builtBinary = `data:application/octet-stream;base64,${base64Binary}`;
+            setProgramBinary(builtBinary);
+            setBinaryOrigin({ source: 'built', fileName: `${program_name}.so`, at: new Date(), binary: builtBinary });
             setBinaryFileName(`${fullCurrentProject.name}.so`);
             addOutputMessage('info', `Program binary retrieved successfully (${arrayBuffer.byteLength} bytes)`);
           } catch (error: any) {
@@ -2422,6 +2426,8 @@ const AppContent = () => {
             programId={programId}
             programBinary={programBinary}
             onProgramBinaryChange={setProgramBinary}
+            binaryOrigin={binaryOrigin}
+            onBinaryOriginChange={setBinaryOrigin}
             config={config}
             onConfigChange={setConfig}
             onConnectionStatusChange={setIsConnected}
@@ -2477,6 +2483,8 @@ const AppContent = () => {
                 programId={programId}
                 programBinary={programBinary}
                 onProgramBinaryChange={setProgramBinary}
+                binaryOrigin={binaryOrigin}
+                onBinaryOriginChange={setBinaryOrigin}
                 config={config}
                 onConfigChange={setConfig}
                 onConnectionStatusChange={setIsConnected}
