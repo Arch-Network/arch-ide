@@ -1,5 +1,6 @@
 // Bitcoin Wallet Manager - Similar to Solana Playground's PgWallet
 import { BitcoinWalletAdapter, BitcoinWalletAccount, BitcoinWalletState, SerializedBitcoinWallet } from '../../types/wallet';
+import { ArchWalletAdapter } from './adapters/arch';
 import { UnisatWalletAdapter } from './adapters/unisat';
 import { XverseWalletAdapter } from './adapters/xverse';
 
@@ -18,22 +19,48 @@ const defaultState: BitcoinWalletState = {
 class BitcoinWalletManager {
   private state: BitcoinWalletState = defaultState;
   private listeners: Set<WalletChangeListener> = new Set();
+  private allAdapters: BitcoinWalletAdapter[] = [];
 
   constructor() {
     this.initialize();
   }
 
   private initialize() {
-    // Initialize available wallet adapters
-    const adapters = [
+    // Arch Wallet first — always kept in the picker so a missing extension can show an install CTA.
+    this.allAdapters = [
+      new ArchWalletAdapter(),
       new UnisatWalletAdapter(),
       new XverseWalletAdapter(),
     ];
 
-    this.state.availableWallets = adapters.filter(adapter => adapter.isAvailable());
+    this.refreshAvailableWallets();
+    this.watchForArchWallet();
 
     // Try to restore previous connection
     this.restoreConnection();
+  }
+
+  /** Re-scan installed extensions. Arch Wallet stays listed even if missing. */
+  private refreshAvailableWallets() {
+    const installed = this.allAdapters.filter(adapter => adapter.isAvailable());
+    const arch = this.allAdapters.find(adapter => adapter.name === 'Arch Wallet');
+    const rest = installed.filter(adapter => adapter.name !== 'Arch Wallet');
+    this.state.availableWallets = arch ? [arch, ...rest] : rest;
+  }
+
+  /**
+   * The extension injects at document_start but the page script may race.
+   * `arch-wallet#initialized` fires from the injected provider.
+   */
+  private watchForArchWallet() {
+    if (typeof window === 'undefined') return;
+    window.addEventListener('arch-wallet#initialized', () => {
+      this.refreshAvailableWallets();
+      this.notify();
+      if (!this.isConnected) {
+        void this.restoreConnection();
+      }
+    });
   }
 
   /** Get current state */
@@ -112,11 +139,11 @@ class BitcoinWalletManager {
       }
 
       if (serialized.state === 'connected' && serialized.walletName) {
-        const wallet = this.state.availableWallets.find(
+        const wallet = this.allAdapters.find(
           w => w.name === serialized.walletName
         );
 
-        if (wallet) {
+        if (wallet && wallet.isAvailable()) {
           // Try to reconnect silently
           try {
             await this.connect(wallet.name, serialized.network ?? 'testnet');
@@ -125,10 +152,12 @@ class BitcoinWalletManager {
             // Clear stored state if reconnection fails
             localStorage.removeItem(STORAGE_KEY);
           }
-        } else {
-          // Previously selected wallet isn't available anymore (extension removed/disabled)
+        } else if (!wallet) {
+          // Previously selected wallet isn't a known adapter anymore
           localStorage.removeItem(STORAGE_KEY);
         }
+        // If the adapter exists but isn't injected yet (Arch Wallet race),
+        // leave stored state so watchForArchWallet can retry.
       }
     } catch (error) {
       console.error('Failed to restore wallet state:', error);
