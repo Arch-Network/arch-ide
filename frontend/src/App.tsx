@@ -60,6 +60,8 @@ import { HomeScreen } from './components/HomeScreen';
 import ProjectContextStatus from './components/ProjectContextStatus';
 import { exampleProjectsService } from './services/exampleProjectsService';
 import { createHomeTab, isHomeTab, addHomeTabIfNotExists } from './utils/homeTab';
+import { clearProjectTabs, loadProjectTabs, saveProjectTabs } from './utils/editorTabs';
+import { useProjectArtifact } from './hooks/useProjectArtifact';
 import { type DroppedFile, getTargetRoot, stripLeadingRoot } from './utils/fileDropUtils';
 
 const queryClient = new QueryClient();
@@ -309,7 +311,7 @@ const AppContent = () => {
   const deployAbortRef = useRef<AbortController | null>(null);
   const [programId, setProgramId] = useState<string>();
   const [isConfigOpen, setIsConfigOpen] = useState(false);
-  const [programBinary, setProgramBinary] = useState<string | null>(null);
+  const [programBinary, setProgramBinary] = useProjectArtifact(fullCurrentProject?.id);
   const [binaryOrigin, setBinaryOrigin] = useState<BinaryOrigin | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, FileChange>>(new Map());
@@ -326,6 +328,7 @@ const AppContent = () => {
   const [currentView, setCurrentView] = useState<SidebarView>(storage.getCurrentView());
   const [binaryFileName, setBinaryFileName] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const tabsRestoringForRef = useRef<string | null>(null);
   const previousConnectionStatus = useRef(isConnected);
   const [actualConnectedUrl, setActualConnectedUrl] = useState<string | null>(null);
   const [isDeploymentModalOpen, setIsDeploymentModalOpen] = useState(false);
@@ -491,11 +494,6 @@ const AppContent = () => {
   });
 
   useEffect(() => {
-    const savedBinary = storage.getProgramBinary();
-    if (savedBinary) {
-      setProgramBinary(savedBinary);
-    }
-
     const savedProgramId = storage.getProgramId();
     if (savedProgramId) {
       setProgramId(savedProgramId);
@@ -524,11 +522,6 @@ const AppContent = () => {
       });
     }
   }, [config]);
-
-  // Save program binary when it changes
-  useEffect(() => {
-    storage.saveProgramBinary(programBinary);
-  }, [programBinary]);
 
   // Save program ID when it changes
   useEffect(() => {
@@ -589,54 +582,32 @@ const AppContent = () => {
       setExpandedFolders(foldersToSet);
       console.groupEnd();
 
-      // Restore tabs
-      const savedTabs = localStorage.getItem('editorTabs');
-      const savedCurrentFile = localStorage.getItem('currentEditorFile');
-
-      console.log('📑 Restoring editor tabs:', {
-        savedTabs,
-        savedCurrentFile,
-        projectId: fullCurrentProject.id
-      });
-
+      // Restore tabs; never carry the previous project's files over
+      tabsRestoringForRef.current = fullCurrentProject.id;
+      const savedTabs = loadProjectTabs(fullCurrentProject.id, fullCurrentProject.files);
       if (savedTabs) {
-        try {
-          const tabPaths = JSON.parse(savedTabs);
-          console.log('📋 Tab paths to restore:', tabPaths);
-
-          const validTabs = tabPaths
-            .map((path: string) => findFileInProject(fullCurrentProject.files, path))
-            .filter((file: FileNode | null): file is FileNode => file !== null);
-
-          console.log('✅ Valid tabs found:', validTabs.length, validTabs.map((t: FileNode) => t.name));
-
-          if (validTabs.length > 0) {
-            // Open all tabs at once
-            setOpenFiles(validTabs);
-
-            // Set current file to either the previously selected file or the first tab
-            if (savedCurrentFile) {
-              const currentFile = findFileInProject(fullCurrentProject.files, savedCurrentFile);
-              if (currentFile) {
-                console.log('📌 Restoring current file:', currentFile.name);
-                setCurrentFile(currentFile);
-              } else {
-                console.log('⚠️ Saved current file not found, using first tab');
-                setCurrentFile(validTabs[0]);
-              }
-            } else {
-              console.log('📌 No saved current file, using first tab:', validTabs[0].name);
-              setCurrentFile(validTabs[0]);
-            }
-          }
-        } catch (e) {
-          console.error('Error restoring editor tabs:', e);
-        }
+        setOpenFiles(savedTabs.tabs);
+        setCurrentFile(savedTabs.active);
       } else {
-        console.log('⚠️ No saved tabs found in localStorage');
+        const homeTab = openFiles.find(isHomeTab);
+        setOpenFiles(homeTab ? [homeTab] : []);
+        setCurrentFile(homeTab || null);
       }
     }
   }, [fullCurrentProject?.id]); // Only trigger when project ID changes, not when name/description changes
+
+  const openTabPaths = openFiles.map(f => f.path || f.name).join('\n');
+  const activeTabPath = currentFile ? currentFile.path || currentFile.name : null;
+  useEffect(() => {
+    const projectId = fullCurrentProject?.id;
+    if (!projectId) return;
+    // On a project switch this runs before the restored tabs render, so it still sees the previous project's.
+    if (tabsRestoringForRef.current === projectId) {
+      tabsRestoringForRef.current = null;
+      return;
+    }
+    saveProjectTabs(projectId, openFiles, currentFile);
+  }, [fullCurrentProject?.id, openTabPaths, activeTabPath]);
 
   const handleDeploy = async () => {
     const missing = [];
@@ -755,7 +726,6 @@ const AppContent = () => {
     // Clear all program-related states
     setCurrentAccount(null);
     setProgramId(undefined);
-    setProgramBinary(null);
 
     // Clear all open tabs and current file
     setOpenFiles([]);
@@ -899,18 +869,6 @@ const AppContent = () => {
     setIsNewFileDialogOpen(false);
   };
 
-  const saveTabState = useCallback(() => {
-    if (openFiles.length > 0) {
-      localStorage.setItem('editorTabs', JSON.stringify(openFiles.map(f => f.path || f.name)));
-      if (currentFile) {
-        localStorage.setItem('currentEditorFile', currentFile.path || currentFile.name);
-      }
-    } else {
-      localStorage.removeItem('editorTabs');
-      localStorage.removeItem('currentEditorFile');
-    }
-  }, [openFiles, currentFile]);
-
   const handleFileSelect = (file: FileNode) => {
     if (file.type === 'file') {
       const filePath = file.path || constructFullPath(file, fullCurrentProject?.files || []);
@@ -929,10 +887,6 @@ const AppContent = () => {
         setOpenFiles(prev => [...prev, fileToUse]);
       }
 
-      // Save to localStorage immediately with the new file
-      // (can't use saveTabState because state hasn't updated yet)
-      localStorage.setItem('currentEditorFile', fileToUse.path || fileToUse.name);
-
       // On mobile, close the sidebar drawer after selecting a file
       if (isMobile) {
         setIsMobileSidebarOpen(false);
@@ -950,10 +904,7 @@ const AppContent = () => {
       const nextFile = openFiles[openFiles.length - 2]; // Get previous file
       setCurrentFile(nextFile || null);
     }
-
-    // Update localStorage after closing
-    saveTabState();
-  }, [currentFile, openFiles, saveTabState]);
+  }, [currentFile, openFiles]);
 
   const handleUpdateTree = (operation: FileOperation) => {
     if (!fullCurrentProject) return;
@@ -1610,6 +1561,7 @@ const AppContent = () => {
 
       // Clean up localStorage entries for this project
       localStorage.removeItem(`expandedFolders_${projectId}`);
+      clearProjectTabs(projectId);
       if (isCurrentProject) {
         localStorage.removeItem('currentProjectId');
       }
@@ -1691,19 +1643,11 @@ const AppContent = () => {
           lastModified: now,
         };
       });
-
-      // Persist tab state to localStorage
-      if (openFiles.length > 0) {
-        localStorage.setItem('editorTabs', JSON.stringify(openFiles.map(f => f.path || f.name)));
-        if (currentFile) {
-          localStorage.setItem('currentEditorFile', currentFile.path || currentFile.name);
-        }
-      }
     } catch (error) {
       console.error('Save failed:', error);
       addOutputMessage('error', `Failed to save file: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [currentFile, fullCurrentProject, openFiles]);
+  }, [currentFile, fullCurrentProject]);
 
   useEffect(() => {
     console.group('Connection Status Change Debug');
@@ -1914,7 +1858,6 @@ const AppContent = () => {
       setFullCurrentProject(fullProject);
       setCurrentAccount(fullProject.account || null);
       setProgramId(fullProject.account?.pubkey);
-      setProgramBinary(null);
       // Don't clear openFiles and currentFile here - let the useEffect restore them from localStorage
 
       console.log('✅ Project switch complete - useEffect should now run to restore tabs and expanded folders');
@@ -2050,9 +1993,6 @@ const AppContent = () => {
 
     setCurrentFile(fileWithPath);
 
-    // Save current file selection to localStorage
-    localStorage.setItem('currentEditorFile', fileWithPath.path || fileWithPath.name);
-
     console.groupEnd();
   }, [fullCurrentProject]);
 
@@ -2077,9 +2017,6 @@ const AppContent = () => {
         contentPreview: projectFile.content?.substring(0, 100)
       });
       setCurrentFile(projectFile);
-
-      // Save current file selection to localStorage
-      localStorage.setItem('currentEditorFile', projectFile.path || projectFile.name);
     } else {
       console.warn('File not found in project:', file.path || file.name);
     }
@@ -2197,8 +2134,7 @@ const AppContent = () => {
       storage.saveCurrentAccount(null);
 
       // Clear editor tab persistence
-      localStorage.removeItem('editorTabs');
-      localStorage.removeItem('currentEditorFile');
+      projectIds.forEach(clearProjectTabs);
 
       // Reset UI state
       setProjects([]);
@@ -2239,7 +2175,6 @@ const AppContent = () => {
       setFullCurrentProject(project);
       setCurrentAccount(project.account || null);
       setProgramId(project.account?.pubkey);
-      setProgramBinary(null);
 
       // Keep Home tab open, clear other tabs, and set it as current
       const homeTab = openFiles.find(isHomeTab);

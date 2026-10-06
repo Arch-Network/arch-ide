@@ -2,6 +2,7 @@ import React from 'react';
 import { CheckCircle2, Code2, FileCode2, Package, XCircle } from 'lucide-react';
 import { cn } from '../lib/utils';
 import type { FileNode, Project } from '../types';
+import { isHomeTab } from '../utils/homeTab';
 
 interface ProjectContextStatusProps {
   project: Project | null;
@@ -77,7 +78,7 @@ export const ProjectContextStatus: React.FC<ProjectContextStatusProps> = ({
         title={hasRunnableClient ? `Runnable client file: ${currentFile?.name}` : 'Open a TypeScript client file before running.'}
       />
 
-      {currentFile && (
+      {currentFile && !isHomeTab(currentFile) && (
         <div className="hidden lg:flex items-center gap-1 min-w-0 text-muted-foreground" title={currentFile.path || currentFile.name}>
           <FileCode2 className="h-3 w-3 shrink-0" aria-hidden="true" />
           <span className="truncate max-w-[180px]">{currentFile.path || currentFile.name}</span>
