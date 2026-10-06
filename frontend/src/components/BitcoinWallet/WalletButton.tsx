@@ -4,6 +4,7 @@ import { Wallet, ChevronDown, LogOut } from 'lucide-react';
 import { Button } from '../ui/button';
 import { useBitcoinWallet } from '../../hooks/useBitcoinWallet';
 import { useToast } from '../ui/use-toast';
+import { ARCH_WALLET_INSTALL_URL } from '../../utils/wallet/adapters/arch';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,6 +17,8 @@ import {
 const WalletIcon: React.FC<{ name: string }> = ({ name }) => {
   const getWalletStyle = () => {
     switch (name) {
+      case 'Arch Wallet':
+        return { bg: 'bg-brand', text: 'A' };
       case 'Unisat':
         return { bg: 'bg-orange-600', text: 'U' };
       case 'Xverse':
@@ -71,6 +74,19 @@ export const WalletButton: React.FC<WalletButtonProps> = ({
         description: error.message || "Failed to connect wallet",
         variant: "destructive",
       });
+    }
+  };
+
+  const openInstall = (wallet: { name: string; installUrl?: string }) => {
+    const url = wallet.installUrl || ARCH_WALLET_INSTALL_URL;
+    window.open(url, '_blank', 'noopener,noreferrer');
+  };
+
+  const handleWalletClick = (wallet: (typeof availableWallets)[number]) => {
+    if (wallet.isAvailable()) {
+      void handleConnect(wallet.name);
+    } else {
+      openInstall(wallet);
     }
   };
 
@@ -143,25 +159,26 @@ export const WalletButton: React.FC<WalletButtonProps> = ({
         variant="outline"
         size="sm"
         className="gap-2 bg-accent border-border hover:bg-surface-3 text-foreground"
-        onClick={() => window.open('https://unisat.io', '_blank')}
+        onClick={() => window.open(ARCH_WALLET_INSTALL_URL, '_blank', 'noopener,noreferrer')}
       >
         <Wallet className="h-4 w-4" aria-hidden="true" />
-        <span>Install Wallet</span>
+        <span>Install Arch Wallet</span>
       </Button>
     );
   }
 
   if (availableWallets.length === 1) {
-    // Only one wallet available - direct connect
+    const only = availableWallets[0];
+    const installed = only.isAvailable();
     return (
       <Button
         variant="outline"
         size="sm"
         className="gap-2 bg-accent border-border hover:bg-surface-3 text-foreground"
-        onClick={() => handleConnect(availableWallets[0].name)}
+        onClick={() => handleWalletClick(only)}
       >
         <Wallet className="h-4 w-4" aria-hidden="true" />
-        <span>Connect {availableWallets[0].name}</span>
+        <span>{installed ? `Connect ${only.name}` : `Install ${only.name}`}</span>
       </Button>
     );
   }
@@ -183,16 +200,19 @@ export const WalletButton: React.FC<WalletButtonProps> = ({
       <DropdownMenuContent align="end" className="bg-popover border-border">
         <DropdownMenuLabel className="text-foreground font-semibold">Select Wallet</DropdownMenuLabel>
         <DropdownMenuSeparator className="bg-border" />
-        {availableWallets.map((w) => (
-          <DropdownMenuItem
-            key={w.name}
-            onClick={() => handleConnect(w.name)}
-            className="gap-2 text-foreground hover:bg-accent cursor-pointer"
-          >
-            <WalletIcon name={w.name} />
-            <span>{w.name}</span>
-          </DropdownMenuItem>
-        ))}
+        {availableWallets.map((w) => {
+          const installed = w.isAvailable();
+          return (
+            <DropdownMenuItem
+              key={w.name}
+              onClick={() => handleWalletClick(w)}
+              className="gap-2 text-foreground hover:bg-accent cursor-pointer"
+            >
+              <WalletIcon name={w.name} />
+              <span>{installed ? w.name : `Install ${w.name}`}</span>
+            </DropdownMenuItem>
+          );
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   );

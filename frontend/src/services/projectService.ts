@@ -678,7 +678,7 @@ if (typeof walletProxy !== 'undefined') {
     } else {
       console.log("⚠️  No wallet extension detected in browser");
       console.log("💡 To use your wallet:");
-      console.log("   1. Install Unisat (https://unisat.io) or Xverse wallet extension");
+      console.log("   1. Install Arch Wallet (https://chromewebstore.google.com/detail/arch-wallet/gkkpjeinjoglmlngnjaehlkkepehjkei), Unisat, or Xverse");
       console.log("   2. Refresh this page after installing");
       console.log("   3. Make sure the wallet is unlocked");
     }
@@ -974,7 +974,7 @@ if (PROGRAM_ID_HEX === "YOUR_PROGRAM_ID_HERE") {
     } else {
       console.log("⚠️  No wallet connected");
       console.log("\n💡 To complete this transaction:");
-      console.log("   1. Install Unisat (https://unisat.io) or Xverse wallet");
+      console.log("   1. Install Arch Wallet (https://chromewebstore.google.com/detail/arch-wallet/gkkpjeinjoglmlngnjaehlkkepehjkei), Unisat, or Xverse");
       console.log("   2. Connect your wallet to this site");
       console.log("   3. Run this script again");
       console.log("\n📝 Transaction was prepared successfully:");

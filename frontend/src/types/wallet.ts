@@ -33,6 +33,8 @@ export interface BitcoinWalletAdapter {
 
   /** Check if the wallet extension is installed */
   isAvailable(): boolean;
+  /** Install page shown when the extension is missing */
+  installUrl?: string;
   /** Connect to the wallet with optional network */
   connect(network?: 'mainnet' | 'testnet' | 'regtest'): Promise<void>;
   /** Disconnect from the wallet */

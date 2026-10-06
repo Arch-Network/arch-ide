@@ -241,7 +241,7 @@ export async function signAndSendTransaction(
   } else {
     console.log("⚠️  No wallet connected");
     console.log("\n💡 To complete this transaction:");
-    console.log("   1. Install Unisat (https://unisat.io) or Xverse wallet");
+    console.log("   1. Install Arch Wallet (https://chromewebstore.google.com/detail/arch-wallet/gkkpjeinjoglmlngnjaehlkkepehjkei), Unisat, or Xverse");
     console.log("   2. Connect your wallet to this site");
     console.log("   3. Run this script again");
     console.log("\n📝 Transaction was prepared successfully:");
