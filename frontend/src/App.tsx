@@ -46,7 +46,7 @@ import { Buffer } from 'buffer/';
 import { formatBuildError } from './utils/errorFormatter';
 import { ArchPgClient } from './utils/archPgClient';
 import { ThemeProvider } from './theme/ThemeContext';
-import { findFileInProject, findFileByPath, constructFullPath } from './utils/projectTree';
+import { findFileInProject, findFileByPath, constructFullPath, getChildNames } from './utils/projectTree';
 import { useResizablePanel } from './hooks/useResizablePanel';
 import { useEditorPreferences } from './hooks/useEditorPreferences';
 import { useBeforeUnloadGuard } from './hooks/useBeforeUnloadGuard';
@@ -854,11 +854,6 @@ const AppContent = () => {
 
   const handleCreateNewItem = (name: string) => {
     if (!newItemPath || !newItemType) return;
-
-    if (isDuplicateName(newItemPath, name, newItemType, fullCurrentProject?.files || [])) {
-      alert(`A ${newItemType} with the name "${name}" already exists in this location.`);
-      return;
-    }
 
     handleUpdateTree({
       type: 'create',
@@ -2591,12 +2586,14 @@ const AppContent = () => {
         isOpen={isNewProjectOpen}
         onClose={() => setIsNewProjectOpen(false)}
         onCreateProject={handleCreateProject}
+        existingNames={projects.map(p => p.name)}
       />
       <NewItemDialog
         isOpen={isNewFileDialogOpen}
         onClose={() => setIsNewFileDialogOpen(false)}
         onSubmit={handleCreateNewItem}
         type={newItemType || 'file'}
+        existingNames={isNewFileDialogOpen ? getChildNames(fullCurrentProject?.files || [], newItemPath) : []}
       />
       <ConfigPanel
         isOpen={isConfigOpen}

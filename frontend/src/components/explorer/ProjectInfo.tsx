@@ -3,6 +3,7 @@ import { ChevronRight, ChevronDown, Pencil, Check, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { projectService } from '../../services/projectService';
+import { validateName } from '../../utils/nameValidation';
 import type { Project } from '../../types';
 
 interface ProjectInfoProps {
@@ -15,6 +16,7 @@ const ProjectInfo: React.FC<ProjectInfoProps> = ({ project, onProjectUpdate }) =
   const [isEditing, setIsEditing] = useState(false);
   const [editedName, setEditedName] = useState(project?.name || '');
   const [editedDescription, setEditedDescription] = useState(project?.description || '');
+  const [nameError, setNameError] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -25,9 +27,19 @@ const ProjectInfo: React.FC<ProjectInfoProps> = ({ project, onProjectUpdate }) =
   const handleSave = async () => {
     if (!project) return;
 
+    const name = editedName.trim();
+    if (name !== project.name) {
+      const otherNames = (await projectService.getAllProjects()).filter((p) => p.id !== project.id).map((p) => p.name);
+      const validationError = validateName(name, 'project', otherNames);
+      if (validationError) {
+        setNameError(validationError);
+        return;
+      }
+    }
+
     const updatedProject = {
       ...project,
-      name: editedName,
+      name,
       description: editedDescription,
       lastModified: new Date(),
     };
@@ -40,6 +52,7 @@ const ProjectInfo: React.FC<ProjectInfoProps> = ({ project, onProjectUpdate }) =
   const handleCancel = () => {
     setEditedName(project?.name || '');
     setEditedDescription(project?.description || '');
+    setNameError('');
     setIsEditing(false);
   };
 
@@ -131,9 +144,19 @@ const ProjectInfo: React.FC<ProjectInfoProps> = ({ project, onProjectUpdate }) =
               id="project-info-name"
               type="text"
               value={editedName}
-              onChange={(e) => setEditedName(e.target.value)}
+              onChange={(e) => {
+                setEditedName(e.target.value);
+                setNameError('');
+              }}
               className="w-full bg-background/60 border border-border rounded-lg px-2.5 py-1.5 text-xs text-foreground/80 focus:outline-none focus:ring-1 focus:ring-brand/50"
+              aria-invalid={!!nameError}
+              aria-describedby={nameError ? 'project-info-name-error' : undefined}
             />
+            {nameError && (
+              <p id="project-info-name-error" role="alert" className="mt-1 text-danger text-xs">
+                {nameError}
+              </p>
+            )}
           </div>
           <div>
             <label htmlFor="project-info-description" className="block text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1">
