@@ -15,6 +15,7 @@ import { projectService } from './services/projectService';
 import type { ArchIdl, Project, FileNode, ProjectAccount, ProjectFramework } from './types';
 import type { ProjectMutations } from './components/ProgramInspector/projectMutations';
 import { parseIdlJson } from './utils/idl/validate';
+import { classifyBuildFailure } from './utils/buildFailure';
 import TabBar from './components/TabBar';
 import NewItemDialog from './components/NewItemDialog';
 import { OutputMessage } from './components/Output';
@@ -288,7 +289,7 @@ const AppContent = () => {
   const [isCompiling, setIsCompiling] = useState(false);
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [openFiles, setOpenFiles] = useState<FileNode[]>([]);
-  const { size: terminalHeight, onMouseDown: handleResizeStart } = useResizablePanel({
+  const { size: terminalHeight, separatorProps: terminalSeparatorProps } = useResizablePanel({
     initial: 192,
     min: 100,
     max: 800,
@@ -303,6 +304,7 @@ const AppContent = () => {
   const [newItemType, setNewItemType] = useState<'file' | 'directory'>();
   const [outputMessages, setOutputMessages] = useState<OutputMessage[]>([]);
   const [isDeploying, setIsDeploying] = useState(false);
+  const deployAbortRef = useRef<AbortController | null>(null);
   const [programId, setProgramId] = useState<string>();
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [programBinary, setProgramBinary] = useState<string | null>(null);
@@ -677,6 +679,8 @@ const AppContent = () => {
       return;
     }
 
+    const deployAbort = new AbortController();
+    deployAbortRef.current = deployAbort;
     setIsDeploying(true);
     try {
       let base64Content: string;
@@ -702,7 +706,8 @@ const AppContent = () => {
         authorityKeypair: fullCurrentProject.authorityAccount,
         regtestConfig: config.network === 'devnet' ? config.regtestConfig : undefined,
         utxoInfo: customUtxoInfo,
-        onMessage: addOutputMessage
+        onMessage: addOutputMessage,
+        signal: deployAbort.signal,
       });
 
       if (result.programId) {
@@ -714,11 +719,22 @@ const AppContent = () => {
         setBinaryFileName(`${fullCurrentProject.name}.so`);
       }
     } catch (error: any) {
-      addOutputMessage('error', `Deploy error: ${error.message}`);
+      if (deployAbort.signal.aborted) {
+        addOutputMessage('info', error.message);
+      } else {
+        addOutputMessage('error', `Deploy error: ${error.message}`);
+      }
     } finally {
+      deployAbortRef.current = null;
       setIsDeploying(false);
       // Modal is already closed before deployment starts, no need to close it here
     }
+  };
+
+  const handleCancelDeploy = () => {
+    if (!deployAbortRef.current || deployAbortRef.current.signal.aborted) return;
+    addOutputMessage('info', 'Cancelling deploy…');
+    deployAbortRef.current.abort();
   };
 
   // Helper function to convert base64 to Uint8Array in chunks
@@ -1284,8 +1300,11 @@ const AppContent = () => {
           // Build failed; replace live log with final error output
           setOutputMessages(prev => prev.filter(m => m.id !== 'build-log'));
           if (statusResult.stderr) {
-            const formattedError = formatBuildError(statusResult.stderr);
-            addOutputMessage('error', formattedError);
+            const failure = classifyBuildFailure(statusResult.stderr);
+            addOutputMessage('error', failure.summary, undefined, false, {
+              details: statusResult.stderr,
+              detailsOpen: failure.kind === 'unclassified',
+            });
             throw new Error('Build failed');
           } else {
             throw new Error('Build failed with no error details');
@@ -1322,7 +1341,13 @@ const AppContent = () => {
     }
   };
 
-  const addOutputMessage = (type: OutputMessage['type'], content: string, link?: string, isLoading: boolean = false) => {
+  const addOutputMessage = (
+    type: OutputMessage['type'],
+    content: string,
+    link?: string,
+    isLoading: boolean = false,
+    extra?: Pick<OutputMessage, 'details' | 'detailsOpen'>,
+  ) => {
     // Normalize console content to fix escaped newlines and mojibake (mis-decoded UTF-8)
     const normalizeConsoleMessage = (raw: string): string => {
       try {
@@ -1377,7 +1402,8 @@ const AppContent = () => {
         timestamp: new Date(),
         isLoading,
         commandId, // Add commandId to track related messages
-        link // Add optional explorer link
+        link, // Add optional explorer link
+        ...extra,
       }];
     });
   };
@@ -2217,6 +2243,7 @@ const AppContent = () => {
     } catch (error) {
       console.error('Failed to load example project:', error);
       addOutputMessage('error', `Failed to load example: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
     }
   };
 
@@ -2453,7 +2480,7 @@ const AppContent = () => {
             onNewItem={handleNewItem}
             onFileDrop={handleFileDrop}
             onBuild={handleBuild}
-            onDeploy={handleDeploy}
+            onDeploy={isDeploying ? handleCancelDeploy : handleDeploy}
             onRunClient={runClientCode}
             canRunClient={canRunClient}
             isBuilding={isCompiling}
@@ -2510,7 +2537,7 @@ const AppContent = () => {
                 onNewItem={handleNewItem}
                 onFileDrop={handleFileDrop}
                 onBuild={handleBuild}
-                onDeploy={handleDeploy}
+                onDeploy={isDeploying ? handleCancelDeploy : handleDeploy}
                 onRunClient={runClientCode}
                 canRunClient={canRunClient}
                 isBuilding={isCompiling}
@@ -2591,7 +2618,7 @@ const AppContent = () => {
               {!isMobile && (
                 <BottomPanel
                   height={terminalHeight}
-                  onResizeStart={handleResizeStart}
+                  resizeHandleProps={terminalSeparatorProps}
                   messages={outputMessages}
                   onClear={clearOutputMessages}
                 />

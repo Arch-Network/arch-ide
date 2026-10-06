@@ -12,7 +12,6 @@
 // satellite Cargo.toml (with `arch-satellite-lang` etc.) when the project's
 // `framework` is set to `'satellite'`.
 
-import type { ProjectFramework } from '../types';
 import { ADVANCED_SATELLITE_EXAMPLES } from './satelliteAdvancedExamples';
 
 // ─── helloworld ───────────────────────────────────────────────────────────
@@ -412,11 +411,3 @@ export const SATELLITE_EXAMPLES: Record<string, SatelliteExampleSource> = {
 
 export const isSatelliteAvailable = (exampleName: string): boolean =>
   exampleName in SATELLITE_EXAMPLES;
-
-/**
- * Frameworks an example can be loaded as. `'native'` is always supported
- * (we fetch from arch-examples on GitHub); `'satellite'` is supported only
- * when an inline satellite source exists.
- */
-export const frameworksFor = (exampleName: string): ProjectFramework[] =>
-  isSatelliteAvailable(exampleName) ? ['native', 'satellite'] : ['native'];

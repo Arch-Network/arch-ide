@@ -7,11 +7,22 @@ interface Shortcut {
   combo: string[];
 }
 
-const detectMac = () =>
-  typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform);
+type Platform = 'mac' | 'windows' | 'linux';
 
-const buildShortcuts = (isMac: boolean): { group: string; items: Shortcut[] }[] => {
+// Same OS test Monaco uses to pick its default keybindings.
+const detectPlatform = (): Platform => {
+  const ua = typeof navigator === 'undefined' ? '' : navigator.userAgent;
+  if (/Macintosh|iPad|iPhone/.test(ua)) return 'mac';
+  return ua.includes('Windows') ? 'windows' : 'linux';
+};
+
+// Editor rows must match Monaco's default keybindings; they are not read from the editor.
+const buildShortcuts = (platform: Platform): { group: string; items: Shortcut[] }[] => {
+  const isMac = platform === 'mac';
   const cmd = isMac ? '⌘' : 'Ctrl';
+  const ctrl = isMac ? '⌃' : 'Ctrl';
+  const alt = isMac ? '⌥' : 'Alt';
+  const shift = isMac ? '⇧' : 'Shift';
   return [
     {
       group: 'Workbench',
@@ -25,16 +36,16 @@ const buildShortcuts = (isMac: boolean): { group: string; items: Shortcut[] }[] 
       group: 'Editor',
       items: [
         { label: 'Find in current file', combo: [cmd, 'F'] },
-        { label: 'Replace in current file', combo: [cmd, isMac ? '⌥' : 'Alt', 'F'] },
-        { label: 'Go to line', combo: [cmd, 'G'] },
-        { label: 'Format document', combo: [isMac ? '⇧⌥' : 'Shift+Alt', 'F'] },
+        { label: 'Replace in current file', combo: isMac ? [cmd, alt, 'F'] : [cmd, 'H'] },
+        { label: 'Go to line', combo: [ctrl, 'G'] },
+        { label: 'Format document', combo: platform === 'linux' ? [ctrl, shift, 'I'] : [shift, alt, 'F'] },
       ],
     },
   ];
 };
 
 export const KeymapSection: React.FC = () => {
-  const groups = buildShortcuts(detectMac());
+  const groups = buildShortcuts(detectPlatform());
 
   return (
     <div className="space-y-2">
