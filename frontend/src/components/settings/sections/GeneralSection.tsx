@@ -18,7 +18,7 @@ export const GeneralSection: React.FC<GeneralSectionProps> = ({ onClearAllProjec
       <SettingGroup title="Workspace">
         <SettingRow
           label="Autosave"
-          description="Edits are saved automatically a few hundred milliseconds after you stop typing."
+          description="Edits are saved automatically about 2 seconds after you stop typing."
         >
           <span className="text-[11px] font-medium uppercase tracking-wider text-success">
             Always on
