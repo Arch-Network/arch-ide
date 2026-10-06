@@ -1,4 +1,3 @@
-import { transpile, ScriptTarget, ModuleKind } from "typescript";
 import { RpcConnection, ArchConnection, PubkeyUtil, MessageUtil, UtxoMetaUtil, SignatureUtil, SanitizedMessageUtil, TransactionUtil } from "@arch-network/arch-sdk";
 import { hex, base58, base58check } from '@scure/base';
 import { sha256 } from '@noble/hashes/sha256';
@@ -891,6 +890,7 @@ export class ArchPgClient {
       ].join('\n');
 
       // Transpile with modern settings that support async/await
+      const { transpile, ScriptTarget, ModuleKind } = await import("typescript");
       const transpiled = transpile(wrappedCode, {
         target: ScriptTarget.ES2017, // ES2017 has native async/await support
         module: ModuleKind.None,
