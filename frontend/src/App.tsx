@@ -303,6 +303,8 @@ const AppContent = () => {
   const [isMobile, setIsMobile] = useState(false);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  // A fresh object per request, so clicking the same search hit again re-reveals it.
+  const [revealLine, setRevealLine] = useState<{ line: number } | null>(null);
   const [isNewFileDialogOpen, setIsNewFileDialogOpen] = useState(false);
   const [newItemPath, setNewItemPath] = useState<string[]>([]);
   const [newItemType, setNewItemType] = useState<'file' | 'directory'>();
@@ -864,7 +866,7 @@ const AppContent = () => {
     setIsNewFileDialogOpen(false);
   };
 
-  const handleFileSelect = (file: FileNode) => {
+  const handleFileSelect = (file: FileNode, line?: number) => {
     if (file.type === 'file') {
       const filePath = file.path || constructFullPath(file, fullCurrentProject?.files || []);
       const openFile = openFiles.find(f => f.path === filePath);
@@ -877,6 +879,7 @@ const AppContent = () => {
       };
 
       setCurrentFile(fileToUse);
+      setRevealLine(line ? { line } : null);
 
       if (!openFiles.some(f => f.path === filePath)) {
         setOpenFiles(prev => [...prev, fileToUse]);
@@ -2551,6 +2554,7 @@ const AppContent = () => {
                   minimap={editorPrefs.minimap}
                   smoothCaret={editorPrefs.smoothCaret}
                   tabSize={editorPrefs.tabSize}
+                  revealLine={revealLine}
                 />
               </Suspense>
               </div>

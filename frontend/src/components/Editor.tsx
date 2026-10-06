@@ -33,6 +33,8 @@ interface EditorProps {
   currentFile?: FileNode | null;
   currentProject?: any;
   onSelectFile: (file: FileNode) => void;
+  /** Put the cursor on this 1-based line; a new object reveals it again. */
+  revealLine?: { line: number } | null;
   // Props for HomeScreen
   recentProjects?: any[];
   onNewProject?: () => void;
@@ -311,6 +313,10 @@ const defineTheme = (monacoNs: typeof monaco) => {
   );
 };
 
+// Each reveal request is applied once: the editor remounts per file, and a later mount
+// (closing a tab, switching projects) must not replay an old search hit.
+const appliedReveals = new WeakSet<object>();
+
 const Editor = ({
   code,
   onChange,
@@ -320,6 +326,7 @@ const Editor = ({
   currentFile,
   currentProject,
   onSelectFile,
+  revealLine,
   recentProjects = [],
   onNewProject,
   onSelectProject,
@@ -362,6 +369,23 @@ const Editor = ({
     if (!mn) return;
     mn.editor.setTheme(monacoTheme);
   }, [monacoTheme]);
+
+  // onMount reads the ref: the file may have been opened by the same click.
+  const revealLineRef = useRef(revealLine);
+  revealLineRef.current = revealLine;
+  const reveal = (editor: monacoEditor.IStandaloneCodeEditor, request?: { line: number } | null) => {
+    if (!request || appliedReveals.has(request)) return;
+    appliedReveals.add(request);
+    editor.setPosition({ lineNumber: request.line, column: 1 });
+    // Immediate: a just-mounted editor is still 0px tall, and the layout change that
+    // follows cancels a smooth scroll halfway, leaving the line off-screen.
+    editor.revealLineInCenter(request.line, monaco.editor.ScrollType.Immediate);
+    editor.focus();
+  };
+
+  useEffect(() => {
+    if (editorRef.current) reveal(editorRef.current, revealLine);
+  }, [revealLine]);
 
   const getLanguage = (fileName: string) => {
     if (fileName.endsWith('.ts')) return 'typescript';
@@ -561,6 +585,7 @@ const Editor = ({
               modelId: editorModel.id
             });
           }
+          reveal(editor, revealLineRef.current);
 
           // Initialize appropriate language support based on file type
           switch (language) {
