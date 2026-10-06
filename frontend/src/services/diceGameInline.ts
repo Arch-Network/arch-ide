@@ -411,7 +411,6 @@ async function setup() {
 
   const rpcUrl = (window as any).__archRpcUrl;
   const programAcct = (window as any).__archProgramAccount;
-  const Bip322Signer = (window as any).Bip322Signer;
   const privkeyToWif = (window as any).__archPrivkeyHexToWif;
   const bip322SignWithKey = (window as any).__bip322SignWithKey; // BIP322 signing with derived P2TR address
 
@@ -453,18 +452,6 @@ async function setup() {
       out[i] = parseInt(hex.substring(i * 2, i * 2 + 2), 16);
     }
     return out;
-  };
-
-  // Sign a message hash with BIP322 and return adjusted 64-byte signature
-  const bip322Sign = (wif: string, address: string, hashHex: string): Uint8Array => {
-    const sigB64 = Bip322Signer.sign(wif, address, hashHex);
-    const sigStr = typeof sigB64 === "string" ? sigB64 : btoa(String.fromCharCode(...Array.from(sigB64)));
-    let sig = Uint8Array.from(atob(sigStr), function(c) { return c.charCodeAt(0); });
-    if (sig.length === 65) sig = sig.slice(0, 64);
-    if (typeof SignatureUtil !== "undefined") {
-      try { sig = SignatureUtil.adjustSignature(sig); } catch (_) {}
-    }
-    return sig;
   };
 
   if (!bip322SignWithKey) {
@@ -755,8 +742,8 @@ async function setup() {
     try { payerSig2 = SignatureUtil.adjustSignature(payerSig2); } catch (_) {}
   } else {
     const local = (window as any).__archLocalAccount;
-    if (!local || !local.wif) { console.log("ERROR: No payer WIF"); return; }
-    payerSig2 = bip322Sign(local.wif, local.address, hash2);
+    if (!local || !local.privkey) { console.log("ERROR: No local payer key"); return; }
+    payerSig2 = new Uint8Array(bip322SignWithKey(local.privkey, hash2, "testnet"));
   }
   const gameSig2 = new Uint8Array(bip322SignWithKey(gameAccount.privkey, hash2, "testnet"));
   console.log("  Signatures: payer=" + payerSig2.length + "b game=" + gameSig2.length + "b");

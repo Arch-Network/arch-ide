@@ -94,18 +94,18 @@
     /* Arch semantic tokens (light). */
     --brand: 28 93% 54%;             /* #F7931A - constant across themes */
     --brand-hover: 24 80% 47%;
-    --brand-foreground: 0 0% 100%;   /* white text on orange in light mode */
+    --brand-foreground: 0 0% 7%;     /* near-black: white on brand orange is only 2.6:1 */
     --surface-0: 240 10% 95%;        /* deepest (page background slightly grey) */
     --surface-1: 0 0% 100%;          /* main surfaces / cards */
     --surface-2: 240 5% 97%;         /* raised */
     --surface-3: 240 5% 93%;         /* hover */
-    --success: 160 65% 32%;          /* darker green for AA on white */
+    --success: 160 65% 27%;          /* success..info: at least 4.5:1 on surface-0 (Output) */
     --success-foreground: 0 0% 100%;
-    --warning: 32 92% 42%;           /* darker amber for AA on white */
+    --warning: 32 92% 32%;
     --warning-foreground: 0 0% 100%;
-    --danger: 0 75% 50%;             /* darker red */
+    --danger: 0 75% 43%;
     --danger-foreground: 0 0% 100%;
-    --info: 200 90% 40%;
+    --info: 200 90% 33%;
     --info-foreground: 0 0% 100%;
   }
   .dark {

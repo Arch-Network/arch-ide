@@ -15,10 +15,12 @@ import { projectService } from './services/projectService';
 import type { ArchIdl, Project, FileNode, ProjectAccount, ProjectFramework } from './types';
 import type { ProjectMutations } from './components/ProgramInspector/projectMutations';
 import { parseIdlJson } from './utils/idl/validate';
+import { classifyBuildFailure } from './utils/buildFailure';
 import TabBar from './components/TabBar';
 import NewItemDialog from './components/NewItemDialog';
 import { OutputMessage } from './components/Output';
 import { ConfigPanel } from './components/ConfigPanel';
+import type { BinaryOrigin } from './utils/programArtifact';
 import {
   Hammer,
   Rocket,
@@ -34,8 +36,12 @@ import { StatusBar } from './components/StatusBar';
 import { ArchProgramLoader, deployProgram } from './utils/arch-sdk-deployer';
 import { storage, type SidebarView } from './utils/storage';
 import { hexToBase58 } from './utils/base58';
+import { builtProgramId, programBinaryDataUrl, setDeclaredId } from './utils/declareId';
+import { ArchConnection, RpcConnection, type Provider } from '@arch-network/arch-sdk';
+import { getSmartRpcUrl } from './utils/smartRpcConnection';
 import { getExplorerUrls } from './utils/explorerLinks';
 import { FileChange } from './types/types';
+import { withRpcNetwork } from './types/config';
 import { Buffer } from 'buffer/';
 import { formatBuildError } from './utils/errorFormatter';
 import { ArchPgClient } from './utils/archPgClient';
@@ -43,6 +49,7 @@ import { ThemeProvider } from './theme/ThemeContext';
 import { findFileInProject, findFileByPath, constructFullPath } from './utils/projectTree';
 import { useResizablePanel } from './hooks/useResizablePanel';
 import { useEditorPreferences } from './hooks/useEditorPreferences';
+import { useBeforeUnloadGuard } from './hooks/useBeforeUnloadGuard';
 import { DeploymentModal } from './components/DeploymentModal';
 import { BrowserCompatibilityAlert } from './components/BrowserCompatibilityAlert';
 import { TutorialProvider, useTutorial } from './context/TutorialContext';
@@ -286,7 +293,7 @@ const AppContent = () => {
   const [isCompiling, setIsCompiling] = useState(false);
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [openFiles, setOpenFiles] = useState<FileNode[]>([]);
-  const { size: terminalHeight, onMouseDown: handleResizeStart } = useResizablePanel({
+  const { size: terminalHeight, separatorProps: terminalSeparatorProps } = useResizablePanel({
     initial: 192,
     min: 100,
     max: 800,
@@ -301,13 +308,16 @@ const AppContent = () => {
   const [newItemType, setNewItemType] = useState<'file' | 'directory'>();
   const [outputMessages, setOutputMessages] = useState<OutputMessage[]>([]);
   const [isDeploying, setIsDeploying] = useState(false);
+  const deployAbortRef = useRef<AbortController | null>(null);
   const [programId, setProgramId] = useState<string>();
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [programBinary, setProgramBinary] = useProjectArtifact(fullCurrentProject?.id);
+  const [binaryOrigin, setBinaryOrigin] = useState<BinaryOrigin | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, FileChange>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
   const autosaveErrorRef = useRef<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { prefs: editorPrefs, updatePrefs: updateEditorPref } = useEditorPreferences();
   const isWordWrapEnabled = editorPrefs.wordWrap;
   const [currentAccount, setCurrentAccount] = useState<{
@@ -461,7 +471,7 @@ const AppContent = () => {
     const normalizedSavedConfig = (savedConfig && (savedConfig as any).network === 'mainnet-beta')
       ? { ...(savedConfig as any), network: 'mainnet' }
       : savedConfig;
-    const defaultConfig = {
+    const defaultConfig: Config = {
       network: 'testnet',
       rpcUrl: 'https://rpc.testnet.arch.network',
       regtestConfig: {
@@ -473,14 +483,14 @@ const AppContent = () => {
 
     if (!normalizedSavedConfig) return defaultConfig;
 
-    return {
+    return withRpcNetwork({
       ...defaultConfig,
       ...(normalizedSavedConfig as any),
       regtestConfig: {
         ...defaultConfig.regtestConfig,
         ...((normalizedSavedConfig as any).regtestConfig || {})
       }
-    };
+    });
   });
 
   useEffect(() => {
@@ -613,6 +623,13 @@ const AppContent = () => {
       return;
     }
 
+    const builtFor = programBinary && builtProgramId(programBinary);
+    const deployKey = fullCurrentProject?.account?.pubkey;
+    if (builtFor && deployKey && builtFor !== deployKey) {
+      addOutputMessage('error', `Cannot deploy: this build has declare_id! set to ${hexToBase58(builtFor)}, but the program keypair is now ${hexToBase58(deployKey)}. Build again before deploying.`);
+      return;
+    }
+
     // Open the deployment modal instead of immediately deploying
     setIsDeploymentModalOpen(true);
   };
@@ -636,6 +653,8 @@ const AppContent = () => {
       return;
     }
 
+    const deployAbort = new AbortController();
+    deployAbortRef.current = deployAbort;
     setIsDeploying(true);
     try {
       let base64Content: string;
@@ -661,7 +680,8 @@ const AppContent = () => {
         authorityKeypair: fullCurrentProject.authorityAccount,
         regtestConfig: config.network === 'devnet' ? config.regtestConfig : undefined,
         utxoInfo: customUtxoInfo,
-        onMessage: addOutputMessage
+        onMessage: addOutputMessage,
+        signal: deployAbort.signal,
       });
 
       if (result.programId) {
@@ -673,11 +693,22 @@ const AppContent = () => {
         setBinaryFileName(`${fullCurrentProject.name}.so`);
       }
     } catch (error: any) {
-      addOutputMessage('error', `Deploy error: ${error.message}`);
+      if (deployAbort.signal.aborted) {
+        addOutputMessage('info', error.message);
+      } else {
+        addOutputMessage('error', `Deploy error: ${error.message}`);
+      }
     } finally {
+      deployAbortRef.current = null;
       setIsDeploying(false);
       // Modal is already closed before deployment starts, no need to close it here
     }
+  };
+
+  const handleCancelDeploy = () => {
+    if (!deployAbortRef.current || deployAbortRef.current.signal.aborted) return;
+    addOutputMessage('info', 'Cancelling deploy…');
+    deployAbortRef.current.abort();
   };
 
   // Helper function to convert base64 to Uint8Array in chunks
@@ -1049,6 +1080,30 @@ const AppContent = () => {
         );
       }
 
+      // A Satellite program rejects every call made under any id but its declare_id!
+      // (DeclaredProgramIdMismatch, 4100), so the deploy key must exist before it is compiled.
+      const framework = fullCurrentProject.framework ?? 'satellite';
+      let programAccount = fullCurrentProject.account;
+      if (framework === 'satellite' && !programAccount) {
+        // arch-sdk's RpcConnection typing omits getBestFinalizedBlockHash, so it doesn't type as a Provider.
+        const provider = new RpcConnection(getSmartRpcUrl(config.rpcUrl)) as unknown as Provider;
+        programAccount = await ArchConnection(provider)
+          .createNewAccount()
+          .catch((error: Error) => {
+            throw new Error(`could not generate the program keypair a Satellite build needs: ${error.message}`);
+          });
+        await handleProjectAccountChange(programAccount);
+        setProgramId(programAccount.pubkey);
+        addOutputMessage('info', 'Generated a program keypair for this project');
+      }
+      const programIdHex = framework === 'satellite' ? programAccount?.pubkey : undefined;
+      const buildFiles = programIdHex
+        ? rsFiles.map(([path, content]): [string, string] => [path, setDeclaredId(content, programIdHex)])
+        : rsFiles;
+      if (programIdHex) {
+        addOutputMessage('info', `Program ID ${hexToBase58(programIdHex)} (declare_id! is set to it for this build)`);
+      }
+
       console.log('Sending Rust files to compile server:', rsFiles.map(([path]) => path));
 
       // Start the build (returns immediately)
@@ -1060,9 +1115,9 @@ const AppContent = () => {
         },
         body: JSON.stringify({
           program_name: fullCurrentProject.name,
-          files: rsFiles,
+          files: buildFiles,
           uuid: fullCurrentProject.id,
-          framework: fullCurrentProject.framework ?? 'satellite'
+          framework
         })
       });
 
@@ -1157,7 +1212,9 @@ const AppContent = () => {
 
             const arrayBuffer = await binaryResponse.arrayBuffer();
             const base64Binary = Buffer.from(arrayBuffer).toString('base64');
-            setProgramBinary(`data:application/octet-stream;base64,${base64Binary}`);
+            const builtBinary = programBinaryDataUrl(base64Binary, programIdHex);
+            setProgramBinary(builtBinary);
+            setBinaryOrigin({ source: 'built', fileName: `${program_name}.so`, at: new Date(), binary: builtBinary });
             setBinaryFileName(`${fullCurrentProject.name}.so`);
             addOutputMessage('info', `Program binary retrieved successfully (${arrayBuffer.byteLength} bytes)`);
           } catch (error: any) {
@@ -1197,8 +1254,11 @@ const AppContent = () => {
           // Build failed; replace live log with final error output
           setOutputMessages(prev => prev.filter(m => m.id !== 'build-log'));
           if (statusResult.stderr) {
-            const formattedError = formatBuildError(statusResult.stderr);
-            addOutputMessage('error', formattedError);
+            const failure = classifyBuildFailure(statusResult.stderr);
+            addOutputMessage('error', failure.summary, undefined, false, {
+              details: statusResult.stderr,
+              detailsOpen: failure.kind === 'unclassified',
+            });
             throw new Error('Build failed');
           } else {
             throw new Error('Build failed with no error details');
@@ -1235,7 +1295,13 @@ const AppContent = () => {
     }
   };
 
-  const addOutputMessage = (type: OutputMessage['type'], content: string, link?: string, isLoading: boolean = false) => {
+  const addOutputMessage = (
+    type: OutputMessage['type'],
+    content: string,
+    link?: string,
+    isLoading: boolean = false,
+    extra?: Pick<OutputMessage, 'details' | 'detailsOpen'>,
+  ) => {
     // Normalize console content to fix escaped newlines and mojibake (mis-decoded UTF-8)
     const normalizeConsoleMessage = (raw: string): string => {
       try {
@@ -1290,7 +1356,8 @@ const AppContent = () => {
         timestamp: new Date(),
         isLoading,
         commandId, // Add commandId to track related messages
-        link // Add optional explorer link
+        link, // Add optional explorer link
+        ...extra,
       }];
     });
   };
@@ -1695,7 +1762,8 @@ const AppContent = () => {
     if (!fullCurrentProject) return;
     try {
       await projectService.setProjectIdl(fullCurrentProject.id, idl);
-      setFullCurrentProject({ ...fullCurrentProject, idl });
+      // Merge into the latest project: a build calls this from a closure older than the program key it may have generated.
+      setFullCurrentProject(prev => (prev?.id === fullCurrentProject.id ? { ...prev, idl } : prev));
     } catch (err) {
       console.error('Failed to persist IDL', err);
       addOutputMessage('error', err instanceof Error ? err.message : String(err));
@@ -1863,10 +1931,12 @@ const AppContent = () => {
         // Clear pending changes
         setPendingChanges(new Map());
         autosaveErrorRef.current = null;
+        setSaveError(null);
       } catch (error) {
         console.error('Autosave failed:', error);
         // Failed changes stay pending and retry every cycle, so report each distinct error once.
         const message = error instanceof Error ? error.message : String(error);
+        setSaveError(message);
         if (autosaveErrorRef.current !== message) {
           autosaveErrorRef.current = message;
           addOutputMessage('error', `Autosave failed: ${message}`);
@@ -1878,6 +1948,8 @@ const AppContent = () => {
 
     return () => clearTimeout(saveTimeout);
   }, [pendingChanges, fullCurrentProject, isSaving]);
+
+  useBeforeUnloadGuard(pendingChanges.size > 0 || isSaving || isDeploying);
 
   const handleNewProject = () => {
     setIsNewProjectOpen(true);
@@ -2113,6 +2185,7 @@ const AppContent = () => {
     } catch (error) {
       console.error('Failed to load example project:', error);
       addOutputMessage('error', `Failed to load example: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
     }
   };
 
@@ -2349,7 +2422,7 @@ const AppContent = () => {
             onNewItem={handleNewItem}
             onFileDrop={handleFileDrop}
             onBuild={handleBuild}
-            onDeploy={handleDeploy}
+            onDeploy={isDeploying ? handleCancelDeploy : handleDeploy}
             onRunClient={runClientCode}
             canRunClient={canRunClient}
             isBuilding={isCompiling}
@@ -2357,6 +2430,8 @@ const AppContent = () => {
             programId={programId}
             programBinary={programBinary}
             onProgramBinaryChange={setProgramBinary}
+            binaryOrigin={binaryOrigin}
+            onBinaryOriginChange={setBinaryOrigin}
             config={config}
             onConfigChange={setConfig}
             onConnectionStatusChange={setIsConnected}
@@ -2404,7 +2479,7 @@ const AppContent = () => {
                 onNewItem={handleNewItem}
                 onFileDrop={handleFileDrop}
                 onBuild={handleBuild}
-                onDeploy={handleDeploy}
+                onDeploy={isDeploying ? handleCancelDeploy : handleDeploy}
                 onRunClient={runClientCode}
                 canRunClient={canRunClient}
                 isBuilding={isCompiling}
@@ -2412,6 +2487,8 @@ const AppContent = () => {
                 programId={programId}
                 programBinary={programBinary}
                 onProgramBinaryChange={setProgramBinary}
+                binaryOrigin={binaryOrigin}
+                onBinaryOriginChange={setBinaryOrigin}
                 config={config}
                 onConfigChange={setConfig}
                 onConnectionStatusChange={setIsConnected}
@@ -2449,6 +2526,8 @@ const AppContent = () => {
                 currentProject={fullCurrentProject}
                 isWordWrapEnabled={isWordWrapEnabled}
                 onToggleWordWrap={handleToggleWordWrap}
+                unsavedPaths={pendingChanges}
+                saveError={saveError}
               />
               <div className="flex-1 min-h-0 overflow-hidden">
               <Suspense
@@ -2483,7 +2562,7 @@ const AppContent = () => {
               {!isMobile && (
                 <BottomPanel
                   height={terminalHeight}
-                  onResizeStart={handleResizeStart}
+                  resizeHandleProps={terminalSeparatorProps}
                   messages={outputMessages}
                   onClear={clearOutputMessages}
                 />

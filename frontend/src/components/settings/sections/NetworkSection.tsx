@@ -18,28 +18,25 @@ import {
 import { SettingRow, SettingGroup } from '../SettingRow';
 import { getSmartRpcUrl } from '../../../utils/smartRpcConnection';
 import { RpcConnection } from '@arch-network/arch-sdk';
-import type { Config } from '../../../types';
+import { NETWORK_RPC_URLS, networkForRpcUrl, type Config } from '../../../types/config';
 
 interface NetworkSectionProps {
   config: Config;
   onConfigChange: Dispatch<SetStateAction<Config>>;
 }
 
-const PRESET_RPC_URLS = {
-  mainnet: 'https://rpc.mainnet.arch.network',
-  testnet: 'https://rpc.testnet.arch.network',
-  devnet: 'http://localhost:9002',
-  custom: '',
-};
+const PRESET_RPC_URLS = { ...NETWORK_RPC_URLS, custom: '' };
 
 type PresetKey = keyof typeof PRESET_RPC_URLS;
 
-const computePreset = (rpcUrl: string): PresetKey => {
-  const match = (Object.entries(PRESET_RPC_URLS) as [PresetKey, string][]).find(
-    ([, url]) => url === rpcUrl,
+const computePreset = (rpcUrl: string): PresetKey => networkForRpcUrl(rpcUrl) ?? 'custom';
+
+const confirmNetworkSwitch = (from: Config['network'], to: Config['network']): boolean =>
+  to !== 'mainnet' ||
+  from === 'mainnet' ||
+  window.confirm(
+    'Switch to Arch mainnet?\n\nDeploys and transactions will spend real funds and cannot be undone.',
   );
-  return match ? match[0] : 'custom';
-};
 
 export const NetworkSection: React.FC<NetworkSectionProps> = ({ config, onConfigChange }) => {
   const [rpcPreset, setRpcPreset] = useState<PresetKey>(() => computePreset(config.rpcUrl));
@@ -78,12 +75,18 @@ export const NetworkSection: React.FC<NetworkSectionProps> = ({ config, onConfig
       >
         <SettingRow
           label="Network"
-          description="Mainnet for production, testnet for staging, devnet for local."
+          description="Mainnet for production, testnet for staging, devnet for local. The RPC endpoint follows unless it is custom."
           htmlFor="network-select"
         >
           <Select
             value={config.network}
-            onValueChange={(value) => onConfigChange((c) => ({ ...c, network: value as Config['network'] }))}
+            onValueChange={(value) => {
+              const network = value as Config['network'];
+              if (!confirmNetworkSwitch(config.network, network)) return;
+              const rpcUrl = networkForRpcUrl(config.rpcUrl) ? NETWORK_RPC_URLS[network] : config.rpcUrl;
+              onConfigChange((c) => ({ ...c, network, rpcUrl }));
+              setRpcPreset(computePreset(rpcUrl));
+            }}
           >
             <SelectTrigger id="network-select" className="h-8 w-44 text-xs bg-background/50">
               <SelectValue />
@@ -126,12 +129,13 @@ export const NetworkSection: React.FC<NetworkSectionProps> = ({ config, onConfig
             value={rpcPreset}
             onValueChange={(value) => {
               const preset = value as PresetKey;
+              if (preset !== 'custom' && !confirmNetworkSwitch(config.network, preset)) return;
               setRpcPreset(preset);
               if (preset !== 'custom') {
                 onConfigChange((c) => ({
                   ...c,
                   rpcUrl: PRESET_RPC_URLS[preset],
-                  network: preset as 'mainnet' | 'testnet' | 'devnet',
+                  network: preset,
                 }));
               }
             }}
@@ -158,8 +162,11 @@ export const NetworkSection: React.FC<NetworkSectionProps> = ({ config, onConfig
             id="rpc-url-input"
             value={config.rpcUrl}
             onChange={(e) => {
-              onConfigChange((c) => ({ ...c, rpcUrl: e.target.value }));
-              setRpcPreset(computePreset(e.target.value));
+              const rpcUrl = e.target.value;
+              const network = networkForRpcUrl(rpcUrl);
+              if (network && !confirmNetworkSwitch(config.network, network)) return;
+              onConfigChange((c) => ({ ...c, rpcUrl, network: network ?? c.network }));
+              setRpcPreset(network ?? 'custom');
             }}
             placeholder="https://your-rpc-server.com"
             className="h-8 text-xs"

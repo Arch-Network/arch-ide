@@ -28,12 +28,17 @@ export const ConnectionStatus = ({
 }: ConnectionStatusProps) => {
   const [isConnecting, setIsConnecting] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
   const [actualConnectedUrl, setActualConnectedUrl] = useState<string | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Timers run the closure of the render that scheduled them, so mutable
+  // check state lives in refs rather than in state.
+  const retryCountRef = useRef(0);
+  // Bumped when rpcUrl changes, on Disconnect, and on unmount; a check started under an older
+  // run reports nothing and schedules nothing.
+  const runRef = useRef(0);
 
   const BASE_DELAY = 2000;
-  const MAX_DELAY = 60000;
+  const MAX_DELAY = 30000;
   const CONNECTED_CHECK_INTERVAL = 30000;
 
   const updateActualUrl = (url: string | null) => {
@@ -41,9 +46,8 @@ export const ConnectionStatus = ({
     onActualUrlChange(url);
   };
 
-  const checkConnection = async () => {
-    if (isConnecting) return false;
-
+  const checkConnection = async (): Promise<boolean | null> => {
+    const run = runRef.current;
     setIsConnecting(true);
 
     try {
@@ -63,20 +67,22 @@ export const ConnectionStatus = ({
         throw new Error('Invalid block count response');
       }
 
+      if (run !== runRef.current) return null;
       updateActualUrl(rpcUrl);
       onPingUpdate(new Date());
       setShowErrorModal(false);
-      setRetryCount(0);
+      retryCountRef.current = 0;
       onConnect();
       return true;
     } catch (error) {
+      if (run !== runRef.current) return null;
       updateActualUrl(null);
       setShowErrorModal(true);
       onDisconnect();
       onPingUpdate(null);
       return false;
     } finally {
-      setIsConnecting(false);
+      if (run === runRef.current) setIsConnecting(false);
     }
   };
 
@@ -88,41 +94,35 @@ export const ConnectionStatus = ({
     if (wasConnected) {
       intervalRef.current = setTimeout(() => handleConnect(), CONNECTED_CHECK_INTERVAL);
     } else {
-      const delay = Math.min(BASE_DELAY * Math.pow(2, retryCount), MAX_DELAY);
-      setRetryCount(prev => prev + 1);
+      const delay = Math.min(BASE_DELAY * Math.pow(2, retryCountRef.current), MAX_DELAY);
+      retryCountRef.current += 1;
       intervalRef.current = setTimeout(() => handleConnect(), delay);
     }
   };
 
   const handleConnect = async () => {
-    setIsConnecting(true);
-    try {
-      const success = await checkConnection();
-      if (!success) {
-        setIsConnecting(false);
-      }
-    } catch (error) {
-      setIsConnecting(false);
-      setShowErrorModal(true);
-      onDisconnect();
-      onPingUpdate(null);
-    }
+    const connected = await checkConnection();
+    if (connected !== null) scheduleNextCheck(connected);
+  };
+
+  const handleDisconnect = () => {
+    runRef.current += 1;
+    if (intervalRef.current) clearTimeout(intervalRef.current);
+    setIsConnecting(false);
+    onDisconnect();
+    onPingUpdate(null);
   };
 
   useEffect(() => {
-    if (isConnected) {
-      handleConnect();
-    }
-  }, [rpcUrl]);
-
-  useEffect(() => {
+    retryCountRef.current = 0;
     handleConnect();
     return () => {
+      runRef.current += 1;
       if (intervalRef.current) {
         clearTimeout(intervalRef.current);
       }
     };
-  }, []);
+  }, [rpcUrl]);
 
   return (
     <>
@@ -130,7 +130,7 @@ export const ConnectionStatus = ({
         variant="ghost"
         size="sm"
         className="h-5 px-2 text-xs"
-        onClick={isConnected ? onDisconnect : handleConnect}
+        onClick={isConnected ? handleDisconnect : handleConnect}
       >
         {isConnecting ? (
           <Loader2 className="h-3 w-3 animate-spin mr-1" />

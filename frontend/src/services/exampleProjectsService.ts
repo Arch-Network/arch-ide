@@ -4,15 +4,14 @@ import { projectService } from './projectService';
 import { DICE_GAME_LIB_RS, DICE_GAME_SETUP_TS, DICE_GAME_CLIENT_TS } from './diceGameInline';
 import { SATELLITE_EXAMPLES, isSatelliteAvailable } from './satelliteExamples';
 
-const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/Arch-Network/arch-examples/main/examples';
+// Pinned to a commit because arch-examples `main` is an auto-synced mirror
+// whose layout changes without notice. EXAMPLE_STRUCTURES must match the tree
+// at this commit; bump both together.
+const GITHUB_RAW_BASE = 'https://raw.githubusercontent.com/Arch-Network/arch-examples/a14e69b57a19c74a479a1020890fd8f43ceb258c/examples';
 
 // Known file structure for each example (no API needed!)
 const EXAMPLE_STRUCTURES: Record<string, { src: string[], client?: string[], srcPath?: string }> = {
   'clock': {
-    src: ['lib.rs'],
-    srcPath: 'program/src'
-  },
-  'counter': {
     src: ['lib.rs'],
     srcPath: 'program/src'
   },
@@ -50,7 +49,7 @@ const EXAMPLE_STRUCTURES: Record<string, { src: string[], client?: string[], src
     srcPath: 'program/src'
   },
   'vote': {
-    src: ['lib.rs', 'shared_validator_state.rs', 'update_pubkey_package.rs', 'utils.rs', 'whitelist.rs'],
+    src: ['lib.rs', 'shared_validator_state.rs', 'utils.rs', 'whitelist.rs'],
     srcPath: 'src'
   }
 };
@@ -68,35 +67,18 @@ const INLINE_EXAMPLES: Record<string, Record<string, string>> = {
 
 /**
  * Fetches file content directly from raw GitHub URL (no API needed!)
- * Tries multiple possible paths if the first one fails
  */
 async function fetchRawFileContent(exampleName: string, filePath: string): Promise<string> {
-  const possiblePaths = [
-    filePath,
-    filePath.replace('program/', ''),
-    filePath.includes('program/') ? filePath : `program/${filePath}`
-  ];
-
-  const uniquePaths = [...new Set(possiblePaths)];
-  let lastError: Error | null = null;
-
-  for (const path of uniquePaths) {
-    const rawUrl = `${GITHUB_RAW_BASE}/${exampleName}/${path}`;
-    console.log(`Trying: ${rawUrl}`);
-
-    try {
-      const response = await fetch(rawUrl);
-      if (response.ok) {
-        console.log(`✅ Success: ${rawUrl}`);
-        return response.text();
-      }
-      lastError = new Error(`${response.status} ${response.statusText}`);
-    } catch (error) {
-      lastError = error instanceof Error ? error : new Error(String(error));
-    }
+  let response: Response;
+  try {
+    response = await fetch(`${GITHUB_RAW_BASE}/${exampleName}/${filePath}`);
+  } catch (error) {
+    throw new Error(`Failed to fetch ${filePath}: ${error instanceof Error ? error.message : String(error)}`);
   }
-
-  throw new Error(`Failed to fetch ${filePath}: ${lastError?.message || 'Unknown error'}`);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch ${filePath}: ${response.status} ${response.statusText}`);
+  }
+  return response.text();
 }
 
 /**
@@ -307,6 +289,18 @@ export async function loadExampleProject(
 
 export async function listExampleProjects(): Promise<string[]> {
   return Object.keys(EXAMPLE_STRUCTURES);
+}
+
+/**
+ * Frameworks an example can be loaded as: `'native'` when it has a native
+ * source in EXAMPLE_STRUCTURES, `'satellite'` when an inline satellite
+ * source exists.
+ */
+export function frameworksFor(exampleName: string): ProjectFramework[] {
+  const frameworks: ProjectFramework[] = [];
+  if (exampleName in EXAMPLE_STRUCTURES) frameworks.push('native');
+  if (isSatelliteAvailable(exampleName)) frameworks.push('satellite');
+  return frameworks;
 }
 
 export const exampleProjectsService = {

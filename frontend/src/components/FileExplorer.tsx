@@ -13,7 +13,7 @@ import { Button } from '@/components/ui/button';
 import type { FileNode, Project, ProjectAccount } from '../types';
 import { readDroppedItems, type DroppedFile } from '../utils/fileDropUtils';
 
-import FileExplorerItem from './explorer/FileExplorerItem';
+import FileTree from './explorer/FileTree';
 import SectionHeader from './explorer/SectionHeader';
 import ProjectInfo from './explorer/ProjectInfo';
 import FileSearchBar from './explorer/FileSearchBar';
@@ -309,9 +309,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                     },
                   ]}
                 />
-                {programFiles.map((node) => (
-                  <FileExplorerItem key={`program-${node.name}`} node={node} {...treeProps} />
-                ))}
+                <FileTree label="Program files" nodes={programFiles} {...treeProps} />
               </>
             )}
 
@@ -333,16 +331,14 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
                   ]}
                   alwaysShowActions
                 />
-                {clientFiles.map((node) => (
-                  <FileExplorerItem key={`client-${node.name}`} node={node} {...treeProps} />
-                ))}
+                <FileTree label="Client files" nodes={clientFiles} {...treeProps} />
               </>
             )}
 
             {/* Other Files */}
-            {otherFiles.length > 0 && otherFiles.map((node) => (
-              <FileExplorerItem key={`other-${node.name}`} node={node} {...treeProps} />
-            ))}
+            {otherFiles.length > 0 && (
+              <FileTree label="Other files" nodes={otherFiles} {...treeProps} />
+            )}
 
             {/* No results when searching */}
             {searchQuery && programFiles.length === 0 && clientFiles.length === 0 && otherFiles.length === 0 && (
