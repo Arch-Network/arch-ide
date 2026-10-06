@@ -15,6 +15,7 @@ import { projectService } from './services/projectService';
 import type { ArchIdl, Project, FileNode, ProjectAccount, ProjectFramework } from './types';
 import type { ProjectMutations } from './components/ProgramInspector/projectMutations';
 import { parseIdlJson } from './utils/idl/validate';
+import { classifyBuildFailure } from './utils/buildFailure';
 import TabBar from './components/TabBar';
 import NewItemDialog from './components/NewItemDialog';
 import { OutputMessage } from './components/Output';
@@ -1295,8 +1296,11 @@ const AppContent = () => {
           // Build failed; replace live log with final error output
           setOutputMessages(prev => prev.filter(m => m.id !== 'build-log'));
           if (statusResult.stderr) {
-            const formattedError = formatBuildError(statusResult.stderr);
-            addOutputMessage('error', formattedError);
+            const failure = classifyBuildFailure(statusResult.stderr);
+            addOutputMessage('error', failure.summary, undefined, false, {
+              details: statusResult.stderr,
+              detailsOpen: failure.kind === 'unclassified',
+            });
             throw new Error('Build failed');
           } else {
             throw new Error('Build failed with no error details');
@@ -1333,7 +1337,13 @@ const AppContent = () => {
     }
   };
 
-  const addOutputMessage = (type: OutputMessage['type'], content: string, link?: string, isLoading: boolean = false) => {
+  const addOutputMessage = (
+    type: OutputMessage['type'],
+    content: string,
+    link?: string,
+    isLoading: boolean = false,
+    extra?: Pick<OutputMessage, 'details' | 'detailsOpen'>,
+  ) => {
     // Normalize console content to fix escaped newlines and mojibake (mis-decoded UTF-8)
     const normalizeConsoleMessage = (raw: string): string => {
       try {
@@ -1388,7 +1398,8 @@ const AppContent = () => {
         timestamp: new Date(),
         isLoading,
         commandId, // Add commandId to track related messages
-        link // Add optional explorer link
+        link, // Add optional explorer link
+        ...extra,
       }];
     });
   };

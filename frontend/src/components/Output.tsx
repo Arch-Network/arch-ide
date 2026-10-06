@@ -16,6 +16,9 @@ export interface OutputMessage {
   link?: string; // Optional explorer link
   /** Optional id for replacing in place (e.g. live build log) */
   id?: string;
+  /** Optional raw log shown in a collapsible block under the message */
+  details?: string;
+  detailsOpen?: boolean;
 }
 
 interface OutputProps {
@@ -101,7 +104,7 @@ export const Output = ({ messages, onClear }: OutputProps) => {
       .map((msg) => {
         const time = msg.timestamp.toLocaleTimeString();
         const prefix = msg.type === 'command' ? '> $ ' : '  ';
-        return `${time} ${prefix}${msg.content}`;
+        return `${time} ${prefix}${msg.content}${msg.details ? `\n${msg.details}` : ''}`;
       })
       .join('\n');
     navigator.clipboard.writeText(text).then(() => {
@@ -261,6 +264,14 @@ export const Output = ({ messages, onClear }: OutputProps) => {
                       </a>
                     )}
                   </div>
+                )}
+                {msg.details && (
+                  <details open={msg.detailsOpen} className="mt-1">
+                    <summary className="cursor-pointer select-none text-muted-foreground hover:text-foreground">
+                      Full build log ({msg.details.split('\n').length} lines)
+                    </summary>
+                    <div className="mt-1 pl-2 border-l border-border text-foreground/80">{msg.details}</div>
+                  </details>
                 )}
               </div>
             </div>
