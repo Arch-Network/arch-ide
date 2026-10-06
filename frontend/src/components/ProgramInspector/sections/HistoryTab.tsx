@@ -16,6 +16,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '../../ui/button';
 import { getExplorerUrls } from '../../../utils/explorerLinks';
+import { hexToBase58 } from '../../../utils/base58';
 import {
   fetchProgramTransactions,
   isExplorerApiAvailable,
@@ -347,8 +348,19 @@ const OnChainHistoryPanel: React.FC<OnChainHistoryPanelProps> = ({
       </header>
 
       {error ? (
-        <div className="px-3 py-3 text-[11px] text-danger">
-          Couldn{'\u2019'}t load on-chain history: {error}
+        <div className="px-3 py-3 text-[11px] text-muted-foreground space-y-1.5">
+          <p>On-chain history is unavailable here. {error}</p>
+          {explorerUrls && (
+            <a
+              href={explorerUrls.program(hexToBase58(programIdHex))}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 text-brand hover:text-brand-hover"
+            >
+              <ExternalLink className="h-3 w-3" aria-hidden="true" />
+              View this program on Arch Explorer
+            </a>
+          )}
         </div>
       ) : transactions.length === 0 ? (
         <div className="px-3 py-3 text-[11px] text-muted-foreground italic">

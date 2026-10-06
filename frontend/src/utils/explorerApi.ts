@@ -50,6 +50,19 @@ export class ExplorerApiError extends Error {
   }
 }
 
+/**
+ * Raised when the request got no response at all. Browsers report a CORS
+ * refusal and being offline the same way, so the two cannot be told apart.
+ */
+export class ExplorerUnreachableError extends Error {
+  constructor() {
+    super(
+      'The Arch Explorer API could not be reached from this site: the browser blocked the request or the network is offline.',
+    );
+    this.name = 'ExplorerUnreachableError';
+  }
+}
+
 export type ExplorerTxStatus = 'processed' | 'failed' | 'unknown';
 
 export interface ExplorerTransaction {
@@ -124,10 +137,16 @@ export async function fetchProgramTransactions(
   const offset = opts.offset ?? 0;
   const url = `${base}/programs/${programIdHex}/transactions?limit=${limit}&offset=${offset}`;
 
-  const res = await fetch(url, {
-    headers: { Accept: 'application/json', ...authHeaders() },
-    signal: opts.signal,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      headers: { Accept: 'application/json', ...authHeaders() },
+      signal: opts.signal,
+    });
+  } catch (e) {
+    if (e instanceof TypeError) throw new ExplorerUnreachableError();
+    throw e;
+  }
 
   if (!res.ok) {
     throw new ExplorerApiError(
