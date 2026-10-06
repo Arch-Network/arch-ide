@@ -121,39 +121,6 @@ export class RustAnalyzer {
     });
   }
 
-  public getErrorLocation(result: AnalysisResult, model: monaco.editor.ITextModel): monaco.IRange {
-    if (result.error_location) {
-      const { line, column, end_line, end_column } = result.error_location;
-      return {
-        startLineNumber: line,
-        startColumn: column,
-        endLineNumber: end_line || line,
-        endColumn: end_column || column + 1
-      };
-    }
-
-    // Try to extract line number from error message
-    if (result.error_message) {
-      const lineMatch = result.error_message.match(/line (\d+)/i);
-      if (lineMatch) {
-        const line = parseInt(lineMatch[1], 10);
-        return {
-          startLineNumber: line,
-          startColumn: 1,
-          endLineNumber: line,
-          endColumn: model.getLineLength(line) + 1
-        };
-      }
-    }
-
-    // Fallback to first line
-    return {
-      startLineNumber: 1,
-      startColumn: 1,
-      endLineNumber: 1,
-      endColumn: model.getLineLength(1) + 1
-    };
-  }
 }
 
 export function initRustAnalyzer(monacoInstance: typeof monaco, editorInstance: monaco.editor.IStandaloneCodeEditor) {
@@ -168,7 +135,10 @@ export function initRustAnalyzer(monacoInstance: typeof monaco, editorInstance: 
     const model = editorInstance.getModel();
     if (model && model.getLanguageId() === LANGUAGE_ID) {
       console.log("Document changed, running analysis");
+      const version = model.getVersionId();
       const result = await analyzer.analyze(model.getValue());
+      // A newer edit (or a closed file) makes this result's positions meaningless.
+      if (model.isDisposed() || model.getVersionId() !== version) return;
       console.log('Analysis result:', {
         syntax_valid: result.syntax_valid,
         error_message: result.error_message,
@@ -176,20 +146,19 @@ export function initRustAnalyzer(monacoInstance: typeof monaco, editorInstance: 
         full_result: result
       });
 
-      // Set model markers with any errors
-      if (!result.syntax_valid) {
-        console.log('Setting markers for error:', result.error_message || 'Unknown error');
-        const errorRange = analyzer.getErrorLocation(result, model);
+      // Only show an error the parser could describe and place; otherwise show nothing.
+      const location = result.error_location;
+      if (!result.syntax_valid && result.error_message && location) {
+        console.log('Setting markers for error:', result.error_message);
         monacoInstance.editor.setModelMarkers(model, LANGUAGE_ID, [{
           severity: monacoInstance.MarkerSeverity.Error,
-          message: result.error_message || 'Unknown error',
-          startLineNumber: errorRange.startLineNumber,
-          startColumn: errorRange.startColumn,
-          endLineNumber: errorRange.endLineNumber,
-          endColumn: errorRange.endColumn
+          message: result.error_message,
+          startLineNumber: location.line,
+          startColumn: location.column,
+          endLineNumber: location.end_line,
+          endColumn: location.end_column
         }]);
       } else {
-        // Clear markers if syntax is valid
         monacoInstance.editor.setModelMarkers(model, LANGUAGE_ID, []);
       }
     }
