@@ -22,6 +22,7 @@ import {
 import { renderType } from '../../../utils/idl/typeRender';
 import { hexToBase58 } from '../../../utils/base58';
 import { useBitcoinWallet } from '../../../hooks/useBitcoinWallet';
+import { completeOnboardingStep } from '../../../hooks/useOnboarding';
 import {
   derivePda,
   buildAccountValueMap,
@@ -753,6 +754,7 @@ const SubmitPanel: React.FC<SubmitPanelProps> = ({
       walletSigner,
     });
     onStateChange({ kind: result.ok ? 'success' : 'error', result });
+    if (result.ok) completeOnboardingStep('invoke');
 
     // Persist a history entry regardless of outcome — failed attempts
     // are at least as useful as successes for debugging. We record a

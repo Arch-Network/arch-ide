@@ -8,6 +8,7 @@ import ProgramInspector from './ProgramInspector/ProgramInspector';
 import type { ProjectMutations } from './ProgramInspector/projectMutations';
 import type { ArchIdl, FileNode } from '../types';
 import VerticalResizeHandle from './VerticalResizeHandle';
+import OnboardingChecklist from './OnboardingChecklist';
 import { Config } from '../types/config';
 import { Project, ProjectAccount } from '../types';
 import type { DroppedFile } from '../utils/fileDropUtils';
@@ -112,7 +113,6 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
       id: 'build',
       label: 'Build',
       icon: <Hammer className="h-4 w-4" aria-hidden="true" />,
-      testId: 'build-tab',
     },
   ];
 
@@ -126,6 +126,8 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
         current={currentView}
         onChange={onViewChange}
       />
+
+      <OnboardingChecklist onNewProject={onNewProject} onViewChange={onViewChange} />
 
       <div className="flex-1 overflow-auto">
         {currentView === 'explorer' && (

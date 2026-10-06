@@ -14,12 +14,14 @@ export const WelcomeModal = ({ isOpen, onStart, onSkip }: WelcomeModalProps) => 
         <DialogHeader>
           <DialogTitle>Welcome to Arch Network!</DialogTitle>
           <DialogDescription>
-            Would you like to walk through a quick tutorial to learn the basics?
+            A short checklist in the sidebar walks you through creating, building, deploying and invoking your
+            first program, and ticks off each step as you do it. You can reopen it any time from the project
+            menu (⋯) under Getting Started.
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="secondary" onClick={onSkip}>Skip Tutorial</Button>
-          <Button onClick={onStart}>Start Tutorial</Button>
+          <Button variant="secondary" onClick={onSkip}>Not now</Button>
+          <Button onClick={onStart}>Show checklist</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

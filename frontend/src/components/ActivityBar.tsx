@@ -14,8 +14,6 @@ export interface ActivityBarItem<TViewId extends string = string> {
   icon: React.ReactNode;
   /** Optional notification dot rendered in the corner. */
   hasIndicator?: boolean;
-  /** Optional Cypress/tutorial hook. */
-  testId?: string;
 }
 
 interface ActivityBarProps<TViewId extends string = string> {
@@ -70,7 +68,6 @@ export const ActivityBar = <TViewId extends string>({
               size="sm"
               role="tab"
               aria-selected={isActive}
-              data-tutorial={item.testId}
               tabIndex={isActive ? 0 : -1}
               onClick={() => onChange(item.id)}
               className={cn(
