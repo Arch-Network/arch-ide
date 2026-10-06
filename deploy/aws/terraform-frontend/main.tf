@@ -122,6 +122,25 @@ resource "aws_cloudfront_distribution" "cdn" {
     }
   }
 
+  dynamic "ordered_cache_behavior" {
+    for_each = var.api_origin_domain_name != "" ? [1] : []
+    content {
+      path_pattern           = "/explorer/*"
+      target_origin_id       = "api-origin"
+      viewer_protocol_policy = "https-only"
+      allowed_methods        = ["GET", "HEAD", "OPTIONS"]
+      cached_methods         = ["GET", "HEAD", "OPTIONS"]
+      forwarded_values {
+        query_string = true
+        headers      = ["Accept", "Content-Type", "Origin", "Authorization"]
+        cookies { forward = "none" }
+      }
+      min_ttl     = 0
+      default_ttl = 0
+      max_ttl     = 0
+    }
+  }
+
   restrictions {
     geo_restriction { restriction_type = "none" }
   }
