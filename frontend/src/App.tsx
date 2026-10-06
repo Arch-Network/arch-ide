@@ -302,6 +302,7 @@ const AppContent = () => {
   const [newItemType, setNewItemType] = useState<'file' | 'directory'>();
   const [outputMessages, setOutputMessages] = useState<OutputMessage[]>([]);
   const [isDeploying, setIsDeploying] = useState(false);
+  const deployAbortRef = useRef<AbortController | null>(null);
   const [programId, setProgramId] = useState<string>();
   const [isConfigOpen, setIsConfigOpen] = useState(false);
   const [programBinary, setProgramBinary] = useState<string | null>(null);
@@ -675,6 +676,8 @@ const AppContent = () => {
       return;
     }
 
+    const deployAbort = new AbortController();
+    deployAbortRef.current = deployAbort;
     setIsDeploying(true);
     try {
       let base64Content: string;
@@ -700,7 +703,8 @@ const AppContent = () => {
         authorityKeypair: fullCurrentProject.authorityAccount,
         regtestConfig: config.network === 'devnet' ? config.regtestConfig : undefined,
         utxoInfo: customUtxoInfo,
-        onMessage: addOutputMessage
+        onMessage: addOutputMessage,
+        signal: deployAbort.signal,
       });
 
       if (result.programId) {
@@ -712,11 +716,22 @@ const AppContent = () => {
         setBinaryFileName(`${fullCurrentProject.name}.so`);
       }
     } catch (error: any) {
-      addOutputMessage('error', `Deploy error: ${error.message}`);
+      if (deployAbort.signal.aborted) {
+        addOutputMessage('info', error.message);
+      } else {
+        addOutputMessage('error', `Deploy error: ${error.message}`);
+      }
     } finally {
+      deployAbortRef.current = null;
       setIsDeploying(false);
       // Modal is already closed before deployment starts, no need to close it here
     }
+  };
+
+  const handleCancelDeploy = () => {
+    if (!deployAbortRef.current || deployAbortRef.current.signal.aborted) return;
+    addOutputMessage('info', 'Cancelling deploy…');
+    deployAbortRef.current.abort();
   };
 
   // Helper function to convert base64 to Uint8Array in chunks
@@ -2450,7 +2465,7 @@ const AppContent = () => {
             onNewItem={handleNewItem}
             onFileDrop={handleFileDrop}
             onBuild={handleBuild}
-            onDeploy={handleDeploy}
+            onDeploy={isDeploying ? handleCancelDeploy : handleDeploy}
             onRunClient={runClientCode}
             canRunClient={canRunClient}
             isBuilding={isCompiling}
@@ -2505,7 +2520,7 @@ const AppContent = () => {
                 onNewItem={handleNewItem}
                 onFileDrop={handleFileDrop}
                 onBuild={handleBuild}
-                onDeploy={handleDeploy}
+                onDeploy={isDeploying ? handleCancelDeploy : handleDeploy}
                 onRunClient={runClientCode}
                 canRunClient={canRunClient}
                 isBuilding={isCompiling}

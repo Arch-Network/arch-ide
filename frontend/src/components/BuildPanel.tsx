@@ -1,6 +1,6 @@
 import { Plus, Import, Save, Loader2, Upload, Check, Circle, Rocket, Hammer, Play, X } from 'lucide-react';
 import { Button } from './ui/button';
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useMemo } from 'react';
 import { ArchConnection, RpcConnection } from '@arch-network/arch-sdk';
 import {
     Tooltip,
@@ -18,12 +18,15 @@ import { AuthorityAccountPanel } from './AuthorityAccountPanel';
 import FormatToggleInput from './FormatToggleInput';
 import StepCard from './StepCard';
 import type { StepStatus } from './StepCard';
+import { estimateDeployCost } from '../utils/arch-sdk-deployer';
+import { formatArchFromLamports } from '../utils/archUnits';
 
 const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
 
   interface BuildPanelProps {
     hasProjects: boolean;
     onBuild: () => void;
+    /** Starts a deploy, or cancels the running one while isDeploying. */
     onDeploy: () => void;
     isBuilding: boolean;
     isDeploying: boolean;
@@ -111,6 +114,12 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
       const hasKeypair = Boolean(programPubkeyHex);
       const hasAuthority = Boolean(project?.authorityAccount);
       const hasBinary = Boolean(programBinary);
+      const estimatedCostLamports = useMemo(() => {
+        if (!programBinary) return null;
+        const base64 = programBinary.startsWith('data:') ? programBinary.split(',')[1] : programBinary;
+        const padding = base64.endsWith('==') ? 2 : base64.endsWith('=') ? 1 : 0;
+        return estimateDeployCost(Math.floor((base64.length * 3) / 4) - padding, null).total;
+      }, [programBinary]);
 
       const programStatus: StepStatus = hasKeypair ? 'complete' : 'pending';
       const authorityStatus: StepStatus = hasAuthority ? 'complete' : 'active';
@@ -551,6 +560,7 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
                 config={config}
                 isConnected={isRpcConnected}
                 onRenderActions={setAuthorityActions}
+                requiredLamports={estimatedCostLamports}
               />
             </StepCard>
 
@@ -644,20 +654,27 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
               <span className="text-[10px] text-muted-foreground font-mono">{readyCount}/3</span>
             </div>
 
-            {/* Fee estimate */}
-            <div className="text-[11px] text-muted-foreground">
-              Estimated fee: <span className="text-foreground/80 font-mono">~0.001 ARCH</span>
-            </div>
+            {/* Cost estimate */}
+            {estimatedCostLamports !== null && (
+              <div className="text-[11px] text-muted-foreground">
+                Estimated cost:{' '}
+                <span className="text-foreground/80 font-mono">
+                  ~{formatArchFromLamports(estimatedCostLamports, { maximumSignificantDigits: 2 })} ARCH
+                </span>
+              </div>
+            )}
 
             {/* Deploy button */}
             <Button
               data-tutorial="deploy"
               onClick={onDeploy}
-              disabled={isDeploying || !isDeployReady}
-              title={isDeployReady ? 'Deploy program' : deployReadinessReason}
+              disabled={!isDeploying && !isDeployReady}
+              title={isDeploying ? 'Stop sending deploy transactions' : isDeployReady ? 'Deploy program' : deployReadinessReason}
               className={`
                 w-full h-10 font-semibold rounded-lg transition-all duration-200
-                ${isDeployReady
+                ${isDeploying
+                  ? 'bg-transparent hover:bg-destructive/10 text-destructive border border-destructive/50'
+                  : isDeployReady
                   ? 'bg-success hover:bg-success/90 text-success-foreground shadow-sm shadow-success/20'
                   : 'bg-surface-3 hover:bg-surface-3/80 text-muted-foreground'
                 }
@@ -666,7 +683,7 @@ const WORKFLOW_DISMISSED_KEY = 'arch-ide:build-panel-workflow-dismissed';
               {isDeploying ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Deploying...
+                  Cancel deploy
                 </>
               ) : (
                 <>
