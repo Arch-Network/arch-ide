@@ -778,26 +778,7 @@ export class ArchPgClient {
                   console.log('[ClientTransactionUtil] TX preview:', JSON.stringify(txPreview).slice(0, 800) + '...');
                 } catch {}
 
-                // Try primary shape
-                try {
-                  return await conn.sendTransaction(transaction);
-                } catch (e1) {
-                  // Fallback: version 1 with number[] signature
-                  try {
-                    const txV1 = { version: 1, signatures: [Array.from(signature)], message: sendMessage };
-                    console.log('[ClientTransactionUtil] Retrying with version=1 and number[] signature');
-                    return await conn.sendTransaction(txV1);
-                  } catch (e2) {
-                    // Fallback: version 1 with Uint8Array signature (in case server accepts Uint8Array)
-                    try {
-                      const txV1U8 = { version: 1, signatures: [signature], message: sendMessage };
-                      console.log('[ClientTransactionUtil] Retrying with version=1 and Uint8Array signature');
-                      return await conn.sendTransaction(txV1U8);
-                    } catch (e3) {
-                      throw e3;
-                    }
-                  }
-                }
+                return await conn.sendTransaction(transaction);
               } catch (error) {
                 throw new Error('[ClientTransactionUtil.signAndSendTransaction] ' + (error && error.message ? error.message : String(error)));
               }
