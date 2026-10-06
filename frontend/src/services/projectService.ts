@@ -178,7 +178,7 @@ const SATELLITE_CLIENT = String.raw`// =========================================
 console.log("=== Arch Network Satellite Counter Example ===\\n");
 
 // NOTE: Replace with your deployed program's pubkey (from Deploy panel)
-const PROGRAM_ID_HEX = "YOUR_PROGRAM_ID_HERE";
+const PROGRAM_ID_HEX: string = "YOUR_PROGRAM_ID_HERE";
 
 if (PROGRAM_ID_HEX === "YOUR_PROGRAM_ID_HERE") {
   console.log("⚠️  Please deploy the program first and update PROGRAM_ID_HEX\\n");
@@ -775,7 +775,7 @@ console.log("--- Step 3: Calling Hello World Program ---");
 
 // NOTE: Replace PROGRAM_ID_HEX with your deployed program's pubkey
 // You can get this from the Deploy panel after building and deploying
-const PROGRAM_ID_HEX = "YOUR_PROGRAM_ID_HERE";
+const PROGRAM_ID_HEX: string = "YOUR_PROGRAM_ID_HERE";
 
 // For this example to work, you need to:
 // 1. Build the program using the Build panel

@@ -4,6 +4,7 @@ import { Output, type OutputMessage } from './Output';
 import ResizeHandle from './ResizeHandle';
 import type { ResizeSeparatorProps } from '../hooks/useResizablePanel';
 import { cn } from '@/lib/utils';
+import { useEditorDiagnostics, type EditorDiagnostic } from '../editor/diagnostics';
 
 type BottomTabId = 'output' | 'problems';
 
@@ -30,7 +31,8 @@ interface BottomPanelProps {
 /**
  * Tabbed bottom dock.
  *
- * Today: Output console + a Problems view derived from `error`-level messages.
+ * Today: Output console + a Problems view of the open file's editor
+ * diagnostics and `error`-level messages.
  * Tomorrow (Phase 2 follow-ups): Transactions + Network. We keep tab state in
  * local component state because users rarely care about persisting which
  * bottom tab was active across reloads — Output should be the default.
@@ -49,6 +51,8 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
     () => messages.filter((msg) => msg.type === 'error'),
     [messages],
   );
+  const diagnostics = useEditorDiagnostics();
+  const problemCount = problems.length + diagnostics.length;
 
   const tabs: BottomTabConfig[] = [
     {
@@ -60,8 +64,8 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
       id: 'problems',
       label: 'Problems',
       icon: <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />,
-      count: problems.length,
-      badgeTone: problems.length > 0 ? 'danger' : 'default',
+      count: problemCount,
+      badgeTone: problemCount > 0 ? 'danger' : 'default',
     },
   ];
 
@@ -145,7 +149,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
             <Output messages={messages} onClear={onClear} />
           )}
           {activeTab === 'problems' && (
-            <ProblemsView problems={problems} />
+            <ProblemsView problems={problems} diagnostics={diagnostics} />
           )}
         </div>
       )}
@@ -153,14 +157,17 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
   );
 };
 
-const ProblemsView: React.FC<{ problems: OutputMessage[] }> = ({ problems }) => {
-  if (problems.length === 0) {
+const ProblemsView: React.FC<{ problems: OutputMessage[]; diagnostics: EditorDiagnostic[] }> = ({
+  problems,
+  diagnostics,
+}) => {
+  if (problems.length === 0 && diagnostics.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-muted-foreground gap-2 px-4 text-center">
         <AlertTriangle className="h-6 w-6 text-success/70" aria-hidden="true" />
         <p className="text-sm">No problems detected</p>
         <p className="text-xs text-muted-foreground/70">
-          Build errors and runtime issues will appear here
+          Editor diagnostics, build errors, and runtime issues will appear here
         </p>
       </div>
     );
@@ -168,6 +175,28 @@ const ProblemsView: React.FC<{ problems: OutputMessage[] }> = ({ problems }) => 
 
   return (
     <ul className="h-full overflow-y-auto custom-scrollbar divide-y divide-border" role="list">
+      {diagnostics.map((d, index) => (
+        <li
+          key={`diag-${d.line}-${d.column}-${index}`}
+          className="flex items-start gap-2 px-3 py-2 hover:bg-accent/40 transition-colors"
+        >
+          <AlertTriangle
+            className={cn(
+              'h-3.5 w-3.5 mt-0.5 flex-shrink-0',
+              d.severity === 'error' ? 'text-danger' : 'text-warning',
+            )}
+            aria-hidden="true"
+          />
+          <div className="flex-1 min-w-0">
+            <pre className="text-xs text-foreground/90 whitespace-pre-wrap break-words font-mono">
+              {d.message}
+            </pre>
+            <p className="mt-1 text-[10px] text-muted-foreground font-mono">
+              {d.path}:{d.line}:{d.column} · {d.source}
+            </p>
+          </div>
+        </li>
+      ))}
       {problems.map((problem, index) => (
         <li
           key={`${problem.id ?? index}-${index}`}

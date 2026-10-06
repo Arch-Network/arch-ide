@@ -32,5 +32,6 @@
     ]
   },
   "include": ["src", "src/types"],
+  "exclude": ["src/components/Editor/languages/typescript/declarations/raw"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

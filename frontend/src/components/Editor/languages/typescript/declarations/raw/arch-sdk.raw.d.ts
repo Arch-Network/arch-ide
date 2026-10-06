@@ -167,6 +167,7 @@ declare module "@arch-network/arch-sdk" {
         static toHex(pubkey: Uint8Array): string;
         static systemProgram(): Pubkey;
         static isSystemProgram(pubkey: Pubkey): boolean;
+        static findProgramAddress(seeds: Array<Uint8Array>, programId: Pubkey): [Pubkey, number];
     }
 
     export class MessageUtil {
@@ -215,27 +216,26 @@ declare module "@arch-network/arch-sdk" {
     export const ArchConnection: <T extends Provider>(provider: T) => Arch & T;
 }
 
-declare global {
-    const RpcConnection: typeof import("@arch-network/arch-sdk").RpcConnection;
-    const ArchConnection: typeof import("@arch-network/arch-sdk").ArchConnection;
-    const PubkeyUtil: typeof import("@arch-network/arch-sdk").PubkeyUtil;
-    const MessageUtil: typeof import("@arch-network/arch-sdk").MessageUtil;
-    const UtxoMetaUtil: typeof import("@arch-network/arch-sdk").UtxoMetaUtil;
-    const SignatureUtil: typeof import("@arch-network/arch-sdk").SignatureUtil;
+// This file must stay a script (no top-level import/export): in a module, the
+// `declare module` above becomes an augmentation of a module that does not exist
+// and every SDK global degrades to `any`.
+declare const RpcConnection: typeof import("@arch-network/arch-sdk").RpcConnection;
+declare const ArchConnection: typeof import("@arch-network/arch-sdk").ArchConnection;
+declare const PubkeyUtil: typeof import("@arch-network/arch-sdk").PubkeyUtil;
+declare const MessageUtil: typeof import("@arch-network/arch-sdk").MessageUtil;
+declare const UtxoMetaUtil: typeof import("@arch-network/arch-sdk").UtxoMetaUtil;
+declare const SignatureUtil: typeof import("@arch-network/arch-sdk").SignatureUtil;
 
-    /**
-     * Decode a base58 string to a Uint8Array (Pubkey)
-     * @param str - Base58 encoded string
-     * @returns Uint8Array representing the decoded bytes
-     */
-    function fromBase58(str: string): Uint8Array;
+/**
+ * Decode a base58 string to a Uint8Array (Pubkey)
+ * @param str - Base58 encoded string
+ * @returns Uint8Array representing the decoded bytes
+ */
+declare function fromBase58(str: string): Uint8Array;
 
-    /**
-     * Encode a Uint8Array (Pubkey) to a base58 string
-     * @param bytes - Uint8Array to encode
-     * @returns Base58 encoded string
-     */
-    function toBase58(bytes: Uint8Array): string;
-}
-
-export {};
+/**
+ * Encode a Uint8Array (Pubkey) to a base58 string
+ * @param bytes - Uint8Array to encode
+ * @returns Base58 encoded string
+ */
+declare function toBase58(bytes: Uint8Array): string;
