@@ -3,6 +3,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { validateName } from '../utils/nameValidation';
 
 interface RenameDialogProps {
   isOpen: boolean;
@@ -10,9 +11,11 @@ interface RenameDialogProps {
   onRename: (newName: string) => void;
   currentName: string;
   type: 'file' | 'directory';
+  /** Names of the item's siblings, excluding its own. */
+  existingNames: string[];
 }
 
-const RenameDialog = ({ isOpen, onClose, onRename, currentName, type }: RenameDialogProps) => {
+const RenameDialog = ({ isOpen, onClose, onRename, currentName, type, existingNames }: RenameDialogProps) => {
   const [name, setName] = useState(currentName);
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -43,35 +46,22 @@ const RenameDialog = ({ isOpen, onClose, onRename, currentName, type }: RenameDi
     }
   }, [isOpen, currentName, type]);
 
-  const validateName = (value: string): boolean => {
-    if (!value.trim()) {
-      setError('Name cannot be empty');
-      return false;
-    }
-
-    // Validate file/folder name
-    const isValid = /^[a-zA-Z0-9_.-]+$/.test(value);
-    if (!isValid) {
-      setError('Invalid name. Use only letters, numbers, underscore, dot, or dash');
-      return false;
-    }
-
-    return true;
-  };
-
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!validateName(name)) {
-      return;
-    }
-
-    if (name.trim() === currentName) {
+    const trimmed = name.trim();
+    if (trimmed === currentName) {
       onClose();
       return;
     }
 
-    onRename(name.trim());
+    const validationError = validateName(trimmed, type === 'file' ? 'file' : 'folder', existingNames);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    onRename(trimmed);
     onClose();
   };
 

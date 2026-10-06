@@ -15,6 +15,8 @@ import {
   TEXT_SECONDARY,
 } from '../theme/theme';
 import { MonacoFileSystem } from '../services/MonacoFileSystem';
+import '../editor/setupMonaco';
+import { trackModelDiagnostics } from '../editor/diagnostics';
 import * as monaco from 'monaco-editor';
 import { editor as monacoEditor } from 'monaco-editor';
 import { isHomeTab } from '../utils/homeTab';
@@ -25,6 +27,9 @@ interface EditorProps {
   code: string;
   onChange: (value: string | undefined) => void;
   onSave?: (value: string) => void;
+  /** Cmd/Ctrl+K and Cmd/Ctrl+B from inside the editor, which App's window listener never sees. */
+  onCommandPalette?: () => void;
+  onBuild?: () => void;
   currentFile?: FileNode | null;
   currentProject?: any;
   onSelectFile: (file: FileNode) => void;
@@ -60,14 +65,15 @@ const DEFAULT_WELCOME_MESSAGE = `
 // ─────────────────────────────────────────────────────────────────────────
 //
 // 1. CREATE A PROJECT
-//    Click the "+" button in the top navigation to get started
+//    Click "Create New Project" on the Home tab, or New Project in the
+//    project menu (⋯) next to the project selector in the top bar
 //
 // 2. EXPLORE THE TEMPLATE
 //    • src/lib.rs       → Your Rust program code
 //    • client/client.ts → Example client interaction code
 //
 // 3. BUILD & DEPLOY
-//    • Open the Build panel (🔨) in the left sidebar
+//    • Open the Build tab at the top of the left sidebar
 //    • Click "Build" to compile your program
 //    • Configure network settings (testnet/devnet)
 //    • Generate program & authority keypairs
@@ -84,7 +90,6 @@ const DEFAULT_WELCOME_MESSAGE = `
 //
 // Cmd/Ctrl + S     →  Save current file
 // Cmd/Ctrl + B     →  Build program
-// Cmd/Ctrl + W     →  Close current tab
 
 
 // 📚 LEARN MORE
@@ -99,7 +104,7 @@ const DEFAULT_WELCOME_MESSAGE = `
 // 💡 TIPS
 // ─────────────────────────────────────────────────────────────────────────
 //
-// • Use the Explorer (📁) to navigate between files
+// • Use the Explorer tab to navigate between files
 // • The Build panel shows build status and deployment info
 // • Connect your Bitcoin wallet (Unisat/Xverse) for seamless transactions
 // • Use testnet for development, devnet for local testing
@@ -316,6 +321,8 @@ const Editor = ({
   code,
   onChange,
   onSave,
+  onCommandPalette,
+  onBuild,
   currentFile,
   currentProject,
   onSelectFile,
@@ -337,6 +344,9 @@ const Editor = ({
   const displayCode = isWelcomeScreen ? DEFAULT_WELCOME_MESSAGE : decodeBase64Content(code);
   const editorRef = useRef<monacoEditor.IStandaloneCodeEditor | null>(null);
   const monacoFsRef = useRef<MonacoFileSystem | null>(null);
+  // Read at keypress time: the editor actions below are registered once per mount.
+  const shortcutsRef = useRef({ onCommandPalette, onBuild });
+  shortcutsRef.current = { onCommandPalette, onBuild };
   const [disposables, setDisposables] = useState<Disposable[]>([]);
   const { resolvedTheme } = useTheme();
   const monacoTheme =
@@ -489,10 +499,13 @@ const Editor = ({
     <div className="h-full w-full">
       <MonacoEditor
         height="100%"
-        language={getLanguage(currentFile?.name || '')}
         // defaultLanguage="plaintext"
         theme={monacoTheme}
         key={currentFile?.path || 'welcome'}
+        // Without a path the wrapper creates an extra in-memory model holding the same
+        // code, and the TS service reports every top-level declaration as a duplicate.
+        // No `language` prop: Monaco infers it from the path's extension (json, md, ...).
+        path={currentFile ? `file:///${currentFile.path || currentFile.name}` : undefined}
         value={displayCode}
         onChange={handleChange}
         beforeMount={(monaco) => {
@@ -511,6 +524,23 @@ const Editor = ({
             const keyboardEvent = e as unknown as KeyboardEvent;
             handleKeyDown(keyboardEvent);
           });
+          // Monaco keeps these keys for itself (Cmd/Ctrl+K starts its chords), so the
+          // app shortcuts have to be editor actions to work while the editor has focus.
+          const shortcuts = [
+            editor.addAction({
+              id: 'arch.commandPalette',
+              label: 'Command Palette',
+              keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyK],
+              run: () => shortcutsRef.current.onCommandPalette?.(),
+            }),
+            editor.addAction({
+              id: 'arch.build',
+              label: 'Build Program',
+              keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyB],
+              run: () => shortcutsRef.current.onBuild?.(),
+            }),
+          ];
+          editor.onDidDispose(() => shortcuts.forEach((s) => s.dispose()));
 
           const language = getLanguage(currentFile?.name || '');
           console.log('Initial language:', language);
@@ -541,6 +571,8 @@ const Editor = ({
             }
 
             editor.setModel(model);
+            const diagnostics = trackModelDiagnostics(monaco, model, filePath);
+            editor.onDidDispose(() => diagnostics.dispose());
           }
 
           // Rest of your code remains the same...

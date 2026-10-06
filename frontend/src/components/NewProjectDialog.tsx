@@ -5,25 +5,30 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ProjectFramework } from '@/types';
+import { validateName } from '../utils/nameValidation';
 
 interface NewProjectDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onCreateProject: (name: string, description: string, framework?: ProjectFramework) => void;
+  existingNames: string[];
 }
 
-const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialogProps) => {
+const NewProjectDialog = ({ isOpen, onClose, onCreateProject, existingNames }: NewProjectDialogProps) => {
   const [name, setName] = useState('');
+  const [error, setError] = useState('');
   const [description, setDescription] = useState('');
   const [framework, setFramework] = useState<ProjectFramework>('native');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    // Prevent submission if name is blank
-    if (!name.trim()) {
+    const trimmed = name.trim();
+    const validationError = validateName(trimmed, 'project', existingNames);
+    if (validationError) {
+      setError(validationError);
       return;
     }
-    onCreateProject(name, description, framework);
+    onCreateProject(trimmed, description, framework);
     setName('');
     setDescription('');
     setFramework('native');
@@ -50,10 +55,20 @@ const NewProjectDialog = ({ isOpen, onClose, onCreateProject }: NewProjectDialog
               <Input
                 id="name"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setError('');
+                }}
                 className="bg-background text-foreground border-input"
                 placeholder="my-project"
+                aria-invalid={!!error}
+                aria-describedby={error ? 'new-project-name-error' : undefined}
               />
+              {error && (
+                <p id="new-project-name-error" role="alert" className="text-danger text-sm">
+                  {error}
+                </p>
+              )}
             </div>
             <div className="grid gap-2">
               <label htmlFor="description" className="text-sm font-medium text-foreground">

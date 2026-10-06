@@ -23,6 +23,9 @@ export const initDeclarations = async (editor: monaco.editor.IStandaloneCodeEdit
     noSemanticValidation: false,
     noSyntaxValidation: false,
     onlyVisible: false,
+    // TS1108 (return outside a function): Run wraps each client file in an async
+    // function, so a top-level `return` is how a script stops early.
+    diagnosticCodesToIgnore: [1108],
   });
 
   // Set compiler options before loading declarations
@@ -30,7 +33,12 @@ export const initDeclarations = async (editor: monaco.editor.IStandaloneCodeEdit
     target: monaco.languages.typescript.ScriptTarget.ES2020,
     moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
     module: monaco.languages.typescript.ModuleKind.ESNext,
-    lib: ["ES2020", "DOM"],
+    // The language service takes lib file names, not tsconfig's "ES2020"/"DOM" spellings.
+    lib: ["lib.es2020.d.ts", "lib.dom.d.ts"],
+    // ts.ModuleDetectionKind.Force (Monaco does not export the enum). Run executes each
+    // client file on its own inside an async wrapper, so top-level await is valid and
+    // top-level names must not collide across files.
+    moduleDetection: 3,
     allowNonTsExtensions: true,
     typeRoots: ["node_modules/@types"],
     allowJs: true,
@@ -50,6 +58,29 @@ export const initDeclarations = async (editor: monaco.editor.IStandaloneCodeEdit
   const playgroundGlobalsDisposable = monaco.languages.typescript.typescriptDefaults.addExtraLib(
     `declare global {
       function getSmartRpcUrl(network?: string): string;
+
+      const ClientTransactionUtil: {
+        setupAccount(conn: import("@arch-network/arch-sdk").RpcConnection): Promise<{
+          accountPubkey: import("@arch-network/arch-sdk").Pubkey;
+          accountAddress: string;
+          useWallet: boolean;
+          privkey?: string;
+        }>;
+        signAndSendTransaction(
+          conn: import("@arch-network/arch-sdk").RpcConnection,
+          message: import("@arch-network/arch-sdk").Message,
+          useWallet: boolean
+        ): Promise<string | undefined>;
+      };
+
+      const walletProxy: {
+        isAvailable(): Promise<boolean>;
+        getWalletType(): Promise<string | null>;
+        getAccounts(): Promise<string[]>;
+        getPublicKey(): Promise<string>;
+        signMessage(message: string, protocol?: string): Promise<string>;
+        sendBitcoin(toAddress: string, amount: number): Promise<string>;
+      };
     }
 
     export {};`,

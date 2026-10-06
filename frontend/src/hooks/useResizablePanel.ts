@@ -19,13 +19,23 @@ interface UseResizablePanelOptions {
   storageKey?: string;
 }
 
+export type ResizeSeparatorProps = Pick<
+  React.HTMLAttributes<HTMLElement>,
+  'onMouseDown' | 'onKeyDown' | 'aria-valuenow' | 'aria-valuemin' | 'aria-valuemax'
+>;
+
 interface UseResizablePanelResult {
   size: number;
   setSize: (size: number) => void;
-  /** Attach to the resize handle's onMouseDown. Captures mouse globally during drag. */
-  onMouseDown: (event: React.MouseEvent) => void;
+  /**
+   * Spread onto the resize handle (role="separator"). Mouse drag captures the
+   * mouse globally; arrow keys step the size, Home/End jump to min/max.
+   */
+  separatorProps: ResizeSeparatorProps;
   isDragging: boolean;
 }
+
+const KEYBOARD_STEP_PX = 10;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value));
@@ -124,5 +134,34 @@ export const useResizablePanel = ({
     [axis, min, max],
   );
 
-  return { size, setSize, onMouseDown, isDragging };
+  const onKeyDown = useCallback(
+    (event: React.KeyboardEvent) => {
+      const growKey = axis === 'horizontal' ? 'ArrowRight' : 'ArrowUp';
+      const shrinkKey = axis === 'horizontal' ? 'ArrowLeft' : 'ArrowDown';
+      let next: number;
+      switch (event.key) {
+        case growKey: next = sizeRef.current + KEYBOARD_STEP_PX; break;
+        case shrinkKey: next = sizeRef.current - KEYBOARD_STEP_PX; break;
+        case 'Home': next = min; break;
+        case 'End': next = max; break;
+        default: return;
+      }
+      event.preventDefault();
+      setSize(next);
+    },
+    [axis, min, max, setSize],
+  );
+
+  return {
+    size,
+    setSize,
+    separatorProps: {
+      onMouseDown,
+      onKeyDown,
+      'aria-valuenow': size,
+      'aria-valuemin': min,
+      'aria-valuemax': max,
+    },
+    isDragging,
+  };
 };
