@@ -14,7 +14,7 @@ import { getSmartRpcUrl } from '../utils/smartRpcConnection';
 import { getExplorerUrls } from '../utils/explorerLinks';
 import { hexToBase58 } from '../utils/base58';
 // Identicon removed per design update
-import { requestFaucetFunds } from '../utils/faucet';
+import { requestFaucetFunds, isFaucetAvailable } from '../utils/faucet';
 import { formatArchFromLamports, lamportsToArch } from '../utils/archUnits';
 import { useToast } from './ui/use-toast';
 import HistoricalKeysModal from './HistoricalKeysModal';
@@ -59,7 +59,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   const canRequestTestFunds = config.network === 'testnet' || config.network === 'devnet';
   const authority = project?.authorityAccount;
   const networkDisplay = config.network === 'mainnet' ? 'mainnet' : config.network;
-  const isFaucetNetwork = config.network === 'mainnet' || config.network === 'testnet' || config.network === 'devnet';
+  const isFaucetNetwork = isFaucetAvailable(config.network);
   const explorerUrls = getExplorerUrls(config.network as 'testnet' | 'mainnet' | 'devnet');
   const authorityBase58 = authority ? hexToBase58(authority.pubkey) : null;
 
@@ -128,7 +128,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
       setBalance(null);
       setBalanceError(null);
     }
-  }, [authority?.pubkey, isConnected]);
+  }, [authority?.pubkey, isConnected, config.rpcUrl]);
 
   const readBalanceLamports = async (pubkeyHex: string): Promise<number | null> => {
     try {

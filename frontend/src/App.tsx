@@ -41,6 +41,7 @@ import { ArchConnection, RpcConnection, type Provider } from '@arch-network/arch
 import { getSmartRpcUrl } from './utils/smartRpcConnection';
 import { getExplorerUrls } from './utils/explorerLinks';
 import { FileChange } from './types/types';
+import { withRpcNetwork } from './types/config';
 import { Buffer } from 'buffer/';
 import { formatBuildError } from './utils/errorFormatter';
 import { ArchPgClient } from './utils/archPgClient';
@@ -465,7 +466,7 @@ const AppContent = () => {
     const normalizedSavedConfig = (savedConfig && (savedConfig as any).network === 'mainnet-beta')
       ? { ...(savedConfig as any), network: 'mainnet' }
       : savedConfig;
-    const defaultConfig = {
+    const defaultConfig: Config = {
       network: 'testnet',
       rpcUrl: 'https://rpc.testnet.arch.network',
       regtestConfig: {
@@ -477,14 +478,14 @@ const AppContent = () => {
 
     if (!normalizedSavedConfig) return defaultConfig;
 
-    return {
+    return withRpcNetwork({
       ...defaultConfig,
       ...(normalizedSavedConfig as any),
       regtestConfig: {
         ...defaultConfig.regtestConfig,
         ...((normalizedSavedConfig as any).regtestConfig || {})
       }
-    };
+    });
   });
 
   useEffect(() => {
