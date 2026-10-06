@@ -1,13 +1,10 @@
 /**
- * Thin client for the Arch Explorer indexer REST API.
+ * Thin client for program transaction history.
  *
- * https://explorer.arch.network/docs
- *
- * The indexer serves historical chain data (blocks, transactions, programs,
- * accounts) from Postgres — data the validator JSON-RPC can't return, like the
- * full transaction history of a program. We use it to back read-heavy,
- * historical views; live updates still come over the WebSocket layer and
- * writes still go through validator RPC.
+ * The browser talks to the IDE rust-server, which proxies to the Arch Explorer
+ * indexer (https://explorer.arch.network/docs). Hitting Explorer from the
+ * page is blocked by CORS; a Vite-baked API key would be public and would
+ * still fail the preflight. The server fetches Explorer; no browser key.
  *
  * Only canonical public networks (testnet/mainnet) are indexed. Local devnet
  * has no indexer, so callers must handle `null`/`ExplorerUnavailableError` and
@@ -16,19 +13,11 @@
 
 export type ExplorerNetwork = 'testnet' | 'mainnet' | 'devnet';
 
-const API_BASES: Record<string, string> = {
-  testnet: 'https://explorer.arch.network/api/v1/testnet',
-  mainnet: 'https://explorer.arch.network/api/v1/mainnet',
-};
-
-/** Base URL for the indexer REST API on `network`, or null if unindexed. */
-export function getExplorerApiBase(network: string): string | null {
-  return API_BASES[network] ?? null;
-}
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8080';
 
 /** Whether the indexer REST API is available for `network`. */
 export function isExplorerApiAvailable(network: string): boolean {
-  return getExplorerApiBase(network) !== null;
+  return network === 'testnet' || network === 'mainnet';
 }
 
 /** Raised when a caller requests indexer data for an unindexed network. */
@@ -51,8 +40,8 @@ export class ExplorerApiError extends Error {
 }
 
 /**
- * Raised when the request got no response at all. Browsers report a CORS
- * refusal and being offline the same way, so the two cannot be told apart.
+ * Raised when the request got no response at all. Used when the IDE proxy
+ * itself is unreachable (or a leftover direct Explorer call is CORS-blocked).
  */
 export class ExplorerUnreachableError extends Error {
   constructor() {
@@ -114,33 +103,28 @@ function mapTransaction(raw: any): ExplorerTransaction | null {
   return { txid, blockHeight, status, failure, createdAt };
 }
 
-/** Attach the API key (if configured) for higher rate limits. */
-function authHeaders(): Record<string, string> {
-  const key = import.meta.env.VITE_EXPLORER_API_KEY as string | undefined;
-  return key ? { Authorization: `Bearer ${key}` } : {};
-}
-
 /**
  * Fetch a page of a program's transaction history, newest first. The indexer
  * paginates by `offset` (not page number). `programIdHex` is the 64-char hex
  * program id — the same value the Program Inspector holds as `account.pubkey`.
+ *
+ * Goes through the IDE rust-server so Explorer CORS never applies.
  */
 export async function fetchProgramTransactions(
   network: string,
   programIdHex: string,
   opts: { limit?: number; offset?: number; signal?: AbortSignal } = {},
 ): Promise<ProgramTransactionsPage> {
-  const base = getExplorerApiBase(network);
-  if (!base) throw new ExplorerUnavailableError(network);
+  if (!isExplorerApiAvailable(network)) throw new ExplorerUnavailableError(network);
 
   const limit = opts.limit ?? 25;
   const offset = opts.offset ?? 0;
-  const url = `${base}/programs/${programIdHex}/transactions?limit=${limit}&offset=${offset}`;
+  const url = `${API_URL}/explorer/${network}/programs/${encodeURIComponent(programIdHex)}/transactions?limit=${limit}&offset=${offset}`;
 
   let res: Response;
   try {
     res = await fetch(url, {
-      headers: { Accept: 'application/json', ...authHeaders() },
+      headers: { Accept: 'application/json' },
       signal: opts.signal,
     });
   } catch (e) {
