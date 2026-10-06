@@ -58,14 +58,15 @@ const DEFAULT_WELCOME_MESSAGE = `
 // ─────────────────────────────────────────────────────────────────────────
 //
 // 1. CREATE A PROJECT
-//    Click the "+" button in the top navigation to get started
+//    Click "Create New Project" on the Home tab, or New Project in the
+//    project menu (⋯) next to the project selector in the top bar
 //
 // 2. EXPLORE THE TEMPLATE
 //    • src/lib.rs       → Your Rust program code
 //    • client/client.ts → Example client interaction code
 //
 // 3. BUILD & DEPLOY
-//    • Open the Build panel (🔨) in the left sidebar
+//    • Open the Build tab at the top of the left sidebar
 //    • Click "Build" to compile your program
 //    • Configure network settings (testnet/devnet)
 //    • Generate program & authority keypairs
@@ -82,7 +83,6 @@ const DEFAULT_WELCOME_MESSAGE = `
 //
 // Cmd/Ctrl + S     →  Save current file
 // Cmd/Ctrl + B     →  Build program
-// Cmd/Ctrl + W     →  Close current tab
 
 
 // 📚 LEARN MORE
@@ -97,7 +97,7 @@ const DEFAULT_WELCOME_MESSAGE = `
 // 💡 TIPS
 // ─────────────────────────────────────────────────────────────────────────
 //
-// • Use the Explorer (📁) to navigate between files
+// • Use the Explorer tab to navigate between files
 // • The Build panel shows build status and deployment info
 // • Connect your Bitcoin wallet (Unisat/Xverse) for seamless transactions
 // • Use testnet for development, devnet for local testing

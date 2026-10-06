@@ -18,3 +18,22 @@ export const DEFAULT_CONFIG: Config = {
         password: '428bae8f3c94f8c39c50757fc89c39bc7e6ebc70ebf8f618'
     }
 };
+
+export const NETWORK_RPC_URLS: Record<Config['network'], string> = {
+    mainnet: 'https://rpc.mainnet.arch.network',
+    testnet: 'https://rpc.testnet.arch.network',
+    devnet: 'http://localhost:9002',
+};
+
+/** The network a known RPC endpoint serves, or null for a custom endpoint. */
+export const networkForRpcUrl = (rpcUrl: string): Config['network'] | null => {
+    const normalized = rpcUrl.trim().replace(/\/+$/, '').toLowerCase();
+    const networks = Object.keys(NETWORK_RPC_URLS) as Config['network'][];
+    return networks.find((network) => NETWORK_RPC_URLS[network] === normalized) ?? null;
+};
+
+/** Every call goes to the endpoint, so for a known endpoint its network is the one shown. */
+export const withRpcNetwork = (config: Config): Config => ({
+    ...config,
+    network: networkForRpcUrl(config.rpcUrl) ?? config.network,
+});

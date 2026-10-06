@@ -4,7 +4,7 @@ import { Plus, BookOpen, MessageSquare, Github, Clock, Package, Rocket, FileText
 import { Project, ProjectFramework } from '../types';
 import { cn } from '@/lib/utils';
 import { Logo } from './Logo';
-import { frameworksFor } from '../services/satelliteExamples';
+import { frameworksFor } from '../services/exampleProjectsService';
 
 interface HomeScreenProps {
   recentProjects: Project[];
@@ -23,8 +23,8 @@ interface ExampleProject {
 }
 
 // Example projects from https://github.com/Arch-Network/arch-examples/tree/main/examples.
-// Whether a given example can be loaded as Satellite is decided by
-// `frameworksFor(name)` (which checks the inline satellite registry),
+// Which frameworks a given example can be loaded as is decided by
+// `frameworksFor(name)` (which checks the native and satellite registries),
 // so this list intentionally stays framework-agnostic.
 const EXAMPLE_PROJECTS: ExampleProject[] = [
   {
@@ -169,10 +169,20 @@ interface ExampleCardProps {
 const ExampleCard: React.FC<ExampleCardProps> = ({ example, loadingKey, onLoad }) => {
   const available = frameworksFor(example.name);
   const [framework, setFramework] = useState<ProjectFramework>(available[0]);
+  const [error, setError] = useState<string | null>(null);
 
   const isLoading = loadingKey === `${example.name}:${framework}`;
   const isAnyLoading = loadingKey !== null;
   const hasMultipleFrameworks = available.length > 1;
+
+  const handleLoad = async () => {
+    setError(null);
+    try {
+      await onLoad(example.name, framework);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
 
   return (
     <div className="group relative bg-surface-2/50 backdrop-blur border border-border rounded-lg p-6 hover:border-brand transition-all duration-200">
@@ -228,7 +238,10 @@ const ExampleCard: React.FC<ExampleCardProps> = ({ example, loadingKey, onLoad }
                   role="radio"
                   aria-checked={selected}
                   disabled={isAnyLoading}
-                  onClick={() => setFramework(fw)}
+                  onClick={() => {
+                    setFramework(fw);
+                    setError(null);
+                  }}
                   className={cn(
                     'text-xs font-medium px-2 py-1.5 rounded transition-colors',
                     selected
@@ -253,7 +266,7 @@ const ExampleCard: React.FC<ExampleCardProps> = ({ example, loadingKey, onLoad }
         )}
 
         <Button
-          onClick={() => onLoad(example.name, framework)}
+          onClick={handleLoad}
           disabled={isAnyLoading}
           className="w-full bg-surface-3 hover:bg-brand hover:text-brand-foreground text-foreground transition-colors"
         >
@@ -269,6 +282,12 @@ const ExampleCard: React.FC<ExampleCardProps> = ({ example, loadingKey, onLoad }
             </>
           )}
         </Button>
+
+        {error && (
+          <p role="alert" className="text-sm text-danger break-words">
+            {error}
+          </p>
+        )}
       </div>
     </div>
   );

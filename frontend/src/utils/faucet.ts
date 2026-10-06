@@ -60,10 +60,10 @@ export async function requestFaucetFunds(
   const { pubkey, rpcUrl, network, privkey } = options;
 
   // Validate network
-  if (network !== 'testnet' && network !== 'devnet' && network !== 'mainnet') {
+  if (!isFaucetAvailable(network)) {
     return {
       success: false,
-      error: 'Faucet only available on mainnet, testnet, and devnet'
+      error: 'Faucet only available on testnet and devnet'
     };
   }
 
@@ -270,5 +270,5 @@ export async function requestAirdrop(
  * Check if faucet is available for the given network
  */
 export function isFaucetAvailable(network: string): boolean {
-  return network === 'mainnet' || network === 'testnet' || network === 'devnet';
+  return network === 'testnet' || network === 'devnet';
 }

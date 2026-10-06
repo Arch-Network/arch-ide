@@ -15,10 +15,12 @@ import { projectService } from './services/projectService';
 import type { ArchIdl, Project, FileNode, ProjectAccount, ProjectFramework } from './types';
 import type { ProjectMutations } from './components/ProgramInspector/projectMutations';
 import { parseIdlJson } from './utils/idl/validate';
+import { classifyBuildFailure } from './utils/buildFailure';
 import TabBar from './components/TabBar';
 import NewItemDialog from './components/NewItemDialog';
 import { OutputMessage } from './components/Output';
 import { ConfigPanel } from './components/ConfigPanel';
+import type { BinaryOrigin } from './utils/programArtifact';
 import {
   Hammer,
   Rocket,
@@ -34,8 +36,12 @@ import { StatusBar } from './components/StatusBar';
 import { ArchProgramLoader, deployProgram } from './utils/arch-sdk-deployer';
 import { storage, type SidebarView } from './utils/storage';
 import { hexToBase58 } from './utils/base58';
+import { builtProgramId, programBinaryDataUrl, setDeclaredId } from './utils/declareId';
+import { ArchConnection, RpcConnection, type Provider } from '@arch-network/arch-sdk';
+import { getSmartRpcUrl } from './utils/smartRpcConnection';
 import { getExplorerUrls } from './utils/explorerLinks';
 import { FileChange } from './types/types';
+import { withRpcNetwork } from './types/config';
 import { Buffer } from 'buffer/';
 import { formatBuildError } from './utils/errorFormatter';
 import { ArchPgClient } from './utils/archPgClient';
@@ -43,6 +49,7 @@ import { ThemeProvider } from './theme/ThemeContext';
 import { findFileInProject, findFileByPath, constructFullPath, getChildNames } from './utils/projectTree';
 import { useResizablePanel } from './hooks/useResizablePanel';
 import { useEditorPreferences } from './hooks/useEditorPreferences';
+import { useBeforeUnloadGuard } from './hooks/useBeforeUnloadGuard';
 import { DeploymentModal } from './components/DeploymentModal';
 import { BrowserCompatibilityAlert } from './components/BrowserCompatibilityAlert';
 import { TutorialProvider, useTutorial } from './context/TutorialContext';
@@ -53,6 +60,8 @@ import { HomeScreen } from './components/HomeScreen';
 import ProjectContextStatus from './components/ProjectContextStatus';
 import { exampleProjectsService } from './services/exampleProjectsService';
 import { createHomeTab, isHomeTab, addHomeTabIfNotExists } from './utils/homeTab';
+import { clearProjectTabs, loadProjectTabs, saveProjectTabs } from './utils/editorTabs';
+import { useProjectArtifact } from './hooks/useProjectArtifact';
 import { type DroppedFile, getTargetRoot, stripLeadingRoot } from './utils/fileDropUtils';
 
 const queryClient = new QueryClient();
@@ -284,7 +293,7 @@ const AppContent = () => {
   const [isCompiling, setIsCompiling] = useState(false);
   const [isNewProjectOpen, setIsNewProjectOpen] = useState(false);
   const [openFiles, setOpenFiles] = useState<FileNode[]>([]);
-  const { size: terminalHeight, onMouseDown: handleResizeStart } = useResizablePanel({
+  const { size: terminalHeight, separatorProps: terminalSeparatorProps } = useResizablePanel({
     initial: 192,
     min: 100,
     max: 800,
@@ -299,13 +308,16 @@ const AppContent = () => {
   const [newItemType, setNewItemType] = useState<'file' | 'directory'>();
   const [outputMessages, setOutputMessages] = useState<OutputMessage[]>([]);
   const [isDeploying, setIsDeploying] = useState(false);
+  const deployAbortRef = useRef<AbortController | null>(null);
   const [programId, setProgramId] = useState<string>();
   const [isConfigOpen, setIsConfigOpen] = useState(false);
-  const [programBinary, setProgramBinary] = useState<string | null>(null);
+  const [programBinary, setProgramBinary] = useProjectArtifact(fullCurrentProject?.id);
+  const [binaryOrigin, setBinaryOrigin] = useState<BinaryOrigin | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [pendingChanges, setPendingChanges] = useState<Map<string, FileChange>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
   const autosaveErrorRef = useRef<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { prefs: editorPrefs, updatePrefs: updateEditorPref } = useEditorPreferences();
   const isWordWrapEnabled = editorPrefs.wordWrap;
   const [currentAccount, setCurrentAccount] = useState<{
@@ -316,6 +328,7 @@ const AppContent = () => {
   const [currentView, setCurrentView] = useState<SidebarView>(storage.getCurrentView());
   const [binaryFileName, setBinaryFileName] = useState<string | null>(null);
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set());
+  const tabsRestoringForRef = useRef<string | null>(null);
   const previousConnectionStatus = useRef(isConnected);
   const [actualConnectedUrl, setActualConnectedUrl] = useState<string | null>(null);
   const [isDeploymentModalOpen, setIsDeploymentModalOpen] = useState(false);
@@ -458,7 +471,7 @@ const AppContent = () => {
     const normalizedSavedConfig = (savedConfig && (savedConfig as any).network === 'mainnet-beta')
       ? { ...(savedConfig as any), network: 'mainnet' }
       : savedConfig;
-    const defaultConfig = {
+    const defaultConfig: Config = {
       network: 'testnet',
       rpcUrl: 'https://rpc.testnet.arch.network',
       regtestConfig: {
@@ -470,22 +483,17 @@ const AppContent = () => {
 
     if (!normalizedSavedConfig) return defaultConfig;
 
-    return {
+    return withRpcNetwork({
       ...defaultConfig,
       ...(normalizedSavedConfig as any),
       regtestConfig: {
         ...defaultConfig.regtestConfig,
         ...((normalizedSavedConfig as any).regtestConfig || {})
       }
-    };
+    });
   });
 
   useEffect(() => {
-    const savedBinary = storage.getProgramBinary();
-    if (savedBinary) {
-      setProgramBinary(savedBinary);
-    }
-
     const savedProgramId = storage.getProgramId();
     if (savedProgramId) {
       setProgramId(savedProgramId);
@@ -514,11 +522,6 @@ const AppContent = () => {
       });
     }
   }, [config]);
-
-  // Save program binary when it changes
-  useEffect(() => {
-    storage.saveProgramBinary(programBinary);
-  }, [programBinary]);
 
   // Save program ID when it changes
   useEffect(() => {
@@ -579,54 +582,32 @@ const AppContent = () => {
       setExpandedFolders(foldersToSet);
       console.groupEnd();
 
-      // Restore tabs
-      const savedTabs = localStorage.getItem('editorTabs');
-      const savedCurrentFile = localStorage.getItem('currentEditorFile');
-
-      console.log('📑 Restoring editor tabs:', {
-        savedTabs,
-        savedCurrentFile,
-        projectId: fullCurrentProject.id
-      });
-
+      // Restore tabs; never carry the previous project's files over
+      tabsRestoringForRef.current = fullCurrentProject.id;
+      const savedTabs = loadProjectTabs(fullCurrentProject.id, fullCurrentProject.files);
       if (savedTabs) {
-        try {
-          const tabPaths = JSON.parse(savedTabs);
-          console.log('📋 Tab paths to restore:', tabPaths);
-
-          const validTabs = tabPaths
-            .map((path: string) => findFileInProject(fullCurrentProject.files, path))
-            .filter((file: FileNode | null): file is FileNode => file !== null);
-
-          console.log('✅ Valid tabs found:', validTabs.length, validTabs.map((t: FileNode) => t.name));
-
-          if (validTabs.length > 0) {
-            // Open all tabs at once
-            setOpenFiles(validTabs);
-
-            // Set current file to either the previously selected file or the first tab
-            if (savedCurrentFile) {
-              const currentFile = findFileInProject(fullCurrentProject.files, savedCurrentFile);
-              if (currentFile) {
-                console.log('📌 Restoring current file:', currentFile.name);
-                setCurrentFile(currentFile);
-              } else {
-                console.log('⚠️ Saved current file not found, using first tab');
-                setCurrentFile(validTabs[0]);
-              }
-            } else {
-              console.log('📌 No saved current file, using first tab:', validTabs[0].name);
-              setCurrentFile(validTabs[0]);
-            }
-          }
-        } catch (e) {
-          console.error('Error restoring editor tabs:', e);
-        }
+        setOpenFiles(savedTabs.tabs);
+        setCurrentFile(savedTabs.active);
       } else {
-        console.log('⚠️ No saved tabs found in localStorage');
+        const homeTab = openFiles.find(isHomeTab);
+        setOpenFiles(homeTab ? [homeTab] : []);
+        setCurrentFile(homeTab || null);
       }
     }
   }, [fullCurrentProject?.id]); // Only trigger when project ID changes, not when name/description changes
+
+  const openTabPaths = openFiles.map(f => f.path || f.name).join('\n');
+  const activeTabPath = currentFile ? currentFile.path || currentFile.name : null;
+  useEffect(() => {
+    const projectId = fullCurrentProject?.id;
+    if (!projectId) return;
+    // On a project switch this runs before the restored tabs render, so it still sees the previous project's.
+    if (tabsRestoringForRef.current === projectId) {
+      tabsRestoringForRef.current = null;
+      return;
+    }
+    saveProjectTabs(projectId, openFiles, currentFile);
+  }, [fullCurrentProject?.id, openTabPaths, activeTabPath]);
 
   const handleDeploy = async () => {
     const missing = [];
@@ -639,6 +620,13 @@ const AppContent = () => {
 
     if (missing.length > 0) {
       addOutputMessage('error', `Cannot deploy: Missing ${missing.join(', ')}`);
+      return;
+    }
+
+    const builtFor = programBinary && builtProgramId(programBinary);
+    const deployKey = fullCurrentProject?.account?.pubkey;
+    if (builtFor && deployKey && builtFor !== deployKey) {
+      addOutputMessage('error', `Cannot deploy: this build has declare_id! set to ${hexToBase58(builtFor)}, but the program keypair is now ${hexToBase58(deployKey)}. Build again before deploying.`);
       return;
     }
 
@@ -665,6 +653,8 @@ const AppContent = () => {
       return;
     }
 
+    const deployAbort = new AbortController();
+    deployAbortRef.current = deployAbort;
     setIsDeploying(true);
     try {
       let base64Content: string;
@@ -690,7 +680,8 @@ const AppContent = () => {
         authorityKeypair: fullCurrentProject.authorityAccount,
         regtestConfig: config.network === 'devnet' ? config.regtestConfig : undefined,
         utxoInfo: customUtxoInfo,
-        onMessage: addOutputMessage
+        onMessage: addOutputMessage,
+        signal: deployAbort.signal,
       });
 
       if (result.programId) {
@@ -702,11 +693,22 @@ const AppContent = () => {
         setBinaryFileName(`${fullCurrentProject.name}.so`);
       }
     } catch (error: any) {
-      addOutputMessage('error', `Deploy error: ${error.message}`);
+      if (deployAbort.signal.aborted) {
+        addOutputMessage('info', error.message);
+      } else {
+        addOutputMessage('error', `Deploy error: ${error.message}`);
+      }
     } finally {
+      deployAbortRef.current = null;
       setIsDeploying(false);
       // Modal is already closed before deployment starts, no need to close it here
     }
+  };
+
+  const handleCancelDeploy = () => {
+    if (!deployAbortRef.current || deployAbortRef.current.signal.aborted) return;
+    addOutputMessage('info', 'Cancelling deploy…');
+    deployAbortRef.current.abort();
   };
 
   // Helper function to convert base64 to Uint8Array in chunks
@@ -724,7 +726,6 @@ const AppContent = () => {
     // Clear all program-related states
     setCurrentAccount(null);
     setProgramId(undefined);
-    setProgramBinary(null);
 
     // Clear all open tabs and current file
     setOpenFiles([]);
@@ -863,18 +864,6 @@ const AppContent = () => {
     setIsNewFileDialogOpen(false);
   };
 
-  const saveTabState = useCallback(() => {
-    if (openFiles.length > 0) {
-      localStorage.setItem('editorTabs', JSON.stringify(openFiles.map(f => f.path || f.name)));
-      if (currentFile) {
-        localStorage.setItem('currentEditorFile', currentFile.path || currentFile.name);
-      }
-    } else {
-      localStorage.removeItem('editorTabs');
-      localStorage.removeItem('currentEditorFile');
-    }
-  }, [openFiles, currentFile]);
-
   const handleFileSelect = (file: FileNode) => {
     if (file.type === 'file') {
       const filePath = file.path || constructFullPath(file, fullCurrentProject?.files || []);
@@ -893,10 +882,6 @@ const AppContent = () => {
         setOpenFiles(prev => [...prev, fileToUse]);
       }
 
-      // Save to localStorage immediately with the new file
-      // (can't use saveTabState because state hasn't updated yet)
-      localStorage.setItem('currentEditorFile', fileToUse.path || fileToUse.name);
-
       // On mobile, close the sidebar drawer after selecting a file
       if (isMobile) {
         setIsMobileSidebarOpen(false);
@@ -914,10 +899,7 @@ const AppContent = () => {
       const nextFile = openFiles[openFiles.length - 2]; // Get previous file
       setCurrentFile(nextFile || null);
     }
-
-    // Update localStorage after closing
-    saveTabState();
-  }, [currentFile, openFiles, saveTabState]);
+  }, [currentFile, openFiles]);
 
   const handleUpdateTree = (operation: FileOperation) => {
     if (!fullCurrentProject) return;
@@ -1093,6 +1075,30 @@ const AppContent = () => {
         );
       }
 
+      // A Satellite program rejects every call made under any id but its declare_id!
+      // (DeclaredProgramIdMismatch, 4100), so the deploy key must exist before it is compiled.
+      const framework = fullCurrentProject.framework ?? 'satellite';
+      let programAccount = fullCurrentProject.account;
+      if (framework === 'satellite' && !programAccount) {
+        // arch-sdk's RpcConnection typing omits getBestFinalizedBlockHash, so it doesn't type as a Provider.
+        const provider = new RpcConnection(getSmartRpcUrl(config.rpcUrl)) as unknown as Provider;
+        programAccount = await ArchConnection(provider)
+          .createNewAccount()
+          .catch((error: Error) => {
+            throw new Error(`could not generate the program keypair a Satellite build needs: ${error.message}`);
+          });
+        await handleProjectAccountChange(programAccount);
+        setProgramId(programAccount.pubkey);
+        addOutputMessage('info', 'Generated a program keypair for this project');
+      }
+      const programIdHex = framework === 'satellite' ? programAccount?.pubkey : undefined;
+      const buildFiles = programIdHex
+        ? rsFiles.map(([path, content]): [string, string] => [path, setDeclaredId(content, programIdHex)])
+        : rsFiles;
+      if (programIdHex) {
+        addOutputMessage('info', `Program ID ${hexToBase58(programIdHex)} (declare_id! is set to it for this build)`);
+      }
+
       console.log('Sending Rust files to compile server:', rsFiles.map(([path]) => path));
 
       // Start the build (returns immediately)
@@ -1104,9 +1110,9 @@ const AppContent = () => {
         },
         body: JSON.stringify({
           program_name: fullCurrentProject.name,
-          files: rsFiles,
+          files: buildFiles,
           uuid: fullCurrentProject.id,
-          framework: fullCurrentProject.framework ?? 'satellite'
+          framework
         })
       });
 
@@ -1201,7 +1207,9 @@ const AppContent = () => {
 
             const arrayBuffer = await binaryResponse.arrayBuffer();
             const base64Binary = Buffer.from(arrayBuffer).toString('base64');
-            setProgramBinary(`data:application/octet-stream;base64,${base64Binary}`);
+            const builtBinary = programBinaryDataUrl(base64Binary, programIdHex);
+            setProgramBinary(builtBinary);
+            setBinaryOrigin({ source: 'built', fileName: `${program_name}.so`, at: new Date(), binary: builtBinary });
             setBinaryFileName(`${fullCurrentProject.name}.so`);
             addOutputMessage('info', `Program binary retrieved successfully (${arrayBuffer.byteLength} bytes)`);
           } catch (error: any) {
@@ -1241,8 +1249,11 @@ const AppContent = () => {
           // Build failed; replace live log with final error output
           setOutputMessages(prev => prev.filter(m => m.id !== 'build-log'));
           if (statusResult.stderr) {
-            const formattedError = formatBuildError(statusResult.stderr);
-            addOutputMessage('error', formattedError);
+            const failure = classifyBuildFailure(statusResult.stderr);
+            addOutputMessage('error', failure.summary, undefined, false, {
+              details: statusResult.stderr,
+              detailsOpen: failure.kind === 'unclassified',
+            });
             throw new Error('Build failed');
           } else {
             throw new Error('Build failed with no error details');
@@ -1279,7 +1290,13 @@ const AppContent = () => {
     }
   };
 
-  const addOutputMessage = (type: OutputMessage['type'], content: string, link?: string, isLoading: boolean = false) => {
+  const addOutputMessage = (
+    type: OutputMessage['type'],
+    content: string,
+    link?: string,
+    isLoading: boolean = false,
+    extra?: Pick<OutputMessage, 'details' | 'detailsOpen'>,
+  ) => {
     // Normalize console content to fix escaped newlines and mojibake (mis-decoded UTF-8)
     const normalizeConsoleMessage = (raw: string): string => {
       try {
@@ -1334,7 +1351,8 @@ const AppContent = () => {
         timestamp: new Date(),
         isLoading,
         commandId, // Add commandId to track related messages
-        link // Add optional explorer link
+        link, // Add optional explorer link
+        ...extra,
       }];
     });
   };
@@ -1538,6 +1556,7 @@ const AppContent = () => {
 
       // Clean up localStorage entries for this project
       localStorage.removeItem(`expandedFolders_${projectId}`);
+      clearProjectTabs(projectId);
       if (isCurrentProject) {
         localStorage.removeItem('currentProjectId');
       }
@@ -1619,19 +1638,11 @@ const AppContent = () => {
           lastModified: now,
         };
       });
-
-      // Persist tab state to localStorage
-      if (openFiles.length > 0) {
-        localStorage.setItem('editorTabs', JSON.stringify(openFiles.map(f => f.path || f.name)));
-        if (currentFile) {
-          localStorage.setItem('currentEditorFile', currentFile.path || currentFile.name);
-        }
-      }
     } catch (error) {
       console.error('Save failed:', error);
       addOutputMessage('error', `Failed to save file: ${error instanceof Error ? error.message : String(error)}`);
     }
-  }, [currentFile, fullCurrentProject, openFiles]);
+  }, [currentFile, fullCurrentProject]);
 
   useEffect(() => {
     console.group('Connection Status Change Debug');
@@ -1746,7 +1757,8 @@ const AppContent = () => {
     if (!fullCurrentProject) return;
     try {
       await projectService.setProjectIdl(fullCurrentProject.id, idl);
-      setFullCurrentProject({ ...fullCurrentProject, idl });
+      // Merge into the latest project: a build calls this from a closure older than the program key it may have generated.
+      setFullCurrentProject(prev => (prev?.id === fullCurrentProject.id ? { ...prev, idl } : prev));
     } catch (err) {
       console.error('Failed to persist IDL', err);
       addOutputMessage('error', err instanceof Error ? err.message : String(err));
@@ -1841,7 +1853,6 @@ const AppContent = () => {
       setFullCurrentProject(fullProject);
       setCurrentAccount(fullProject.account || null);
       setProgramId(fullProject.account?.pubkey);
-      setProgramBinary(null);
       // Don't clear openFiles and currentFile here - let the useEffect restore them from localStorage
 
       console.log('✅ Project switch complete - useEffect should now run to restore tabs and expanded folders');
@@ -1915,10 +1926,12 @@ const AppContent = () => {
         // Clear pending changes
         setPendingChanges(new Map());
         autosaveErrorRef.current = null;
+        setSaveError(null);
       } catch (error) {
         console.error('Autosave failed:', error);
         // Failed changes stay pending and retry every cycle, so report each distinct error once.
         const message = error instanceof Error ? error.message : String(error);
+        setSaveError(message);
         if (autosaveErrorRef.current !== message) {
           autosaveErrorRef.current = message;
           addOutputMessage('error', `Autosave failed: ${message}`);
@@ -1930,6 +1943,8 @@ const AppContent = () => {
 
     return () => clearTimeout(saveTimeout);
   }, [pendingChanges, fullCurrentProject, isSaving]);
+
+  useBeforeUnloadGuard(pendingChanges.size > 0 || isSaving || isDeploying);
 
   const handleNewProject = () => {
     setIsNewProjectOpen(true);
@@ -1973,9 +1988,6 @@ const AppContent = () => {
 
     setCurrentFile(fileWithPath);
 
-    // Save current file selection to localStorage
-    localStorage.setItem('currentEditorFile', fileWithPath.path || fileWithPath.name);
-
     console.groupEnd();
   }, [fullCurrentProject]);
 
@@ -2000,9 +2012,6 @@ const AppContent = () => {
         contentPreview: projectFile.content?.substring(0, 100)
       });
       setCurrentFile(projectFile);
-
-      // Save current file selection to localStorage
-      localStorage.setItem('currentEditorFile', projectFile.path || projectFile.name);
     } else {
       console.warn('File not found in project:', file.path || file.name);
     }
@@ -2120,8 +2129,7 @@ const AppContent = () => {
       storage.saveCurrentAccount(null);
 
       // Clear editor tab persistence
-      localStorage.removeItem('editorTabs');
-      localStorage.removeItem('currentEditorFile');
+      projectIds.forEach(clearProjectTabs);
 
       // Reset UI state
       setProjects([]);
@@ -2162,7 +2170,6 @@ const AppContent = () => {
       setFullCurrentProject(project);
       setCurrentAccount(project.account || null);
       setProgramId(project.account?.pubkey);
-      setProgramBinary(null);
 
       // Keep Home tab open, clear other tabs, and set it as current
       const homeTab = openFiles.find(isHomeTab);
@@ -2173,6 +2180,7 @@ const AppContent = () => {
     } catch (error) {
       console.error('Failed to load example project:', error);
       addOutputMessage('error', `Failed to load example: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw error;
     }
   };
 
@@ -2409,7 +2417,7 @@ const AppContent = () => {
             onNewItem={handleNewItem}
             onFileDrop={handleFileDrop}
             onBuild={handleBuild}
-            onDeploy={handleDeploy}
+            onDeploy={isDeploying ? handleCancelDeploy : handleDeploy}
             onRunClient={runClientCode}
             canRunClient={canRunClient}
             isBuilding={isCompiling}
@@ -2417,6 +2425,8 @@ const AppContent = () => {
             programId={programId}
             programBinary={programBinary}
             onProgramBinaryChange={setProgramBinary}
+            binaryOrigin={binaryOrigin}
+            onBinaryOriginChange={setBinaryOrigin}
             config={config}
             onConfigChange={setConfig}
             onConnectionStatusChange={setIsConnected}
@@ -2464,7 +2474,7 @@ const AppContent = () => {
                 onNewItem={handleNewItem}
                 onFileDrop={handleFileDrop}
                 onBuild={handleBuild}
-                onDeploy={handleDeploy}
+                onDeploy={isDeploying ? handleCancelDeploy : handleDeploy}
                 onRunClient={runClientCode}
                 canRunClient={canRunClient}
                 isBuilding={isCompiling}
@@ -2472,6 +2482,8 @@ const AppContent = () => {
                 programId={programId}
                 programBinary={programBinary}
                 onProgramBinaryChange={setProgramBinary}
+                binaryOrigin={binaryOrigin}
+                onBinaryOriginChange={setBinaryOrigin}
                 config={config}
                 onConfigChange={setConfig}
                 onConnectionStatusChange={setIsConnected}
@@ -2509,6 +2521,8 @@ const AppContent = () => {
                 currentProject={fullCurrentProject}
                 isWordWrapEnabled={isWordWrapEnabled}
                 onToggleWordWrap={handleToggleWordWrap}
+                unsavedPaths={pendingChanges}
+                saveError={saveError}
               />
               <div className="flex-1 min-h-0 overflow-hidden">
               <Suspense
@@ -2543,7 +2557,7 @@ const AppContent = () => {
               {!isMobile && (
                 <BottomPanel
                   height={terminalHeight}
-                  onResizeStart={handleResizeStart}
+                  resizeHandleProps={terminalSeparatorProps}
                   messages={outputMessages}
                   onClear={clearOutputMessages}
                 />

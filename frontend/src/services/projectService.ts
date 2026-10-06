@@ -1,8 +1,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import type { FileNode, Project, ProjectFramework } from '../types';
-import JSZip from 'jszip';
 import { StorageService } from './storage';
+import { buildProjectZip, readProjectZip } from './projectArchive';
 import { ProjectAccount } from '../types/types';
+import { artifactStore } from './artifactStore';
 
 const CARGO_TOML_TEMPLATE = `[package]
 name = "arch-ide"
@@ -98,7 +99,7 @@ pub struct HelloWorldParams {
 // Satellite Program Template
 // Uses the Satellite framework (Anchor fork adapted for Arch Network)
 // Satellite provides macros and abstractions for cleaner, safer program development
-// See: https://github.com/Arch-Network/arch-satellite
+// See: https://github.com/Arch-Network/satellite
 const SATELLITE_PROGRAM = `use arch_satellite_lang::prelude::*;
 
 declare_id!("1111111111111111111111111111111111111111111111111111111111111111");
@@ -210,7 +211,6 @@ let useWallet;
 try {
   console.log("Calling setupAccount...");
   const result = await ClientTransactionUtil.setupAccount(conn);
-  console.log("setupAccount returned:", result);
   accountPubkey = result.accountPubkey;
   accountAddress = result.accountAddress;
   useWallet = result.useWallet;
@@ -528,7 +528,7 @@ console.log("  - Handles serialization automatically with Borsh");
 console.log("  - Supports PDAs (Program Derived Addresses) with seeds");
 console.log("  - Provides clean, maintainable program structure");
 console.log("\\n🔗 Learn more:");
-console.log("  - Satellite: https://github.com/Arch-Network/arch-satellite");
+console.log("  - Satellite: https://github.com/Arch-Network/satellite");
 console.log("  - Arch Network: https://docs.arch.network");
 `;
 
@@ -1377,6 +1377,7 @@ export class ProjectService {
       await this.addHistoricalAuthorityAccount(id, project.authorityAccount, 'project_deleted');
     }
     await this.storage.deleteProject(id);
+    await artifactStore.delete(id);
   }
 
   exportProject(project: Project): Blob {
@@ -1524,54 +1525,18 @@ export class ProjectService {
 
   async importProjectAsZip(file: File): Promise<Project> {
     await this.ensureInitialized();
-    const zip = await JSZip.loadAsync(file);
-    const fileNodes: FileNode[] = [];
-    const fileMap = new Map<string, FileNode>()
+    const { manifest, files } = await readProjectZip(file);
+    const uniqueName = await this.getUniqueProjectName(manifest?.name ?? file.name.replace(/\.zip$/i, ''));
 
-    // Get the root directory name from the zip
-    const rootDirName = Object.keys(zip.files)[0].split('/')[0];
-    const projectName = rootDirName || file.name.replace('.zip', '');
-    const uniqueName = await this.getUniqueProjectName(projectName);
-
-    for (const [path, zipEntry] of Object.entries(zip.files)) {
-      if (!zipEntry.dir) {
-        const content = await zipEntry.async('text');
-        const parts = path.split('/');
-        let currentPath = '';
-
-        for (const [index, part] of parts.entries()) {
-          const isFile = index === parts.length - 1;
-          const fullPath = currentPath + part;
-
-          if (!fileMap.has(fullPath)) {
-            const node: FileNode = {
-              name: part,
-              type: isFile ? 'file' : 'directory',
-              path: fullPath,
-              ...(isFile ? { content } : { children: [] })
-            };
-
-            fileMap.set(fullPath, node);
-
-            if (currentPath === '') {
-              fileNodes.push(node);
-            } else {
-              const parent = fileMap.get(currentPath.slice(0, -1));
-              parent?.children?.push(node);
-            }
-          }
-
-          if (!isFile) {
-            currentPath += part + '/';
-          }
-        }
-      }
-    }
-
-    const project = {
+    const project: Project = {
       id: uuidv4(),
       name: uniqueName,
-      files: fileNodes,
+      description: manifest?.description,
+      framework: manifest?.framework,
+      idl: manifest?.idl,
+      account: manifest?.account,
+      authorityAccount: manifest?.authorityAccount,
+      files,
       created: new Date(),
       lastModified: new Date()
     };
@@ -1688,23 +1653,8 @@ export class ProjectService {
     return project;
   }
 
-  async exportProjectAsZip(project: Project): Promise<Blob> {
-    await this.ensureInitialized();
-    const zip = new JSZip();
-
-    const addToZip = (nodes: FileNode[], currentPath: string = '') => {
-      for (const node of nodes) {
-        const path = currentPath ? `${currentPath}/${node.name}` : node.name;
-        if (node.type === 'file' && node.content) {
-          zip.file(path, node.content);
-        } else if (node.type === 'directory' && node.children) {
-          addToZip(node.children, path);
-        }
-      }
-    };
-
-    addToZip(project.files);
-    return await zip.generateAsync({ type: 'blob' });
+  async exportProjectAsZip(project: Project, { includeKeypairs = false } = {}): Promise<Blob> {
+    return buildProjectZip(project, includeKeypairs);
   }
 }
 

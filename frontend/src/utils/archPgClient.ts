@@ -102,7 +102,7 @@ export class ArchPgClient {
         if (isOurForwardedError) {
           const msg = (data as any)?.message || 'Unknown iframe error';
           console.error('Execution error (forwarded):', msg);
-          onMessage('error', msg);
+          onMessage('error', `Code execution failed: ${msg}`);
           cleanup();
           return;
         }
@@ -115,7 +115,7 @@ export class ArchPgClient {
               onMessage('success', 'Code execution completed');
               cleanup();
             } else if ((data as any).type === 'error') {
-              onMessage('error', (data as any).message || 'Unknown error');
+              onMessage('error', `Code execution failed: ${(data as any).message || 'Unknown error'}`);
               cleanup();
             }
             // ============================================================================
@@ -453,30 +453,23 @@ export class ArchPgClient {
         window.walletProxy = {
           isAvailable: function() {
             return new Promise((resolve) => {
-              console.log('[walletProxy] isAvailable called');
-              console.log('[walletProxy] window === window.parent:', window === window.parent);
               const messageId = Math.random().toString(36);
-              console.log('[walletProxy] Sending wallet-check with id:', messageId);
 
               const handler = (event) => {
                 // Only process messages FROM parent
                 if (event.source !== window.parent) {
                   return;
                 }
-                console.log('[walletProxy] Received message from parent:', event.data?.type);
                 if (event.data.type === 'wallet-check-response' && event.data.id === messageId) {
-                  console.log('[walletProxy] Got response, available:', event.data.available);
                   window.removeEventListener('message', handler);
                   resolve(event.data.available);
                 }
               };
               window.addEventListener('message', handler);
-              console.log('[walletProxy] Posting message to parent');
               window.parent.postMessage({ type: 'wallet-check', id: messageId }, '*');
 
               setTimeout(() => {
                 window.removeEventListener('message', handler);
-                console.log('[walletProxy] isAvailable timed out - no response from parent');
                 resolve(false);
               }, 3000);
             });
@@ -554,26 +547,19 @@ export class ArchPgClient {
             if (!protocol) protocol = 'bip322-simple';
             return new Promise((resolve, reject) => {
               const messageId = Math.random().toString(36);
-              console.log('[walletProxy] signMessage called, messageId:', messageId);
-              console.log('[walletProxy] message:', message);
-              console.log('[walletProxy] protocol:', protocol);
 
               const handler = (event) => {
                 if (event.source !== window.parent) return;
-                console.log('[walletProxy] Received response:', event.data?.type, 'id match:', event.data?.id === messageId);
                 if (event.data.type === 'wallet-sign-response' && event.data.id === messageId) {
                   window.removeEventListener('message', handler);
                   if (event.data.error) {
-                    console.error('[walletProxy] Sign error:', event.data.error);
                     reject(new Error(event.data.error));
                   } else {
-                    console.log('[walletProxy] Sign success!');
                     resolve(event.data.signature);
                   }
                 }
               };
               window.addEventListener('message', handler);
-              console.log('[walletProxy] Sending wallet-sign-message to parent');
               window.parent.postMessage({
                 type: 'wallet-sign-message',
                 id: messageId,
@@ -583,7 +569,6 @@ export class ArchPgClient {
 
               setTimeout(() => {
                 window.removeEventListener('message', handler);
-                console.error('[walletProxy] Sign timeout');
                 reject(new Error('Timeout or user rejected signing'));
               }, 60000);
             });
@@ -592,7 +577,6 @@ export class ArchPgClient {
           sendBitcoin: function(toAddress, amount) {
             return new Promise((resolve, reject) => {
               const messageId = Math.random().toString(36);
-              console.log('[walletProxy] sendBitcoin called:', toAddress, amount, 'sats');
 
               const handler = (event) => {
                 if (event.source !== window.parent) return;
@@ -794,26 +778,7 @@ export class ArchPgClient {
                   console.log('[ClientTransactionUtil] TX preview:', JSON.stringify(txPreview).slice(0, 800) + '...');
                 } catch {}
 
-                // Try primary shape
-                try {
-                  return await conn.sendTransaction(transaction);
-                } catch (e1) {
-                  // Fallback: version 1 with number[] signature
-                  try {
-                    const txV1 = { version: 1, signatures: [Array.from(signature)], message: sendMessage };
-                    console.log('[ClientTransactionUtil] Retrying with version=1 and number[] signature');
-                    return await conn.sendTransaction(txV1);
-                  } catch (e2) {
-                    // Fallback: version 1 with Uint8Array signature (in case server accepts Uint8Array)
-                    try {
-                      const txV1U8 = { version: 1, signatures: [signature], message: sendMessage };
-                      console.log('[ClientTransactionUtil] Retrying with version=1 and Uint8Array signature');
-                      return await conn.sendTransaction(txV1U8);
-                    } catch (e3) {
-                      throw e3;
-                    }
-                  }
-                }
+                return await conn.sendTransaction(transaction);
               } catch (error) {
                 throw new Error('[ClientTransactionUtil.signAndSendTransaction] ' + (error && error.message ? error.message : String(error)));
               }
@@ -909,21 +874,18 @@ export class ArchPgClient {
         '',
         'class __Pg {',
         '  async __run() {',
-        '    try {',
         processedCode,
-        '    } catch (error) {',
-        "      console.error('Error executing code:', error);",
-        '    }',
         '  }',
         '}',
         '',
         'const __pg = new __Pg();',
         'try {',
         '  await __pg.__run();',
-        '} catch (e) {',
-        "  console.error('Uncaught error:', e && e.message ? e.message : String(e));",
-        '} finally {',
         "  window.parent.postMessage({ type: 'completion' }, '*');",
+        '} catch (e) {',
+        // Message only: the stack holds wrapper and IDE bundle frames, not lines of the user's file.
+        "  const message = e && e.message ? (e.name && e.name !== 'Error' ? e.name + ': ' : '') + e.message : String(e);",
+        "  window.parent.postMessage({ type: 'error', message }, '*');",
         '}',
         '})()',
       ].join('\n');

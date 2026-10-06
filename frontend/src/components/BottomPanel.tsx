@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { Terminal, AlertTriangle, ChevronDown, ChevronUp } from 'lucide-react';
 import { Output, type OutputMessage } from './Output';
 import ResizeHandle from './ResizeHandle';
+import type { ResizeSeparatorProps } from '../hooks/useResizablePanel';
 import { cn } from '@/lib/utils';
 
 type BottomTabId = 'output' | 'problems';
@@ -18,7 +19,7 @@ interface BottomTabConfig {
 
 interface BottomPanelProps {
   height: number;
-  onResizeStart: (event: React.MouseEvent) => void;
+  resizeHandleProps: ResizeSeparatorProps;
   messages: OutputMessage[];
   onClear: () => void;
   /** When true the panel renders only its tab strip. */
@@ -36,7 +37,7 @@ interface BottomPanelProps {
  */
 export const BottomPanel: React.FC<BottomPanelProps> = ({
   height,
-  onResizeStart,
+  resizeHandleProps,
   messages,
   onClear,
   collapsed = false,
@@ -89,7 +90,7 @@ export const BottomPanel: React.FC<BottomPanelProps> = ({
         collapsed && 'h-9',
       )}
     >
-      {!collapsed && <ResizeHandle onMouseDown={onResizeStart} />}
+      {!collapsed && <ResizeHandle {...resizeHandleProps} />}
 
       <div className="flex items-center justify-between bg-surface-1 border-b border-border" role="tablist" aria-label="Bottom panel">
         <div className="flex items-center">

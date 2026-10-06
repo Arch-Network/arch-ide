@@ -21,6 +21,7 @@ import { getSmartRpcUrl } from './smartRpcConnection';
 import { hexToBase58 } from './base58';
 import bs58 from 'bs58';
 import { getExplorerUrls } from './explorerLinks';
+import { formatArchFromLamports } from './archUnits';
 import { sha256 } from 'js-sha256';
 import * as bitcoin from 'bitcoinjs-lib';
 import * as ecc from 'tiny-secp256k1';
@@ -137,6 +138,8 @@ interface DeployOptions {
     vout: number;
   };
   onMessage?: (type: 'info' | 'success' | 'error', message: string, link?: string) => void;
+  /** Aborting stops sending and polling; deployProgram then rejects with the program account's state. */
+  signal?: AbortSignal;
 }
 
 interface AccountInfo {
@@ -314,24 +317,99 @@ function calculateMinimumRent(dataSize: number): number {
 }
 
 // ============================================================================
+// DEPLOY COST ESTIMATE
+// ============================================================================
+
+/** tpu/src/lib.rs BASE_FEE_PER_SIGNATURE, charged per required signature to account_keys[0]. */
+const FEE_PER_SIGNATURE = 5_000;
+
+/** The validator drops a transaction that would leave the fee payer below minimum_rent(0). */
+const FEE_PAYER_RESERVE = calculateMinimumRent(0);
+
+/**
+ * Lamports the authority spends in deployProgram for an `elfLength`-byte ELF,
+ * given the program account as read before Step 2 (null when absent).
+ * Verification repair rounds are not included.
+ */
+export function estimateDeployCost(elfLength: number, account: AccountInfo | null): {
+  rent: number;
+  fees: number;
+  transactions: number;
+  total: number;
+} {
+  const requiredSize = LOADER_STATE_SIZE + elfLength;
+  const requiredRent = calculateMinimumRent(requiredSize);
+  let rent = 0;
+  let transactions = 0;
+  let signatures = 0;
+  const addTx = (count: number, sigs: number) => {
+    transactions += count;
+    signatures += count * sigs;
+  };
+
+  if (!account) {
+    rent = requiredRent;
+    addTx(1, 2); // CreateAccount: authority + program
+  } else if (account.is_executable) {
+    addTx(1, 1); // Retract
+  }
+  // A fresh account is created with space 0, so it is always truncated.
+  if (!account || account.data.length !== requiredSize) {
+    if (account && account.lamports < requiredRent) {
+      rent = requiredRent - account.lamports;
+      addTx(1, 1); // Transfer of the missing rent
+    }
+    addTx(1, 2); // Truncate: program + authority
+  }
+  addTx(Math.ceil(elfLength / calculateMaxChunkSize()), 1); // Write
+  addTx(1, 1); // Deploy
+
+  const fees = signatures * FEE_PER_SIGNATURE;
+  return { rent, fees, transactions, total: rent + fees + FEE_PAYER_RESERVE };
+}
+
+// ============================================================================
 // RPC HELPERS
 // ============================================================================
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal!.reason);
+    };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
 
 class ArchDeployer {
   private connection: RpcConnection;
   private smartRpcUrl: string;
   private network: string;
   private onMessage: (type: 'info' | 'success' | 'error', message: string, link?: string) => void;
+  private signal?: AbortSignal;
+  /**
+   * Write transactions handed to send_transactions. Counted before the request, because an
+   * aborted request may already have reached the validator.
+   */
+  writesSubmitted = 0;
 
   constructor(
     rpcUrl: string,
     network: string,
-    onMessage?: (type: 'info' | 'success' | 'error', message: string, link?: string) => void
+    onMessage?: (type: 'info' | 'success' | 'error', message: string, link?: string) => void,
+    signal?: AbortSignal,
   ) {
     this.smartRpcUrl = getSmartRpcUrl(rpcUrl);
     this.connection = new RpcConnection(this.smartRpcUrl);
     this.network = network;
     this.onMessage = onMessage || (() => {});
+    this.signal = signal;
   }
 
   /** Ensure raw bytes from account; RPC/SDK may return data as base64, hex, array, or Node-style Buffer. */
@@ -363,6 +441,15 @@ class ArchDeployer {
   /** Read account info via direct JSON-RPC (bypasses SDK); use when SDK returns empty account data. */
   async readAccountInfoDirectRpc(pubkey: Buffer): Promise<AccountInfo | null> {
     try {
+      return await this.readAccountInfoOrMissing(pubkey);
+    } catch {
+      return null;
+    }
+  }
+
+  /** Direct-RPC account read that returns null only when the RPC reports the account missing. */
+  async readAccountInfoOrMissing(pubkey: Buffer): Promise<AccountInfo | null> {
+    try {
       // Server expects Pubkey as 32-byte array (serde serialization of [u8; 32])
       const pubkeyArr = Array.from(pubkey);
       const result = await this.rpcCall<{ lamports: number; owner: number[]; data: unknown; utxo: string; is_executable: boolean }>('read_account_info', pubkeyArr);
@@ -375,8 +462,9 @@ class ArchDeployer {
         is_executable: result.is_executable,
         utxo: result.utxo,
       };
-    } catch {
-      return null;
+    } catch (error) {
+      if (this.isRpcNotFoundError(error)) return null;
+      throw error;
     }
   }
 
@@ -416,6 +504,7 @@ class ArchDeployer {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: this.signal,
     });
 
     if (!response.ok) {
@@ -463,7 +552,7 @@ class ArchDeployer {
       if (elapsed >= maxWaitMs) {
         throw new Error(`${label} not found after ${Math.ceil(maxWaitMs / 1000)}s (RPC/indexer delay?)`);
       }
-      await new Promise(resolve => setTimeout(resolve, intervalMs));
+      await sleep(intervalMs, this.signal);
     }
   }
 
@@ -531,6 +620,7 @@ class ArchDeployer {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
+      signal: this.signal,
     });
 
     if (!response.ok) {
@@ -570,6 +660,7 @@ class ArchDeployer {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(sendPayload),
+      signal: this.signal,
     });
 
     if (!sendResponse.ok) {
@@ -587,7 +678,7 @@ class ArchDeployer {
 
     // Wait for transaction confirmation (poll until processed)
     console.log('[Authority] Waiting for transaction confirmation...');
-    await this.waitForConfirmation(txid, 60);
+    await this.waitForConfirmation(txid);
   }
 
   /** Check if an account has sufficient balance */
@@ -633,7 +724,7 @@ class ArchDeployer {
       } catch (err) {
         if (this.isRpcNotFoundError(err)) {
           // Extremely short race window; retry.
-          await new Promise(resolve => setTimeout(resolve, 250 + attempt * 100));
+          await sleep(250 + attempt * 100, this.signal);
           continue;
         }
         throw err;
@@ -719,6 +810,7 @@ class ArchDeployer {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
+        signal: this.signal,
       });
 
       if (!response.ok) {
@@ -740,7 +832,7 @@ class ArchDeployer {
       console.log('[Transaction] Sent successfully:', txid);
 
       // Wait for confirmation. Arch RPC may return 404 briefly; this handles it.
-      await this.waitForConfirmation(txid, 60);
+      await this.waitForConfirmation(txid);
 
       return txid;
     } catch (error) {
@@ -776,10 +868,12 @@ class ArchDeployer {
           params: batchPlain,
         };
 
+        this.writesSubmitted += batch.length;
         const response = await fetch(this.smartRpcUrl, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+          signal: this.signal,
         });
 
         if (!response.ok) {
@@ -799,8 +893,21 @@ class ArchDeployer {
         console.log(`[Batch] Batch ${batchNum} sent successfully (${batchTxids.length} txs), waiting for confirmations...`);
 
         // Wait for all transactions in PARALLEL (not sequentially!)
-        // Arch RPC may return 404 for a short window after send_transactions; allow more time.
-        await Promise.all(batchTxids.map(txid => this.waitForConfirmation(txid, 120)));
+        // Arch RPC may return 404 for a short window after send_transactions.
+        // The first failure aborts the sibling polls instead of leaving them running for up to 90 s.
+        const batchAbort = new AbortController();
+        const stopBatch = () => batchAbort.abort(this.signal?.reason);
+        this.signal?.addEventListener('abort', stopBatch, { once: true });
+        try {
+          await Promise.all(batchTxids.map((txid) =>
+            this.waitForConfirmation(txid, undefined, batchAbort.signal).catch((error) => {
+              batchAbort.abort(error);
+              throw error;
+            }),
+          ));
+        } finally {
+          this.signal?.removeEventListener('abort', stopBatch);
+        }
 
         console.log(`[Batch] Batch ${batchNum} confirmed (${batchTxids.length} transactions)`);
         this.onMessage('success', `Batch ${batchNum}/${totalBatches} confirmed (${allTxids.length}/${txs.length} chunks)`);
@@ -814,15 +921,16 @@ class ArchDeployer {
     return allTxids;
   }
 
-  /** Wait for a transaction to be confirmed (polling) */
-  private async waitForConfirmation(txid: string, maxAttempts: number = 30): Promise<void> {
+  /** Wait until a transaction is processed; throws if the chain rejected it or it never landed. */
+  private async waitForConfirmation(txid: string, timeoutMs: number = 90_000, signal: AbortSignal | undefined = this.signal): Promise<void> {
     // Pass txid as-is: arch-network validator expects hex (Hash::from_str uses hex::decode).
     // Explorer links use hexToBase58(txid) when building URLs; do not convert here.
+    const deadline = Date.now() + timeoutMs;
     let lastError: unknown = undefined;
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    for (let attempt = 0; Date.now() < deadline; attempt++) {
       // Small linear backoff to reduce pressure on RPC/indexer while still feeling responsive.
-      const sleepMs = 1_000 + attempt * 250;
-      await new Promise(resolve => setTimeout(resolve, sleepMs));
+      const sleepMs = Math.min(1_000 + attempt * 250, 3_000);
+      await sleep(sleepMs, signal);
 
       try {
         const payload = {
@@ -836,6 +944,7 @@ class ArchDeployer {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
+          signal,
         });
 
         if (response.ok) {
@@ -846,10 +955,21 @@ class ArchDeployer {
             console.log(`[Confirmation] Response structure for ${txid.slice(0, 8)}:`, JSON.stringify(result, null, 2));
           }
 
-          // Transaction found - it's been processed
-          if (result.result) {
-            console.log(`[Confirmation] Transaction ${txid.slice(0, 8)} confirmed`);
-            return;
+          const processed = result.result;
+          if (processed) {
+            const failed = processed.status?.type === 'failed';
+            if (failed || processed.rollback_status?.type === 'rolledback') {
+              const reason = failed ? processed.status.message : `rolled back: ${processed.rollback_status.message}`;
+              const logs: string[] = Array.isArray(processed.logs) ? processed.logs : [];
+              throw new Error(
+                `Confirmation error: transaction ${txid} failed on chain: ${reason}` +
+                (logs.length ? `\nProgram logs:\n${logs.join('\n')}` : ''),
+              );
+            }
+            if (processed.status?.type !== 'queued') {
+              console.log(`[Confirmation] Transaction ${txid.slice(0, 8)} confirmed`);
+              return;
+            }
           }
 
           // Transaction not found yet is common: treat as pending.
@@ -863,6 +983,7 @@ class ArchDeployer {
           }
         }
       } catch (error) {
+        if (signal?.aborted) throw signal.reason;
         // If we hit a *real* confirmation error, don't hide it behind retries.
         if (error instanceof Error && error.message.startsWith('Confirmation error')) {
           throw error;
@@ -873,7 +994,10 @@ class ArchDeployer {
     }
 
     const suffix = lastError ? ` Last error: ${String((lastError as any)?.message || lastError)}` : '';
-    throw new Error(`Transaction ${txid} not confirmed after ${maxAttempts} attempts.${suffix}`);
+    throw new Error(
+      `Transaction ${txid} was not processed within ${Math.round(timeoutMs / 1000)} s, so the validator most likely dropped it. ` +
+      `The usual causes are a fee payer that cannot cover the fee or an expired blockhash.${suffix}`,
+    );
   }
 
   /** Serialize ArchMessage (matches Rust's ArchMessage::serialize) */
@@ -1305,23 +1429,46 @@ export async function deployProgram(options: DeployOptions): Promise<{
   programId: string;
   txids: string[];
 }> {
+  const deployer = new ArchDeployer(options.rpcUrl, options.network, options.onMessage, options.signal);
+  const progress: DeployProgress = { preflightBalance: null };
+  try {
+    return await runDeploy(options, deployer, progress);
+  } catch (error) {
+    if (options.signal?.aborted) throw await describeCancelledDeploy(options, deployer, progress);
+    throw error;
+  }
+}
+
+interface DeployProgress {
+  /** Authority lamports when the cost preflight passed; null if it never ran. */
+  preflightBalance: number | null;
+}
+
+async function runDeploy(options: DeployOptions, deployer: ArchDeployer, progress: DeployProgress): Promise<{
+  programId: string;
+  txids: string[];
+}> {
   const {
-    rpcUrl,
     network,
     programBinary,
     programKeypair,
     authorityKeypair,
-    regtestConfig,
-    utxoInfo,
     onMessage = () => {},
+    signal,
   } = options;
+
+  if ([0x7f, 0x45, 0x4c, 0x46].some((byte, i) => programBinary[i] !== byte)) {
+    throw new Error(
+      `The program binary is not an ELF file (${programBinary.length} bytes, does not start with 0x7F "ELF"). ` +
+      'Rebuild the program or import the compiled .so file.',
+    );
+  }
 
   const programIdBase58 = hexToBase58(programKeypair.pubkey);
   const explorerUrls = getExplorerUrls(network);
 
   onMessage('info', `Starting program deployment for ${programIdBase58}`, explorerUrls?.program(programIdBase58));
 
-  const deployer = new ArchDeployer(rpcUrl, network, onMessage);
   const programPubkey = Buffer.from(programKeypair.pubkey, 'hex');
   const authorityPubkey = Buffer.from(authorityKeypair.pubkey, 'hex');
   const allTxids: string[] = [];
@@ -1339,6 +1486,7 @@ export async function deployProgram(options: DeployOptions): Promise<{
       // Verify authority has funds before proceeding
       await deployer.checkAccountBalance(authorityPubkey, 'Authority');
     } catch (error: any) {
+      signal?.throwIfAborted();
       // Re-throw critical validation errors that the user must fix
       if (error.message && error.message.includes('CANNOT USE THIS KEYPAIR')) {
         throw error;
@@ -1359,7 +1507,7 @@ export async function deployProgram(options: DeployOptions): Promise<{
     // Check if ELF matches
     const existingElf = accountInfo.data.slice(LOADER_STATE_SIZE);
     if (existingElf.equals(programBinary)) {
-      onMessage('success', 'Same program already deployed!');
+      onMessage('info', 'Program account already holds this binary');
 
       // Make sure it's executable
       if (!accountInfo.is_executable) {
@@ -1367,6 +1515,7 @@ export async function deployProgram(options: DeployOptions): Promise<{
         const txid = await makeExecutable(deployer, programPubkey, authorityPubkey, authorityKeypair);
         allTxids.push(txid);
       }
+      await confirmExecutable(deployer, programPubkey, onMessage, signal);
 
       return {
         programId: programKeypair.pubkey,
@@ -1412,6 +1561,14 @@ export async function deployProgram(options: DeployOptions): Promise<{
       }
     }
   }
+
+  progress.preflightBalance = await ensureAuthorityCanPay(
+    deployer,
+    authorityPubkey,
+    estimateDeployCost(programBinary.length, accountInfo),
+    network,
+    onMessage,
+  );
 
   if (!accountInfo) {
     // ========== STEP 2: Create program account ==========
@@ -1485,7 +1642,7 @@ export async function deployProgram(options: DeployOptions): Promise<{
 
   onMessage('info', 'Verifying deployed program');
   // Allow indexer/RPC a moment to reflect the last write; retry in case of read lag.
-  await new Promise((r) => setTimeout(r, 2000));
+  await sleep(2000, signal);
 
   // We give ourselves up to `maxRepairRounds` to *fix* mismatches via
   // targeted re-uploads. Each round = read account, compare bytes, and
@@ -1508,7 +1665,7 @@ export async function deployProgram(options: DeployOptions): Promise<{
       }
       if (read < maxReadAttempts) {
         onMessage('info', `Account read returned null (attempt ${read}/${maxReadAttempts}), retrying…`);
-        await new Promise((r) => setTimeout(r, 1500));
+        await sleep(1500, signal);
       }
     }
     if (!deployedElf || !finalAccountInfo) {
@@ -1579,7 +1736,7 @@ export async function deployProgram(options: DeployOptions): Promise<{
 
     // Brief settle window before the next read so we don't immediately
     // trip the same indexer-lag mismatch we just repaired.
-    await new Promise((r) => setTimeout(r, 1500));
+    await sleep(1500, signal);
   }
 
   if (!finalAccountInfo) {
@@ -1592,10 +1749,8 @@ export async function deployProgram(options: DeployOptions): Promise<{
     onMessage('info', 'Making program executable');
     const execTxid = await makeExecutable(deployer, programPubkey, authorityPubkey, authorityKeypair);
     allTxids.push(execTxid);
-    onMessage('success', 'Program is now executable');
-  } else {
-    onMessage('success', 'Program is already executable');
   }
+  await confirmExecutable(deployer, programPubkey, onMessage, signal);
 
   // ========== COMPLETE ==========
 
@@ -1861,6 +2016,125 @@ async function makeExecutable(
   );
 
   return await deployer.sendAndConfirmTransaction(deployTx);
+}
+
+/**
+ * Stop before the program account is created or written if the authority cannot
+ * pay for the whole deploy; running dry mid-upload strands the rent in a
+ * half-written account.
+ */
+async function ensureAuthorityCanPay(
+  deployer: ArchDeployer,
+  authorityPubkey: Buffer,
+  cost: ReturnType<typeof estimateDeployCost>,
+  network: DeployOptions['network'],
+  onMessage: (type: 'info' | 'success' | 'error', message: string) => void,
+): Promise<number> {
+  const balance = (await deployer.readAccountInfo(authorityPubkey))?.lamports ?? 0;
+  const lamports = (n: number) => `${n.toLocaleString()} lamports`;
+  const arch = (n: number) => `${formatArchFromLamports(n, { maximumFractionDigits: 9 })} ARCH`;
+  const breakdown =
+    `${lamports(cost.rent)} rent + ${lamports(cost.fees)} fees for ${cost.transactions} transactions` +
+    ` + ${lamports(FEE_PAYER_RESERVE)} the fee payer must keep`;
+
+  if (balance < cost.total) {
+    const shortfall = cost.total - balance;
+    throw new Error(
+      'Stopped before uploading: the authority cannot pay for this deploy.\n' +
+      `Needs ${arch(cost.total)} (${lamports(cost.total)}): ${breakdown}.\n` +
+      `Has ${arch(balance)} (${lamports(balance)}), short by ${lamports(shortfall)} (${arch(shortfall)}).\n` +
+      (network === 'mainnet'
+        ? 'Fund the authority account, then deploy again.'
+        : 'Use "Get test ARCH" in the Authority step of the Build panel until the balance covers it, then deploy again.'),
+    );
+  }
+
+  onMessage('info', `Estimated cost ${arch(cost.total)} (${breakdown}); authority balance ${arch(balance)}`);
+  return balance;
+}
+
+/** An account read can still predate the confirmed Deploy transaction, so retry before failing. */
+async function confirmExecutable(
+  deployer: ArchDeployer,
+  programPubkey: Buffer,
+  onMessage: (type: 'info' | 'success' | 'error', message: string) => void,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const reads = 5;
+  for (let read = 1; read <= reads; read++) {
+    if ((await deployer.readAccountInfo(programPubkey))?.is_executable) {
+      onMessage('success', 'Program is executable (read back from the program account)');
+      return;
+    }
+    if (read < reads) await sleep(1500, signal);
+  }
+  throw new Error(
+    `The Deploy transaction was confirmed, but the program account still reads as not executable after ${reads} reads, ` +
+    'so the program cannot be invoked. Deploy again; if this repeats, check the program account in the explorer.',
+  );
+}
+
+/** Reads without the aborted signal: transactions sent before the abort can still land. */
+async function describeCancelledDeploy(
+  options: DeployOptions,
+  deployer: ArchDeployer,
+  progress: DeployProgress,
+): Promise<Error> {
+  const reader = new ArchDeployer(options.rpcUrl, options.network);
+  const elf = options.programBinary;
+  const programIdBase58 = hexToBase58(options.programKeypair.pubkey);
+  const lamports = (n: number) => `${n.toLocaleString()} lamports`;
+  const arch = (n: number) => `${formatArchFromLamports(n, { maximumFractionDigits: 9 })} ARCH`;
+  const lines = ['Deploy cancelled. No more transactions will be sent.'];
+
+  try {
+    const account = await reader.readAccountInfoOrMissing(Buffer.from(options.programKeypair.pubkey, 'hex'));
+    const authority = await reader.readAccountInfoOrMissing(Buffer.from(options.authorityKeypair.pubkey, 'hex'));
+
+    if (!account) {
+      lines.push(`Program account ${programIdBase58} was not created. Deploying again starts from scratch.`);
+    } else {
+      const chunkSize = calculateMaxChunkSize();
+      const totalChunks = Math.ceil(elf.length / chunkSize);
+      const deployed = account.data.slice(LOADER_STATE_SIZE);
+      let written = 0;
+      for (let offset = 0; offset < elf.length; offset += chunkSize) {
+        const end = Math.min(offset + chunkSize, elf.length);
+        if (end <= deployed.length && deployed.slice(offset, end).equals(elf.slice(offset, end))) written++;
+      }
+      lines.push(
+        `Program account ${programIdBase58} exists with ${written} of ${totalChunks} chunks written ` +
+        `(on-chain bytes match this binary) and is ${account.is_executable ? 'still executable with its previous program' : 'not executable'}. ` +
+        `It holds ${lamports(account.lamports)} (${arch(account.lamports)}) of rent.`,
+      );
+      const inFlight = deployer.writesSubmitted - written;
+      if (inFlight > 0) lines.push(`Up to ${inFlight} more write transactions were already submitted and may still land.`);
+
+      if (deployed.length === elf.length && deployed.equals(elf)) {
+        lines.push('Deploying again with this program keypair only needs the final Deploy transaction.');
+      } else {
+        const next = estimateDeployCost(elf.length, account);
+        lines.push(
+          'Deploying again with this program keypair reuses this account' +
+          (next.rent > 0 ? ` (adding ${lamports(next.rent)} of rent)` : ' (no new rent)') +
+          ` and rewrites all ${totalChunks} chunks from the start, then makes it executable: about ${arch(next.total)}.`,
+        );
+      }
+    }
+
+    if (progress.preflightBalance !== null && authority) {
+      lines.push(
+        `The authority has spent ${lamports(progress.preflightBalance - authority.lamports)} since the cost check ` +
+        '(any rent paid plus the fees of every transaction that landed).',
+      );
+    }
+  } catch (error: any) {
+    lines.push(
+      `Could not read the program account to report what is left on chain (${error.message}). ` +
+      `Check ${programIdBase58} in the explorer before deploying again.`,
+    );
+  }
+  return new Error(lines.join('\n'));
 }
 
 // ============================================================================
