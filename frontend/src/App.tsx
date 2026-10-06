@@ -2536,6 +2536,8 @@ const AppContent = () => {
                   code={currentFile?.content ?? '// Select a file to edit'}
                   onChange={handleFileChange}
                   onSave={handleSaveFile}
+                  onCommandPalette={() => setIsCommandPaletteOpen((open) => !open)}
+                  onBuild={fullCurrentProject && !isCompiling ? handleBuild : undefined}
                   currentFile={currentFile}
                   onSelectFile={handleFileSelect}
                   key={currentFile?.path || 'welcome'}
