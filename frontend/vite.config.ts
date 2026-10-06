@@ -42,7 +42,18 @@ export default defineConfig({
         process: true
       },
       protocolImports: true,
-    })
+    }),
+    // Drops the app's debug logging from production bundles; warn/error stay. User code
+    // reaches the client iframe as a string, so its console.log still lands in Output.
+    {
+      name: 'strip-console-logs',
+      apply: (_config, { command, mode }) => command === 'build' && mode === 'production',
+      config: () => ({
+        esbuild: {
+          pure: ['console.log', 'console.info', 'console.debug', 'console.group', 'console.groupEnd'],
+        },
+      }),
+    },
   ],
   build: {
     target: ['esnext'],

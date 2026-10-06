@@ -6,7 +6,6 @@ use proc_macro2::{TokenStream, Span};
 use std::sync::RwLock;
 use once_cell::sync::Lazy;
 use web_sys::console;
-use regex;
 
 static STD_LIBS: Lazy<RwLock<StdLibs>> = Lazy::new(|| RwLock::new(StdLibs::default()));
 
@@ -191,19 +190,9 @@ impl WorldState {
             Err(e) => {
                 log(&format!("Basic context parsing failed: {}", e));
 
-                // Extract error location from the error message
-                if let Some((line, col)) = extract_line_col(&e.to_string()) {
-                    log(&format!("Error at line {}, column {}", line, col));
-                    result.error_location = Some(ErrorLocation {
-                        line,
-                        column: col,
-                        end_line: line,
-                        end_column: col + 1,
-                    });
-                    result.error_message = Some(e.to_string());
-                } else {
-                    log(&format!("No error location found for: {}", e.to_string()));
-                }
+                let (message, location) = describe_error(&e, &code);
+                result.error_message = Some(message);
+                result.error_location = Some(location);
 
                 // Try with prelude as fallback
                 let code_with_prelude = format!("{}\n{}\n", PRELUDE_CODE, code);
@@ -218,25 +207,15 @@ impl WorldState {
                         self.analyze_ast(&ast, &mut result);
                     }
                     Err(e) => {
-                        let error_msg = e.to_string();
-                        log(&format!("Full prelude parsing failed: {}", error_msg));
-
-                        // Only update error if we don't already have one
-                        if result.error_message.is_none() {
-                            if let Some((line, col)) = extract_line_col(&error_msg) {
-                                result.error_location = Some(ErrorLocation {
-                                    line,
-                                    column: col,
-                                    end_line: line,
-                                    end_column: col + 1,
-                                });
-                                result.error_message = Some(error_msg);
-                            }
-                        }
+                        log(&format!("Full prelude parsing failed: {}", e));
                     }
                 }
             }
         }
+
+        // span-locations keeps every parsed source in a thread-local map; free it so
+        // re-parsing on each edit does not grow it forever. No parsed span outlives this.
+        proc_macro2::extra::invalidate_current_thread_spans();
 
         // Log the analysis results
         log(&format!("Analysis results: valid={}, functions={}, structs={}, traits={}, macros={}",
@@ -303,32 +282,35 @@ impl WorldState {
     }
 }
 
-fn extract_line_col(error_msg: &str) -> Option<(usize, usize)> {
-    // Try the standard format first: "error at line X, column Y"
-    if let Some(captures) = regex::Regex::new(r"(?i)(?:error|warning).*?(?:line|at)\s*(\d+).*?(?:column|col)\s*(\d+)")
-        .ok()?
-        .captures(error_msg) {
-        let line = captures.get(1)?.as_str().parse().ok()?;
-        let col = captures.get(2)?.as_str().parse().ok()?;
-        return Some((line, col));
+/// The parser's message and range, in Monaco's 1-based lines and columns.
+fn describe_error(e: &SynError, code: &str) -> (String, ErrorLocation) {
+    let span = e.span();
+    // Only the call site has no source text: syn ran out of input.
+    if span.source_text().is_none() {
+        let trimmed = code.trim_end();
+        let line = trimmed.lines().count().max(1);
+        let column = trimmed.lines().last().map_or(0, |l| l.chars().count()) + 1;
+        return (e.to_string(), ErrorLocation { line, column, end_line: line, end_column: column });
     }
 
-    // Try the compact format: "X:Y"
-    if let Some(captures) = regex::Regex::new(r"(?:^|\s)(\d+):(\d+)(?:\s|$)")
-        .ok()?
-        .captures(error_msg) {
-        let line = captures.get(1)?.as_str().parse().ok()?;
-        let col = captures.get(2)?.as_str().parse().ok()?;
-        return Some((line, col));
+    let (start, end) = (span.start(), span.end());
+    let mut message = e.to_string();
+    // proc-macro2's lexer reports every failure with this one message; name it from
+    // the character it stopped at.
+    if message == "cannot parse string into token stream" {
+        let at = code.lines().nth(start.line - 1).and_then(|l| l.chars().nth(start.column));
+        message = match at {
+            Some('{' | '(' | '[') => "unclosed delimiter",
+            Some('}' | ')' | ']') => "unexpected closing delimiter",
+            Some('"') => "unterminated double quote string",
+            _ => "invalid token",
+        }
+        .to_string();
     }
-
-    // Try looking for just line numbers
-    if let Some(captures) = regex::Regex::new(r"(?i)(?:line|at)\s*(\d+)")
-        .ok()?
-        .captures(error_msg) {
-        let line = captures.get(1)?.as_str().parse().ok()?;
-        return Some((line, 1)); // Default to column 1 if not specified
-    }
-
-    None
+    (message, ErrorLocation {
+        line: start.line,
+        column: start.column + 1,
+        end_line: end.line,
+        end_column: end.column + 1,
+    })
 }

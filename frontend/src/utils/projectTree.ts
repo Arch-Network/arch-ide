@@ -46,6 +46,15 @@ export const findFileByPath = (
   return null;
 };
 
+/** Names of the nodes directly inside the folder at `parentPath` (the root when empty). */
+export const getChildNames = (nodes: FileNode[], parentPath: string[]): string[] => {
+  let level: FileNode[] | undefined = nodes;
+  for (const segment of parentPath) {
+    level = level?.find((node) => node.name === segment && node.type === 'directory')?.children;
+  }
+  return (level ?? []).map((node) => node.name);
+};
+
 /**
  * Walks `files` until it reaches `target`, joining the names with `/` to
  * reconstruct an absolute path. Returns `target.name` if not found.

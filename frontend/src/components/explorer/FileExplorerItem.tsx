@@ -4,12 +4,13 @@ import { cn } from '@/lib/utils';
 import RenameDialog from '../RenameDialog';
 import FileContextMenu from './FileContextMenu';
 import { getFileIcon, getNodePath } from './fileIcons';
+import { getChildNames } from '../../utils/projectTree';
 import type { FileNode } from '../../types';
 
 const INDENT_PX = 16;
 const TREE_MOVE_MIME = 'application/x-arch-ide-tree-move';
 
-interface FileExplorerItemProps {
+export interface FileExplorerItemProps {
   node: FileNode;
   path?: string[];
   depth?: number;
@@ -20,6 +21,11 @@ interface FileExplorerItemProps {
   onExpandedFoldersChange: (folders: Set<string>) => void;
   currentFile: FileNode | null;
   searchQuery?: string;
+  /** The project's unfiltered tree, for checking a rename against the real siblings. */
+  rootFiles: FileNode[];
+  /** Path of the one item in the tree that is in the tab order. */
+  tabStopPath: string | undefined;
+  onItemFocus: (path: string) => void;
 }
 
 const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
@@ -33,6 +39,9 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
   onExpandedFoldersChange,
   currentFile,
   searchQuery,
+  rootFiles,
+  tabStopPath,
+  onItemFocus,
 }) => {
   const nodePath = getNodePath(node, path);
   const fullPath = [...path, node.name];
@@ -123,6 +132,15 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
     }
   };
 
+  // Moving focus between items is FileTree's job; it must not also see the keys handled here.
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    const toggles = isDirectory && e.key === (isExpanded ? 'ArrowLeft' : 'ArrowRight');
+    if (e.key !== 'Enter' && e.key !== ' ' && !toggles) return;
+    e.preventDefault();
+    e.stopPropagation();
+    handleClick();
+  };
+
   const handleDoubleClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!['src', 'client'].includes(node.name)) {
@@ -171,11 +189,17 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
             ? "bg-brand/10 border-l-2 border-brand"
             : "border-l-2 border-transparent hover:bg-accent",
           isDropTarget && "bg-brand/20 border-l-2 border-brand/80",
+          // Inset, because the collapsible group around nested items clips overflow.
+          "focus-visible:outline-offset-[-2px]",
         )}
         style={{ paddingLeft: `${depth * INDENT_PX + 8}px` }}
-        role={isDirectory ? 'treeitem' : 'option'}
+        role="treeitem"
+        aria-level={depth + 1}
         aria-selected={isSelected || undefined}
         aria-expanded={isDirectory ? isExpanded : undefined}
+        tabIndex={nodePath === tabStopPath ? 0 : -1}
+        onFocus={() => onItemFocus(nodePath)}
+        onKeyDown={handleKeyDown}
         draggable
         onDragStart={handleDragStart}
         onDragOver={isDirectory ? handleDragOver : undefined}
@@ -250,11 +274,14 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
         onRename={handleRenameSubmit}
         currentName={node.name}
         type={node.type}
+        existingNames={isRenameDialogOpen ? getChildNames(rootFiles, path).filter((name) => name !== node.name) : []}
       />
 
       {/* Children */}
       {isDirectory && node.children && (
         <div
+          role="group"
+          aria-hidden={isExpanded ? undefined : true}
           className={cn(
             "overflow-hidden transition-all duration-150",
             isExpanded ? "max-h-[5000px] opacity-100" : "max-h-0 opacity-0",
@@ -279,6 +306,9 @@ const FileExplorerItem: React.FC<FileExplorerItemProps> = ({
                 onExpandedFoldersChange={onExpandedFoldersChange}
                 currentFile={currentFile}
                 searchQuery={searchQuery}
+                rootFiles={rootFiles}
+                tabStopPath={tabStopPath}
+                onItemFocus={onItemFocus}
               />
             ))}
         </div>

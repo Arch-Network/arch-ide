@@ -3,15 +3,18 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { validateName } from '../utils/nameValidation';
 
 interface NewItemDialogProps {
   isOpen: boolean;
   onClose: () => void;
   onSubmit: (name: string) => void;
   type: 'file' | 'directory';
+  /** Names already used in the target folder. */
+  existingNames: string[];
 }
 
-const NewItemDialog = ({ isOpen, onClose, onSubmit, type }: NewItemDialogProps) => {
+const NewItemDialog = ({ isOpen, onClose, onSubmit, type, existingNames }: NewItemDialogProps) => {
   const [name, setName] = useState('');
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -19,6 +22,8 @@ const NewItemDialog = ({ isOpen, onClose, onSubmit, type }: NewItemDialogProps) 
   // Focus the input field when the dialog opens
   useEffect(() => {
     if (isOpen) {
+      setName('');
+      setError('');
       // Use a small timeout to ensure the dialog is fully rendered
       const timeoutId = setTimeout(() => {
         inputRef.current?.focus();
@@ -31,19 +36,14 @@ const NewItemDialog = ({ isOpen, onClose, onSubmit, type }: NewItemDialogProps) 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!name.trim()) {
-      setError('Name is required');
+    const trimmed = name.trim();
+    const validationError = validateName(trimmed, type === 'file' ? 'file' : 'folder', existingNames);
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
-    // Validate file/folder name
-    const isValid = /^[a-zA-Z0-9_.-]+$/.test(name);
-    if (!isValid) {
-      setError('Invalid name. Use only letters, numbers, underscore, dot, or dash');
-      return;
-    }
-
-    onSubmit(name);
+    onSubmit(trimmed);
     setName('');
     setError('');
     onClose();

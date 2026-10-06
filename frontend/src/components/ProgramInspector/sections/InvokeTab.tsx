@@ -917,7 +917,13 @@ const ResultPanel: React.FC<{
           ) : (
             <AlertCircle className="h-3.5 w-3.5 text-danger" aria-hidden="true" />
           )}
-          {tone === 'success' ? 'Transaction submitted' : 'Submission failed'}
+          {result.status === 'confirmed'
+            ? 'Transaction confirmed'
+            : result.status === 'failed'
+              ? 'Transaction failed'
+              : result.status === 'unconfirmed'
+                ? 'Transaction not confirmed'
+                : 'Submission failed'}
         </div>
         <button
           type="button"
@@ -952,6 +958,17 @@ const ResultPanel: React.FC<{
             <DecodedErrorRow key={i} decoded={d} />
           ))}
         </ul>
+      )}
+
+      {result.logs && result.logs.length > 0 && (
+        <details className="text-[10px]" open={tone === 'error'}>
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground">
+            Program logs ({result.logs.length})
+          </summary>
+          <pre className="mt-1 px-2 py-1 bg-surface-1 rounded font-mono break-all whitespace-pre-wrap text-[10px]">
+            {result.logs.join('\n')}
+          </pre>
+        </details>
       )}
 
       {result.encodedDataHex && tone === 'success' && (

@@ -7,7 +7,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { PlusCircle, Trash2, Download, Upload, HelpCircle, MoreHorizontal } from 'lucide-react';
+import { PlusCircle, Trash2, Download, Upload, FolderUp, HelpCircle, MoreHorizontal } from 'lucide-react';
 import type { Project } from '../types';
 import {
   DropdownMenu,
@@ -19,6 +19,8 @@ import {
 import { projectService } from '../services/projectService';
 import DeleteProjectDialog from './DeleteProjectDialog';
 import { setOnboardingOpen } from '../hooks/useOnboarding';
+import ExportProjectDialog from './ExportProjectDialog';
+import { useToast } from '@/hooks/use-toast';
 import { MoreVertical } from 'lucide-react';
 
 interface ProjectListProps {
@@ -42,6 +44,8 @@ const ProjectList: React.FC<ProjectListProps> = ({
 }) => {
   const [selectedId, setSelectedId] = useState(currentProject?.id || '');
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [isExportDialogOpen, setIsExportDialogOpen] = useState(false);
+  const { toast } = useToast();
 
   useEffect(() => {
     setSelectedId(currentProject?.id || '');
@@ -61,10 +65,11 @@ const ProjectList: React.FC<ProjectListProps> = ({
     }
   };
 
-  const handleExportProject = async () => {
+  const handleExportProject = async (includeKeypairs: boolean) => {
+    setIsExportDialogOpen(false);
     if (!currentProject) return;
     try {
-      const blob = await projectService.exportProjectAsZip(currentProject);
+      const blob = await projectService.exportProjectAsZip(currentProject, { includeKeypairs });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -108,6 +113,11 @@ const ProjectList: React.FC<ProjectListProps> = ({
       }
     } catch (error) {
       console.error('Failed to import project:', error);
+      toast({
+        title: 'Import failed',
+        description: error instanceof Error ? error.message : String(error),
+        variant: 'destructive',
+      });
     }
   };
 
@@ -137,7 +147,14 @@ const ProjectList: React.FC<ProjectListProps> = ({
         Import Project
       </DropdownMenuItem>
       <DropdownMenuItem
-        onClick={handleExportProject}
+        onClick={() => document.getElementById('import-project-folder')?.click()}
+        className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer text-xs"
+      >
+        <FolderUp className="h-3.5 w-3.5 mr-2" aria-hidden="true" />
+        Import Folder
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => setIsExportDialogOpen(true)}
         disabled={!currentProject}
         className="text-foreground/80 hover:bg-accent hover:text-foreground cursor-pointer text-xs"
       >
@@ -187,11 +204,18 @@ const ProjectList: React.FC<ProjectListProps> = ({
         </SelectContent>
       </Select>
 
+      {/* A webkitdirectory input only offers a folder picker, so zip/JSON import needs its own input. */}
       <input
         type="file"
         id="import-project"
         className="hidden"
         accept=".zip,.json"
+        onChange={handleImportProject}
+      />
+      <input
+        type="file"
+        id="import-project-folder"
+        className="hidden"
         {...({ webkitdirectory: "", directory: "" } as any)}
         multiple
         onChange={handleImportProject}
@@ -232,6 +256,14 @@ const ProjectList: React.FC<ProjectListProps> = ({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+
+      <ExportProjectDialog
+        isOpen={isExportDialogOpen}
+        onClose={() => setIsExportDialogOpen(false)}
+        onExport={handleExportProject}
+        projectName={currentProject?.name || 'project'}
+        hasKeypairs={Boolean(currentProject?.account || currentProject?.authorityAccount)}
+      />
 
       <DeleteProjectDialog
         isOpen={isDeleteDialogOpen}

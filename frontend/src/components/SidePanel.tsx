@@ -12,6 +12,7 @@ import OnboardingChecklist from './OnboardingChecklist';
 import { Config } from '../types/config';
 import { Project, ProjectAccount } from '../types';
 import type { DroppedFile } from '../utils/fileDropUtils';
+import type { BinaryOrigin } from '../utils/programArtifact';
 import { useResizablePanel } from '../hooks/useResizablePanel';
 import type { SidebarView } from '../utils/storage';
 
@@ -29,7 +30,7 @@ interface SidePanelProps {
   currentView: SidebarView;
   onViewChange: (view: SidebarView) => void;
   files: FileNode[];
-  onFileSelect: (file: FileNode) => void;
+  onFileSelect: (file: FileNode, line?: number) => void;
   onUpdateTree: (
     operation: 'create' | 'delete' | 'rename' | 'move',
     path: string[],
@@ -48,6 +49,8 @@ interface SidePanelProps {
   programId: string | undefined;
   programBinary: string | null;
   onProgramBinaryChange: (binary: string | null) => void;
+  binaryOrigin: BinaryOrigin | null;
+  onBinaryOriginChange: (origin: BinaryOrigin) => void;
   onProgramIdChange: (programId: string) => void;
   config: Config;
   onConfigChange: (config: Config) => void;
@@ -79,8 +82,8 @@ interface SidePanelProps {
   isMobile?: boolean;
 }
 
-const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onFileDrop, onBuild, onDeploy, onRunClient, canRunClient, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, onProgramIdChange, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onSaveToHistory, onRestoreFromHistory, onDeleteFromHistory, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange, onIdlChange, inspectorMutations, isMobile = false }: SidePanelProps) => {
-  const { size: width, onMouseDown: handleResizeStart } = useResizablePanel({
+const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect, onUpdateTree, onNewItem, onFileDrop, onBuild, onDeploy, onRunClient, canRunClient, isBuilding, isDeploying, programId, programBinary, onProgramBinaryChange, binaryOrigin, onBinaryOriginChange, onProgramIdChange, config, onConfigChange, onConnectionStatusChange, currentAccount, onAccountChange, currentFile, project, onProjectAccountChange, onAuthorityAccountChange, onSaveToHistory, onRestoreFromHistory, onDeleteFromHistory, onProjectUpdate, onNewProject, onOpenHomeTab, binaryFileName, setBinaryFileName, addOutputMessage, connected, expandedFolders, onExpandedFoldersChange, onIdlChange, inspectorMutations, isMobile = false }: SidePanelProps) => {
+  const { size: width, separatorProps } = useResizablePanel({
     initial: SIDEBAR_DEFAULT_WIDTH,
     min: SIDEBAR_MIN_WIDTH,
     max: SIDEBAR_MAX_WIDTH,
@@ -173,6 +176,8 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
             programId={programId}
             programBinary={programBinary}
             onProgramBinaryChange={onProgramBinaryChange}
+            binaryOrigin={binaryOrigin}
+            onBinaryOriginChange={onBinaryOriginChange}
             onProgramIdChange={onProgramIdChange}
             config={config}
             onConfigChange={onConfigChange}
@@ -191,7 +196,7 @@ const SidePanel = ({ hasProjects, currentView, onViewChange, files, onFileSelect
           />
         )}
       </div>
-      {!isMobile && <VerticalResizeHandle onMouseDown={handleResizeStart} />}
+      {!isMobile && <VerticalResizeHandle {...separatorProps} />}
     </div>
   );
 };

@@ -15,6 +15,7 @@ import { hexToBase58 } from '../base58';
 import { encodeInstructionData } from './encode';
 import { derivePda, buildAccountValueMap, buildArgTypeMap } from './derivePda';
 import { lookupWellKnown, SYSTEM_PROGRAM_BASE58 } from './wellKnown';
+import { awaitProcessed, type ProcessedOutcome } from './awaitProcessed';
 import type {
   ArchIdl,
   ArchInstruction,
@@ -70,13 +71,18 @@ export interface SubmitContext {
 }
 
 /**
- * The result of an attempted submission. `txid` is set on success;
- * `errors` accumulates fatal problems so the caller can render every
- * issue without re-running the pipeline.
+ * The result of an attempted submission. `txid` is set once the node
+ * accepted the transaction, and `ok` only when it then processed
+ * without failing; `errors` accumulates fatal problems so the caller
+ * can render every issue without re-running the pipeline.
  */
 export interface SubmitResult {
   ok: boolean;
   txid?: string;
+  /** What the runtime did with the accepted transaction. */
+  status?: ProcessedOutcome['kind'];
+  /** Program logs from the processed transaction. */
+  logs?: string[];
   errors: string[];
   /** The encoded instruction buffer, surfaced for inspection / replay. */
   encodedDataHex?: string;
@@ -94,7 +100,8 @@ export interface SubmitResult {
  *   2. Encode args → instruction data buffer
  *   3. Build `Message` (signers list = unique signer pubkeys)
  *   4. Hash the message and sign it (BIP-322, raw 64-byte schnorr)
- *   5. Submit → return txid
+ *   5. Submit → txid
+ *   6. Poll until processed → confirmed / failed (with program logs)
  *
  * Multi-signer programs work as long as each signer pubkey resolves to
  * a keypair we control (project authority or saved keypair). Wallet
@@ -254,15 +261,9 @@ export const submitInstruction = async (
     message: sanitizedMessage,
   };
 
+  let txid: string;
   try {
-    const txid = await connection.sendTransaction(tx);
-    return {
-      ok: true,
-      txid,
-      errors: [],
-      encodedDataHex: bytesToHex(enc.bytes),
-      accounts: resolved.summary,
-    };
+    txid = await connection.sendTransaction(tx);
   } catch (e) {
     return {
       ok: false,
@@ -271,6 +272,18 @@ export const submitInstruction = async (
       accounts: resolved.summary,
     };
   }
+
+  // 7) Wait for the runtime's verdict; acceptance by the node is not success.
+  const outcome = await awaitProcessed(connection, txid);
+  return {
+    ok: outcome.kind === 'confirmed',
+    txid,
+    status: outcome.kind,
+    logs: outcome.kind === 'unconfirmed' ? undefined : outcome.logs,
+    errors: outcome.kind === 'confirmed' ? [] : [outcome.message],
+    encodedDataHex: bytesToHex(enc.bytes),
+    accounts: resolved.summary,
+  };
 };
 
 // ─── Account resolution ─────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ import { getSmartRpcUrl } from '../utils/smartRpcConnection';
 import { getExplorerUrls } from '../utils/explorerLinks';
 import { hexToBase58 } from '../utils/base58';
 // Identicon removed per design update
-import { requestFaucetFunds } from '../utils/faucet';
+import { requestFaucetFunds, isFaucetAvailable } from '../utils/faucet';
 import { formatArchFromLamports, lamportsToArch } from '../utils/archUnits';
 import { useToast } from './ui/use-toast';
 import HistoricalKeysModal from './HistoricalKeysModal';
@@ -32,6 +32,8 @@ interface AuthorityAccountPanelProps {
   isConnected: boolean;
   /** Render prop: called with action buttons for the parent StepCard header */
   onRenderActions?: (actions: React.ReactNode) => void;
+  /** Estimated lamports the next deploy costs; null when there is no binary to estimate. */
+  requiredLamports?: number | null;
 }
 
 export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
@@ -43,18 +45,21 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   config,
   isConnected,
   onRenderActions,
+  requiredLamports = null,
 }) => {
   const [balance, setBalance] = useState<number | null>(null);
   const [isLoadingBalance, setIsLoadingBalance] = useState(false);
   const [balanceError, setBalanceError] = useState<string | null>(null);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isRequestingFunds, setIsRequestingFunds] = useState(false);
+  const [faucetError, setFaucetError] = useState<string | null>(null);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
 
   const { toast } = useToast();
+  const canRequestTestFunds = config.network === 'testnet' || config.network === 'devnet';
   const authority = project?.authorityAccount;
   const networkDisplay = config.network === 'mainnet' ? 'mainnet' : config.network;
-  const isFaucetNetwork = config.network === 'mainnet' || config.network === 'testnet' || config.network === 'devnet';
+  const isFaucetNetwork = isFaucetAvailable(config.network);
   const explorerUrls = getExplorerUrls(config.network as 'testnet' | 'mainnet' | 'devnet');
   const authorityBase58 = authority ? hexToBase58(authority.pubkey) : null;
 
@@ -79,7 +84,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="bg-popover border-border">
-          {isFaucetNetwork && (
+          {canRequestTestFunds && (
             <DropdownMenuItem
               onClick={handleRequestFunds}
               disabled={!isConnected || isRequestingFunds}
@@ -113,7 +118,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
         </DropdownMenuContent>
       </DropdownMenu>
     );
-  }, [authority, isConnected, isRequestingFunds, onRenderActions]);
+  }, [authority, isConnected, isRequestingFunds, onRenderActions, config.network, config.rpcUrl]);
 
   // Fetch balance when authority account changes or component mounts
   useEffect(() => {
@@ -123,7 +128,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
       setBalance(null);
       setBalanceError(null);
     }
-  }, [authority?.pubkey, isConnected]);
+  }, [authority?.pubkey, isConnected, config.rpcUrl]);
 
   const readBalanceLamports = async (pubkeyHex: string): Promise<number | null> => {
     try {
@@ -168,7 +173,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
     return fetchBalanceForPubkey(authority.pubkey);
   };
 
-  const pollForBalanceIncrease = async (pubkeyHex: string, startingLamports: number, timeoutMs = 20000) => {
+  const pollForBalanceIncrease = async (pubkeyHex: string, startingLamports: number, timeoutMs = 20000): Promise<boolean> => {
     const startedAt = Date.now();
     // Poll quickly at first; most faucet txs land within a few seconds.
     while (Date.now() - startedAt < timeoutMs) {
@@ -177,9 +182,10 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
       // eslint-disable-next-line no-await-in-loop
       const latest = await fetchBalanceForPubkey(pubkeyHex);
       if (latest !== null && latest > startingLamports) {
-        return;
+        return true;
       }
     }
+    return false;
   };
 
   const handleGenerate = async () => {
@@ -214,6 +220,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
     if (!authority || !isConnected || !isFaucetNetwork) return;
 
     setIsRequestingFunds(true);
+    setFaucetError(null);
 
     try {
       // Refresh immediately so the UI reflects the current state before/while funding.
@@ -241,12 +248,15 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
         });
 
         // Poll until we see the balance increase (or timeout) to cover first-time account creation too.
-        await pollForBalanceIncrease(authority.pubkey, startingLamports, 30000);
+        if (!(await pollForBalanceIncrease(authority.pubkey, startingLamports, 30000))) {
+          setFaucetError('The faucet accepted the request, but the balance has not changed after 30 s. Refresh the balance or request again.');
+        }
       } else {
         throw new Error(result.error || 'Faucet request failed');
       }
     } catch (error: any) {
       console.error('Faucet request error:', error);
+      setFaucetError(`Faucet request failed: ${error.message || 'unknown error'}`);
       toast({
         title: "Faucet Request Failed",
         description: error.message || "Failed to request funds from faucet",
@@ -260,7 +270,7 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
   };
 
   const needsFunding = balance !== null && balance === 0;
-  const hasSufficientFunds = balance !== null && balance > 5000; // Minimum for deployment
+  const hasSufficientFunds = balance !== null && (requiredLamports !== null ? balance >= requiredLamports : balance > 5000);
   const isLowFunds = balance !== null && balance > 0 && !hasSufficientFunds;
 
   const formatBalance = (lamports: number): string => formatArchFromLamports(lamports);
@@ -337,21 +347,33 @@ export const AuthorityAccountPanel: React.FC<AuthorityAccountPanelProps> = ({
             )}
           </div>
 
-          {/* Funding prompt */}
-          {(needsFunding || isLowFunds) && isFaucetNetwork && (
-            <div className="rounded-lg bg-warning/5 border border-warning/20 p-3 space-y-2" role="status">
-              <p className="text-xs text-warning/90 leading-relaxed">
-                {needsFunding ? 'Fund this account to enable transactions.' : 'Balance is low — consider topping up.'}
-              </p>
-              <Button
-                onClick={handleRequestFunds}
-                disabled={!isConnected || isRequestingFunds}
-                size="sm"
-                className="w-full h-8 bg-warning/20 hover:bg-warning/30 text-warning border border-warning/30 rounded-lg transition-colors"
-              >
-                <Droplets className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
-                {isRequestingFunds ? 'Requesting...' : `Request ${networkDisplay} funds`}
-              </Button>
+          {/* Funding: the faucet stays available on test networks, because one grant may not cover a deploy */}
+          {(canRequestTestFunds || needsFunding || isLowFunds) && (
+            <div className={`rounded-lg p-3 space-y-2 ${needsFunding || isLowFunds ? 'bg-warning/5 border border-warning/20' : 'bg-background/60'}`}>
+              {(needsFunding || isLowFunds) && (
+                <p className="text-xs text-warning/90 leading-relaxed" role="status">
+                  {requiredLamports !== null
+                    ? `This deploy needs about ${formatBalance(requiredLamports)} ARCH; the authority has ${formatBalance(balance)} ARCH. ` +
+                      (canRequestTestFunds ? 'Request test ARCH until it is covered.' : 'Fund it before deploying.')
+                    : needsFunding ? 'Fund this account to enable transactions.' : 'Balance is low — consider topping up.'}
+                </p>
+              )}
+              {canRequestTestFunds && (
+                <Button
+                  onClick={handleRequestFunds}
+                  disabled={!isConnected || isRequestingFunds}
+                  size="sm"
+                  className={`w-full h-8 rounded-lg transition-colors ${needsFunding || isLowFunds
+                    ? 'bg-warning/20 hover:bg-warning/30 text-warning border border-warning/30'
+                    : 'bg-transparent hover:bg-accent text-foreground/80 border border-border'}`}
+                >
+                  <Droplets className="h-3.5 w-3.5 mr-1.5" aria-hidden="true" />
+                  {isRequestingFunds ? 'Requesting...' : 'Get test ARCH'}
+                </Button>
+              )}
+              {faucetError && (
+                <p role="alert" className="text-[11px] leading-snug text-destructive">{faucetError}</p>
+              )}
             </div>
           )}
 
