@@ -102,7 +102,7 @@ export class ArchPgClient {
         if (isOurForwardedError) {
           const msg = (data as any)?.message || 'Unknown iframe error';
           console.error('Execution error (forwarded):', msg);
-          onMessage('error', msg);
+          onMessage('error', `Code execution failed: ${msg}`);
           cleanup();
           return;
         }
@@ -115,7 +115,7 @@ export class ArchPgClient {
               onMessage('success', 'Code execution completed');
               cleanup();
             } else if ((data as any).type === 'error') {
-              onMessage('error', (data as any).message || 'Unknown error');
+              onMessage('error', `Code execution failed: ${(data as any).message || 'Unknown error'}`);
               cleanup();
             }
             // ============================================================================
@@ -893,21 +893,18 @@ export class ArchPgClient {
         '',
         'class __Pg {',
         '  async __run() {',
-        '    try {',
         processedCode,
-        '    } catch (error) {',
-        "      console.error('Error executing code:', error);",
-        '    }',
         '  }',
         '}',
         '',
         'const __pg = new __Pg();',
         'try {',
         '  await __pg.__run();',
-        '} catch (e) {',
-        "  console.error('Uncaught error:', e && e.message ? e.message : String(e));",
-        '} finally {',
         "  window.parent.postMessage({ type: 'completion' }, '*');",
+        '} catch (e) {',
+        // Message only: the stack holds wrapper and IDE bundle frames, not lines of the user's file.
+        "  const message = e && e.message ? (e.name && e.name !== 'Error' ? e.name + ': ' : '') + e.message : String(e);",
+        "  window.parent.postMessage({ type: 'error', message }, '*');",
         '}',
         '})()',
       ].join('\n');
