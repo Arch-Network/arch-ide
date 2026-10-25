@@ -207,7 +207,16 @@ export default defineConfig({
             console.log('proxy error', err);
           });
           proxy.on('proxyReq', (proxyReq, req, _res) => {
-            const auth = Buffer.from('bitcoin:428bae8f3c94f8c39c50757fc89c39bc7e6ebc70ebf8f618').toString('base64');
+            // Regtest RPC credentials come from Vite env variables at dev time
+            // (VITE_REGTEST_RPC_USERNAME / VITE_REGTEST_RPC_PASSWORD).
+            // They are never committed to source (removed by audit cleanup).
+            const user = process.env.VITE_REGTEST_RPC_USERNAME;
+            const pass = process.env.VITE_REGTEST_RPC_PASSWORD;
+            if (!user || !pass) {
+              console.error('Missing VITE_REGTEST_RPC_USERNAME / VITE_REGTEST_RPC_PASSWORD env variables for the Bitcoin proxy');
+              return;
+            }
+            const auth = Buffer.from(`${user}:${pass}`).toString('base64');
             proxyReq.setHeader('Authorization', `Basic ${auth}`);
           });
         }

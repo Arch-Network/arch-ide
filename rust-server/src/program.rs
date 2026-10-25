@@ -485,7 +485,12 @@ pub async fn build(
                 Some(hex) if content.contains(DECLARE_ID_PLACEHOLDER) => {
                     let hex_trim = hex.trim_start_matches("0x");
                     if hex_trim.len() != 64 || !hex_trim.chars().all(|c| c.is_ascii_hexdigit()) {
-                        println!("Warning: program_id_hex should be 64 hex chars, got {} chars; substituting anyway", hex_trim.len());
+                        // Reject malformed program ids instead of silently injecting
+                        // them into generated Rust source (audit cleanup).
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidInput,
+                            "program_id_hex must be exactly 64 hex characters",
+                        ));
                     }
                     let replacement = format!("declare_id!(\"{}\")", hex_trim);
                     println!("Substituting declare_id! placeholder with program id (hex) in lib.rs");
@@ -537,17 +542,12 @@ pub async fn build(
     fs::create_dir_all(&cargo_home)?;
     println!("Using shared CARGO_HOME: {:?}", cargo_home);
 
-    // Make sure cache directories have proper permissions
-    let _ = Command::new("chmod")
-        .arg("-R")
-        .arg("777")
-        .arg(&target_dir)
-        .output();
-    let _ = Command::new("chmod")
-        .arg("-R")
-        .arg("777")
-        .arg(&cargo_home)
-        .output();
+    // The build sandbox runs under a single dedicated UID, so world-writable
+    // cache directories are not required. Setting them to 0777 would let any
+    // other process on the host modify build artifacts or the cargo cache
+    // (removed by audit cleanup — previously `chmod -R 777`).
+    // Make sure the cache directories exist with safe defaults; chmod is
+    // intentionally omitted here.
 
     let shared_target = match target_dir.canonicalize() {
         Ok(path) => path,
@@ -591,20 +591,14 @@ pub async fn build(
                 println!("PATH: {}", path);
             }
 
-            // Try to install cargo if not found
-            println!("Attempting to install Rust and Cargo...");
-            let install_result = Command::new("sh")
-                .arg("-c")
-                .arg("curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y")
-                .output();
-
-            match install_result {
-                Ok(output) => {
-                    println!("Rust installation output: {}", String::from_utf8_lossy(&output.stdout));
-                    println!("Rust installation error: {}", String::from_utf8_lossy(&output.stderr));
-                },
-                Err(e) => println!("Failed to install Rust: {}", e)
-            }
+            // Runtime installation of Rust via `curl | sh` is disabled for
+            // security (unpinned/unverified remote code). The toolchain must be
+            // pre-installed in the container image; fail the build otherwise.
+            println!("Cargo was not found in PATH and runtime install is disabled.");
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "cargo not found; pre-install the toolchain in the container image",
+            ));
         }
     } else {
         println!("Failed to check if cargo is installed: {}", cargo_path.err().unwrap());

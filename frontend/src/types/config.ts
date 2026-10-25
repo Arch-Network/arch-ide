@@ -8,14 +8,18 @@ export interface Config {
     };
 }
 
-// Default config that can be imported and used
+// Default config that can be imported and used.
+// NOTE: Regtest endpoint and credentials are no longer hardcoded in source.
+// They are injected at build time via Vite env variables
+// (VITE_REGTEST_RPC_URL / VITE_REGTEST_RPC_USERNAME / VITE_REGTEST_RPC_PASSWORD)
+// so no secret is committed to the repository or shipped in the public bundle.
 export const DEFAULT_CONFIG: Config = {
     network: 'testnet',
     rpcUrl: 'https://rpc.testnet.arch.network',
     regtestConfig: {
-        url: 'http://bitcoin-node.dev.aws.archnetwork.xyz:18443',
-        username: 'bitcoin',
-        password: '428bae8f3c94f8c39c50757fc89c39bc7e6ebc70ebf8f618'
+        url: import.meta.env.VITE_REGTEST_RPC_URL ?? '',
+        username: import.meta.env.VITE_REGTEST_RPC_USERNAME ?? '',
+        password: import.meta.env.VITE_REGTEST_RPC_PASSWORD ?? ''
     }
 };
 
