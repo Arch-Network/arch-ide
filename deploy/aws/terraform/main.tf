@@ -162,9 +162,20 @@ resource "aws_iam_role_policy" "ecs_exec_secrets_access" {
   })
 }
 
+# Kept so existing task definitions that name this role still resolve, but
+# nothing can assume it. The server container compiles user code in-process,
+# and a task role's credentials are readable from that code. Do not attach
+# this role to the task.
 resource "aws_iam_role" "ecs_task" {
-  name               = "${var.service_name}-ecs-task"
-  assume_role_policy = aws_iam_role.ecs_execution.assume_role_policy
+  name = "${var.service_name}-ecs-task"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Deny"
+      Principal = { Service = "ecs-tasks.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+    }]
+  })
 }
 
 resource "aws_ecs_task_definition" "server" {
@@ -177,8 +188,7 @@ resource "aws_ecs_task_definition" "server" {
   # 2 GB when running alongside an active SBF build.
   cpu                      = "2048"
   memory                   = "4096"
-  execution_role_arn       = aws_iam_role.ecs_execution.arn
-  task_role_arn            = aws_iam_role.ecs_task.arn
+  execution_role_arn = aws_iam_role.ecs_execution.arn
 
   container_definitions = jsonencode([
     merge(
