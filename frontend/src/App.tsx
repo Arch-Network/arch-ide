@@ -471,13 +471,16 @@ const AppContent = () => {
     const normalizedSavedConfig = (savedConfig && (savedConfig as any).network === 'mainnet-beta')
       ? { ...(savedConfig as any), network: 'mainnet' }
       : savedConfig;
+    // Regtest credentials are injected at build time via Vite env variables
+    // (VITE_REGTEST_RPC_URL / VITE_REGTEST_RPC_USERNAME / VITE_REGTEST_RPC_PASSWORD).
+    // No secret is hardcoded in source anymore (hardcoded credentials were removed by audit cleanup).
     const defaultConfig: Config = {
       network: 'testnet',
       rpcUrl: 'https://rpc.testnet.arch.network',
       regtestConfig: {
-        url: 'http://localhost:8010/proxy',
-        username: 'bitcoin',
-        password: '428bae8f3c94f8c39c50757fc89c39bc7e6ebc70ebf8f618'
+        url: import.meta.env.VITE_REGTEST_RPC_URL ?? 'http://localhost:8010/proxy',
+        username: import.meta.env.VITE_REGTEST_RPC_USERNAME ?? '',
+        password: import.meta.env.VITE_REGTEST_RPC_PASSWORD ?? ''
       }
     };
 
