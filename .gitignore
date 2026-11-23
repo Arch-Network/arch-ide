@@ -9,8 +9,10 @@ backend/temp
 .vscode
 .vercel
 
-# programs folder in rust-server
+# programs folder in rust-server. The directory itself must be in git so the
+# image build can COPY it; user projects inside it stay untracked.
 rust-server/programs/*
+!rust-server/programs/.gitkeep
 
 # target folder in rust-server
 rust-server/target/*
