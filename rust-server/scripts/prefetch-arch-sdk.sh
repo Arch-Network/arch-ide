@@ -137,7 +137,7 @@ cmd_vendor() {
     fetch_home="$(mktemp -d)"
     CARGO_HOME="$fetch_home" \
     CARGO_NET_GIT_FETCH_WITH_CLI=false \
-        cargo fetch --manifest-path "$manifest" --features idl-build
+        cargo fetch --manifest-path "$manifest"
     CARGO_HOME="$fetch_home" \
     CARGO_NET_GIT_FETCH_WITH_CLI=false \
         cargo vendor --manifest-path "$manifest" --versioned-dirs "$CARGO_VENDOR_DIR" \
