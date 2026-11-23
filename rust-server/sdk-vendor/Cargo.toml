@@ -13,6 +13,9 @@ publish = false
 path = "src/lib.rs"
 
 [features]
+# Default so `cargo fetch` on 1.84, which has no `--features` flag, still
+# downloads the IDL closure that user builds enable offline.
+default = ["idl-build"]
 idl-build = ["arch-satellite-lang/idl-build", "arch-satellite-apl/idl-build"]
 
 [dependencies]
