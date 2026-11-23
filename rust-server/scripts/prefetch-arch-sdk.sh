@@ -60,7 +60,8 @@ cmd_fetch() {
         exit 1
     fi
 
-    local helper
+    # Not local: the EXIT trap runs after this function returns, and a local
+    # would already be gone. `set -u` then fails the build after a good fetch.
     helper="$(mktemp)"
     # The helper reads the secret file when git asks for a password. The token
     # is not in argv, the URL, or git config. The helper itself is deleted
@@ -78,7 +79,10 @@ esac
 EOF
     chmod 700 "$helper"
     cleanup() {
-        rm -f "$helper" /root/.gitconfig /root/.git-credentials
+        if [ -n "${helper:-}" ]; then
+            rm -f "$helper"
+        fi
+        rm -f /root/.gitconfig /root/.git-credentials
     }
     trap cleanup EXIT
 
