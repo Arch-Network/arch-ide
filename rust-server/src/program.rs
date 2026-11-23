@@ -17,8 +17,10 @@ const MAX_FILE_AMOUNT: usize = 256;
 const MAX_PATH_LENGTH: usize = 128;
 
 /// Arch crate version used by the compilation server: 0.8.4
-/// All arch_program, apl-token, apl-associated-token-account, and apl-token-metadata
-/// crates are pulled from crates.io at this version.
+/// In the production image these crates are a path dependency on the
+/// arch-network checkout vendored at image build (`ARCH_SDK_ROOT`, pinned to
+/// `arch_network_rev`). Host builds that do not have that checkout still
+/// resolve the crates.io releases.
 
 fn use_gcs() -> bool {
     std::env::var("USE_GCS").is_ok()
@@ -245,7 +247,156 @@ fn render_program_cargo_toml(program_name: &str, framework: BuildFramework) -> S
         BuildFramework::Satellite => CARGO_TOML_TEMPLATE_SATELLITE,
         BuildFramework::Native => CARGO_TOML_TEMPLATE_NATIVE,
     };
-    template.replace("__PROGRAM_NAME__", program_name)
+    let rendered = template.replace("__PROGRAM_NAME__", program_name);
+    match vendored_sdk_root() {
+        Some(root) => rewrite_arch_sdk_paths(&rendered, &root),
+        None => rendered,
+    }
+}
+
+/// Crates.io coordinates replaced with the prefetched arch-network tree.
+/// The token that used to fetch this repo never enters the compile sandbox.
+fn rewrite_arch_sdk_paths(toml: &str, sdk_root: &Path) -> String {
+    let root = sdk_root.to_string_lossy();
+    let replacements = [
+        (
+            "arch_program = \"0.8.4\"",
+            format!("arch_program = {{ path = \"{root}/program\" }}"),
+        ),
+        (
+            "apl-token-metadata = { version = \"0.8.4\", features = [\"no-entrypoint\"] }",
+            format!(
+                "apl-token-metadata = {{ path = \"{root}/token-metadata\", features = [\"no-entrypoint\"] }}"
+            ),
+        ),
+        (
+            "apl-associated-token-account = { version = \"0.8.4\", features = [\"no-entrypoint\"] }",
+            format!(
+                "apl-associated-token-account = {{ path = \"{root}/associated-token-account\", features = [\"no-entrypoint\"] }}"
+            ),
+        ),
+        (
+            "apl-token = { version = \"0.8.4\", features = [\"no-entrypoint\"] }",
+            format!(
+                "apl-token = {{ path = \"{root}/token\", features = [\"no-entrypoint\"] }}"
+            ),
+        ),
+    ];
+    let mut out = toml.to_string();
+    for (from, to) in replacements {
+        out = out.replace(from, &to);
+    }
+    out
+}
+
+fn arch_sdk_root() -> std::path::PathBuf {
+    env::var_os("ARCH_SDK_ROOT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/opt/arch-sdk"))
+}
+
+fn vendored_sdk_root() -> Option<std::path::PathBuf> {
+    let root = arch_sdk_root();
+    let vendor = env::var_os("CARGO_VENDOR_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/opt/cargo-vendor"));
+    let home = env::var_os("ARCH_CARGO_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/opt/cargo-home"));
+    if root.join("program/Cargo.toml").is_file()
+        && vendor.is_dir()
+        && home.join("config.toml").is_file()
+    {
+        Some(root)
+    } else {
+        None
+    }
+}
+
+fn offline_cargo_home() -> Option<String> {
+    if vendored_sdk_root().is_none() {
+        return None;
+    }
+    let home = env::var_os("ARCH_CARGO_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("/opt/cargo-home"));
+    home.to_str().map(|s| s.to_string())
+}
+
+/// Environment variables that must not be visible to rustc. User code can
+/// read them at compile time via `option_env!` and `include_str!("/proc/self/environ")`.
+const SCRUBBED_ENV: &[&str] = &[
+    "GITHUB_TOKEN",
+    "GH_TOKEN",
+    "GITHUB_PAT",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+    "AWS_CONTAINER_CREDENTIALS_RELATIVE_URI",
+    "AWS_CONTAINER_CREDENTIALS_FULL_URI",
+    "AWS_PROFILE",
+    "AWS_DEFAULT_PROFILE",
+];
+
+/// Remove credentials from this process and point cargo at the vendored SDK
+/// when the image baked one in. Child compiles inherit the result.
+pub fn prepare_compile_environment() {
+    for key in SCRUBBED_ENV {
+        env::remove_var(key);
+    }
+    env::set_var("AWS_EC2_METADATA_DISABLED", "true");
+    env::set_var("CARGO_NET_GIT_FETCH_WITH_CLI", "false");
+    if let Some(lib) = crate::link_local::preload_path() {
+        env::set_var("LD_PRELOAD", lib);
+    }
+    if let Some(home) = offline_cargo_home() {
+        env::set_var("CARGO_HOME", &home);
+        env::set_var("CARGO_NET_OFFLINE", "true");
+        let revision_path = arch_sdk_root().join("REVISION");
+        match fs::read_to_string(&revision_path) {
+            Ok(rev) => {
+                let rev = rev.trim();
+                info!("Compiling against vendored arch-network SDK {rev}");
+                if let Ok(expected) = env::var("ARCH_NETWORK_REV") {
+                    if !expected.is_empty() && expected != rev {
+                        tracing::warn!(
+                            "ARCH_NETWORK_REV={expected} does not match the SDK baked into this image ({rev}). The server will not fetch; rebuild the image to change the pin."
+                        );
+                    }
+                }
+            }
+            Err(e) => {
+                tracing::warn!("Vendored SDK has no REVISION file ({}): {e}", revision_path.display());
+            }
+        }
+    }
+}
+
+/// `cargo` and `git` invocations that compile user code.
+///
+/// Offline mode and `CARGO_NET_GIT_FETCH_WITH_CLI=false` are cargo's
+/// `--offline` switch: the flag is an environment/config setting so it also
+/// covers `cargo-build-sbf`'s child cargo and the IDL host build, which do
+/// not receive an extra CLI argument.
+macro_rules! apply_build_sandbox {
+    ($cmd:expr) => {{
+        let cmd = &mut $cmd;
+        for key in SCRUBBED_ENV {
+            cmd.env_remove(*key);
+        }
+        cmd.env("AWS_EC2_METADATA_DISABLED", "true");
+        cmd.env("CARGO_NET_GIT_FETCH_WITH_CLI", "false");
+        cmd.env("GIT_TERMINAL_PROMPT", "0");
+        cmd.env("GIT_CONFIG_GLOBAL", "/dev/null");
+        cmd.env("GIT_CONFIG_NOSYSTEM", "1");
+        if let Some(home) = offline_cargo_home() {
+            cmd.env("CARGO_HOME", home);
+            cmd.env("CARGO_NET_OFFLINE", "true");
+        }
+        if let Some(lib) = crate::link_local::preload_path() {
+            cmd.env("LD_PRELOAD", lib);
+        }
+    }};
 }
 
 pub async fn init() -> anyhow::Result<()> {
@@ -313,7 +464,19 @@ indexmap = ">=2.0.0, <2.14.0"
 proptest = "1.5.0""#;
 
         let manifest_path = programs_dir.join("Cargo.toml");
-        if !manifest_path.exists() {
+        let cargo_toml = match vendored_sdk_root() {
+            Some(root) => rewrite_arch_sdk_paths(cargo_toml, &root),
+            None => cargo_toml.to_string(),
+        };
+        if manifest_path.exists() {
+            if let Some(root) = vendored_sdk_root() {
+                let current = fs::read_to_string(&manifest_path)?;
+                let rewritten = rewrite_arch_sdk_paths(&current, &root);
+                if rewritten != current {
+                    fs::write(&manifest_path, rewritten)?;
+                }
+            }
+        } else {
             fs::write(manifest_path, cargo_toml)?;
         }
 
@@ -374,12 +537,14 @@ pub fn process_instruction(
         info!("🔨 Starting background warmup build...");
         let start = std::time::Instant::now();
 
-        let result = TokioCommand::new("cargo")
-            .args(&[
-                "build-sbf",
-                "--manifest-path",
-                &warmup_dir_clone.join("Cargo.toml").to_string_lossy(),
-            ])
+        let mut warmup_cmd = TokioCommand::new("cargo");
+        warmup_cmd.args([
+            "build-sbf",
+            "--manifest-path",
+            &warmup_dir_clone.join("Cargo.toml").to_string_lossy(),
+        ]);
+        apply_build_sandbox!(warmup_cmd);
+        let result = warmup_cmd
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()
@@ -667,15 +832,17 @@ pub async fn build(
     if build_diagnostics_enabled() {
         // Pre-build diagnostic: find who depends on getrandom
         println!("Running diagnostics: 'cargo tree -i getrandom'...");
-        let tree_diag_output = Command::new("cargo")
+        let mut tree_cmd = Command::new("cargo");
+        tree_cmd
             .args(["tree", "-i", "getrandom"]) // show inverse deps of getrandom
-            .current_dir(&program_path)
-            .output();
+            .current_dir(&program_path);
+        apply_build_sandbox!(tree_cmd);
+        let tree_diag_output = tree_cmd.output();
 
         match tree_diag_output {
             Ok(output) => {
-                let out = String::from_utf8_lossy(&output.stdout);
-                let err = String::from_utf8_lossy(&output.stderr);
+                let out = crate::redact::redact_secrets(&String::from_utf8_lossy(&output.stdout));
+                let err = crate::redact::redact_secrets(&String::from_utf8_lossy(&output.stderr));
                 println!("cargo tree (stdout):\n{}", out);
                 if !err.is_empty() { println!("cargo tree (stderr):\n{}", err); }
                 getrandom_diag.push_str("\n--- cargo tree -i getrandom ---\n");
@@ -698,16 +865,24 @@ pub async fn build(
         // NOTE: This is intentionally diagnostics-only. Running cargo update each build destroys
         // incremental caching and forces re-resolving/downloading crates.
         println!("Running diagnostics: cargo update -p bytemuck ...");
-        let update_status = Command::new("cargo")
+        let mut update_cmd = Command::new("cargo");
+        update_cmd
             .args(["update", "-p", "bytemuck"])
-            .current_dir(&program_path)
-            .output();
+            .current_dir(&program_path);
+        apply_build_sandbox!(update_cmd);
+        let update_status = update_cmd.output();
 
         match update_status {
             Ok(output) => {
-                println!("Cargo update output: {}", String::from_utf8_lossy(&output.stdout));
+                println!(
+                    "Cargo update output: {}",
+                    crate::redact::redact_secrets(&String::from_utf8_lossy(&output.stdout))
+                );
                 if !output.status.success() {
-                    println!("Cargo update stderr: {}", String::from_utf8_lossy(&output.stderr));
+                    println!(
+                        "Cargo update stderr: {}",
+                        crate::redact::redact_secrets(&String::from_utf8_lossy(&output.stderr))
+                    );
                     println!("Warning: cargo update failed, but continuing with build anyway");
                 }
             },
@@ -773,10 +948,11 @@ pub async fn build(
         }
     }
 
-    let mut child = TokioCommand::new("cargo-build-sbf")
+    let mut child_cmd = TokioCommand::new("cargo-build-sbf");
+    child_cmd
         .args(&build_args)
         .env("CARGO_TARGET_DIR", &shared_target_str)
-        .env("CARGO_HOME", &shared_cargo_home_str)  // Cache downloaded crates and registry!
+        .env("CARGO_HOME", &shared_cargo_home_str) // Overridden by the sandbox when the SDK is vendored.
         .env("CARGO_BUILD_INCREMENTAL", "true")
         .env("CARGO_PROFILE_RELEASE_INCREMENTAL", "true")
         .env("CARGO_PROFILE_RELEASE_CODEGEN_UNITS", "256")
@@ -784,7 +960,9 @@ pub async fn build(
         .env("RUST_BACKTRACE", "1")
         .env("CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_DEBUG", "false")
         .env("CARGO_DEP_BYTEMUCK_DERIVE_VERSION", "1.5.0")
-        .current_dir(&program_path)  // Keep this to maintain relative path resolution
+        .current_dir(&program_path); // Keep this to maintain relative path resolution
+    apply_build_sandbox!(child_cmd);
+    let mut child = child_cmd
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()?;
@@ -801,6 +979,7 @@ pub async fn build(
         if let Some(stdout) = stdout {
             let mut reader = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = reader.next_line().await {
+                let line = crate::redact::redact_secrets(&line);
                 println!("stdout: {}", line);
                 if let Some(ref tx) = stdout_tx {
                     let _ = tx.send(line.clone()).await;
@@ -817,6 +996,7 @@ pub async fn build(
         if let Some(stderr) = stderr {
             let mut reader = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = reader.next_line().await {
+                let line = crate::redact::redact_secrets(&line);
                 println!("stderr: {}", line);
                 if let Some(ref tx) = stderr_tx {
                     let _ = tx.send(line.clone()).await;
@@ -874,7 +1054,7 @@ pub async fn build(
     if !build_succeeded {
         // Include pre-build diagnostics to help identify the source of getrandom
         if !getrandom_diag.is_empty() {
-            stderr_lines.push_str(&getrandom_diag);
+            stderr_lines.push_str(&crate::redact::redact_secrets(&getrandom_diag));
             stderr_lines.push('\n');
         }
         // Return the stderr output even on failure
@@ -921,11 +1101,12 @@ pub async fn build(
                 None
             }
             Err(e) => {
-                println!("[IDL] Extraction failed (non-fatal): {}", e);
+                let message = crate::redact::redact_secrets(&format!(
+                    "[IDL] Extraction failed (non-fatal): {e}"
+                ));
+                println!("{message}");
                 if let Some(ref tx) = output_tx {
-                    let _ = tx
-                        .send(format!("[IDL] Extraction failed (non-fatal): {}", e))
-                        .await;
+                    let _ = tx.send(message).await;
                 }
                 None
             }
@@ -1139,6 +1320,32 @@ mod tests {
         assert!(!is_valid_uuid(""));
         assert!(!is_valid_uuid("warmup-cache"));
         assert!(!is_valid_uuid("target"));
+    }
+
+    #[test]
+    fn vendored_sdk_manifest_uses_paths_and_no_credentials() {
+        let rendered = super::render_program_cargo_toml("demo", super::BuildFramework::Satellite);
+        let rewritten = super::rewrite_arch_sdk_paths(&rendered, std::path::Path::new("/opt/arch-sdk"));
+        assert!(rewritten.contains("arch_program = { path = \"/opt/arch-sdk/program\" }"));
+        assert!(rewritten.contains(
+            "apl-token = { path = \"/opt/arch-sdk/token\", features = [\"no-entrypoint\"] }"
+        ));
+        assert!(rewritten.contains(
+            "apl-token-metadata = { path = \"/opt/arch-sdk/token-metadata\", features = [\"no-entrypoint\"] }"
+        ));
+        assert!(rewritten.contains(
+            "apl-associated-token-account = { path = \"/opt/arch-sdk/associated-token-account\", features = [\"no-entrypoint\"] }"
+        ));
+        assert!(!rewritten.contains("arch_program = \"0.8.4\""));
+        assert!(!rewritten.contains("x-oauth-basic"));
+        assert!(!rewritten.contains("github.com"));
+        assert!(!rewritten.contains("ghp_"));
+        let native = super::rewrite_arch_sdk_paths(
+            &super::render_program_cargo_toml("demo", super::BuildFramework::Native),
+            std::path::Path::new("/opt/arch-sdk"),
+        );
+        assert!(native.contains("arch_program = { path = \"/opt/arch-sdk/program\" }"));
+        assert!(!native.contains("https://"));
     }
 }
 

@@ -58,12 +58,28 @@ def _upsert_env(container: Dict[str, Any], updates: Dict[str, str]) -> None:
     env_map.update({k: v for k, v in updates.items() if v is not None})
     container["environment"] = [{"name": k, "value": env_map[k]} for k in sorted(env_map.keys())]
 
-def _upsert_secret(container: Dict[str, Any], name: str, value_from: str) -> None:
-    secrets = container.get("secrets") or []
-    # de-dupe by name
-    secrets = [s for s in secrets if not (isinstance(s, dict) and s.get("name") == name)]
-    secrets.append({"name": name, "valueFrom": value_from})
-    container["secrets"] = secrets
+def _drop_named(container: Dict[str, Any], field: str, name: str) -> None:
+    items = [s for s in (container.get(field) or []) if not (isinstance(s, dict) and s.get("name") == name)]
+    if items:
+        container[field] = items
+    else:
+        container.pop(field, None)
+
+
+def sanitize_task_definition(task_def: Dict[str, Any]) -> Dict[str, Any]:
+    """Drop anything that would put a GitHub token or a task role in the runtime task.
+
+    The SDK is vendored at image build. A task role vends credentials at
+    169.254.170.2, which user compiles must not be able to read.
+    """
+    task_def.pop("taskRoleArn", None)
+    for container in task_def.get("containerDefinitions") or []:
+        if not isinstance(container, dict):
+            continue
+        for name in ("GITHUB_TOKEN", "GH_TOKEN", "GITHUB_PAT"):
+            _drop_named(container, "secrets", name)
+            _drop_named(container, "environment", name)
+    return task_def
 
 
 def main() -> int:
@@ -79,7 +95,11 @@ def main() -> int:
     arch_git = os.environ.get("ARCH_NETWORK_GIT", "")
     arch_rev = os.environ.get("ARCH_NETWORK_REV", "")
     arch_branch = os.environ.get("ARCH_NETWORK_BRANCH", "")
-    github_token_secret_arn = os.environ.get("GITHUB_TOKEN_SECRET_ARN", "")
+    if os.environ.get("GITHUB_TOKEN_SECRET_ARN"):
+        print(
+            "WARNING: GITHUB_TOKEN_SECRET_ARN is ignored. The token is a BuildKit secret at image build and is not injected into the task.",
+            file=sys.stderr,
+        )
 
     # Determine current task definition ARN used by the service.
     svc = _aws_json(
@@ -138,8 +158,7 @@ def main() -> int:
     if env_updates:
         _upsert_env(containers[0], env_updates)
 
-    if github_token_secret_arn:
-        _upsert_secret(containers[0], "GITHUB_TOKEN", github_token_secret_arn)
+    sanitize_task_definition(register_payload)
 
     # Register new revision.
     with tempfile.NamedTemporaryFile("w", delete=False, suffix=".json") as f:
