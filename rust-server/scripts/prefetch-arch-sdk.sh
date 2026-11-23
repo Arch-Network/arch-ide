@@ -135,6 +135,12 @@ cmd_vendor() {
     mkdir -p "$ARCH_CARGO_HOME" "$CARGO_VENDOR_DIR"
     local fetch_home
     fetch_home="$(mktemp -d)"
+    # Cargo 1.84 defaults to selecting crates that require a newer toolchain.
+    # Those manifests use edition 2024 and cannot be parsed here.
+    cat > "$fetch_home/config.toml" << 'EOF'
+[resolver]
+incompatible-rust-versions = "fallback"
+EOF
     CARGO_HOME="$fetch_home" \
     CARGO_NET_GIT_FETCH_WITH_CLI=false \
         cargo fetch --manifest-path "$manifest"
@@ -147,6 +153,9 @@ cmd_vendor() {
 [net]
 offline = true
 git-fetch-with-cli = false
+
+[resolver]
+incompatible-rust-versions = "fallback"
 EOF
     # Resolve the same manifest users will build, against the vendor dir only.
     # This fails the image build if a crate is missing or unreadable by this
