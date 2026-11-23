@@ -96,6 +96,8 @@ jobs:
         working-directory: frontend
         env:
           VITE_API_URL: https://ide.arch.network
+          # Vite plus Monaco exceeds Node's default heap on the runner.
+          NODE_OPTIONS: --max-old-space-size=6144
         run: |
           npm ci
           npm run build
