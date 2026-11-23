@@ -7,6 +7,7 @@
 name = "arch-ide-sdk-vendor"
 version = "0.0.0"
 edition = "2021"
+rust-version = "1.84"
 publish = false
 
 [lib]
@@ -48,3 +49,5 @@ serde_spanned = ">=1.0.0, <1.1.0"
 unicode-segmentation = ">=1.0.0, <1.13.0"
 hashbrown = ">=0.14.0, <0.17.0"
 indexmap = ">=2.0.0, <2.14.0"
+# 0.34 requires Rust 1.85 / edition 2024, which Cargo 1.84 cannot parse.
+glam = ">=0.29.0, <0.34.0"
