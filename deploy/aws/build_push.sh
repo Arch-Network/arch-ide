@@ -29,8 +29,18 @@ fi
 GIT_SHA=$(git rev-parse --short HEAD)
 TAGS=("latest" "$GIT_SHA")
 
-if [ -z "${GITHUB_TOKEN:-}" ]; then
-  echo "ERROR: GITHUB_TOKEN must be set. It is used only as a BuildKit secret to prefetch arch-network and is not pushed in the image." >&2
+# Prefer a file. `--secret id=...,env=` has delivered a value GitHub rejected
+# from Actions, and the token must not be in the image or the task.
+if [ -n "${GITHUB_TOKEN_FILE:-}" ]; then
+  if [ ! -s "${GITHUB_TOKEN_FILE}" ]; then
+    echo "ERROR: GITHUB_TOKEN_FILE is empty. It is used only as a BuildKit secret to prefetch arch-network." >&2
+    exit 1
+  fi
+  SECRET="id=gh_token,src=${GITHUB_TOKEN_FILE}"
+elif [ -n "${GITHUB_TOKEN:-}" ]; then
+  SECRET="id=gh_token,env=GITHUB_TOKEN"
+else
+  echo "ERROR: GITHUB_TOKEN or GITHUB_TOKEN_FILE must be set. It is used only as a BuildKit secret to prefetch arch-network and is not pushed in the image." >&2
   exit 1
 fi
 
@@ -40,7 +50,7 @@ ARCH_NETWORK_REV_VAR=${ARCH_NETWORK_REV:-854713edfae969a86f217c1c1cdc673628faf54
 echo "[+] Building arch-ide rust-server image for linux/amd64 (arch-network ${ARCH_NETWORK_REV_VAR})..."
 docker buildx build \
   --platform linux/amd64 \
-  --secret id=gh_token,env=GITHUB_TOKEN \
+  --secret "$SECRET" \
   --build-arg "ARCH_NETWORK_GIT=${ARCH_NETWORK_GIT_VAR}" \
   --build-arg "ARCH_NETWORK_REV=${ARCH_NETWORK_REV_VAR}" \
   -t "$IMAGE_URI:latest" \
