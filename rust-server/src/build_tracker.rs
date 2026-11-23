@@ -76,12 +76,13 @@ impl BuildTracker {
 
     /// Append a line to the build's stderr while status is still Building. Used for live output.
     pub async fn append_build_output(&self, uuid: &str, line: &str) {
+        let line = crate::redact::redact_secrets(line);
         let mut builds = self.builds.write().await;
         if let Some(info) = builds.get_mut(uuid) {
             if matches!(info.status, BuildStatus::Building) {
                 match &mut info.stderr {
                     Some(s) => {
-                        s.push_str(line);
+                        s.push_str(&line);
                         s.push('\n');
                     }
                     None => {
@@ -107,7 +108,7 @@ impl BuildTracker {
         if let Some(info) = builds.get_mut(uuid) {
             println!("[TRACKER] Found build info for UUID: {}, updating status", uuid);
             info.status = if success { BuildStatus::Success } else { BuildStatus::Failed };
-            info.stderr = Some(stderr);
+            info.stderr = Some(crate::redact::redact_secrets(&stderr));
             info.program_name = program_name;
             info.completed_at = Some(chrono::Utc::now());
             info.idl_json = idl_json;
@@ -125,5 +126,41 @@ impl BuildTracker {
     pub async fn get_build(&self, uuid: &str) -> Option<BuildInfo> {
         let builds = self.builds.read().await;
         builds.get(uuid).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BuildTracker;
+
+    const UUID: &str = "550e8400-e29b-41d4-a716-446655440000";
+
+    #[tokio::test]
+    async fn stored_compiler_output_has_no_token() {
+        let tracker = BuildTracker::new(1);
+        tracker.start_build(UUID.to_string(), "demo".to_string()).await;
+        tracker
+            .append_build_output(
+                UUID,
+                "Unable to update https://ghp_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA:x-oauth-basic@github.com/Arch-Network/arch-network",
+            )
+            .await;
+        let live = tracker.get_build(UUID).await.unwrap().stderr.unwrap();
+        assert!(!live.contains("ghp_"));
+        assert!(!live.contains("x-oauth-basic"));
+
+        tracker
+            .complete_build(
+                UUID,
+                "gho_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB github_pat_11AAAAAAA0abc ghs_CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".into(),
+                "demo".into(),
+                false,
+                None,
+            )
+            .await;
+        let final_log = tracker.get_build(UUID).await.unwrap().stderr.unwrap();
+        assert!(!final_log.contains("gho_"));
+        assert!(!final_log.contains("ghs_"));
+        assert!(!final_log.contains("github_pat_"));
     }
 }

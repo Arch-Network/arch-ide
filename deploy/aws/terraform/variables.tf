@@ -16,25 +16,19 @@ variable "rust_server_image" {
 }
 
 variable "arch_network_git" {
-  description = "Git URL for arch-network (used by the compilation server to fetch SDK crates)"
+  description = "Git URL recorded on the task. The image build prefetches this repo; the running server does not clone it."
   type        = string
   default     = "https://github.com/Arch-Network/arch-network"
 }
 
 variable "arch_network_rev" {
-  description = "Immutable commit SHA for arch-network (preferred for stable compilation)"
+  description = "Commit SHA baked into the image via ARCH_NETWORK_REV. Must match the image build or the server logs a mismatch and still uses the baked checkout."
   type        = string
   default     = "854713edfae969a86f217c1c1cdc673628faf54d"
 }
 
 variable "arch_network_branch" {
   description = "Optional branch pin for arch-network (used only if arch_network_rev is empty)"
-  type        = string
-  default     = ""
-}
-
-variable "github_token_secret_arn" {
-  description = "Optional Secrets Manager ARN for a GitHub token (used to fetch private git dependencies)"
   type        = string
   default     = ""
 }

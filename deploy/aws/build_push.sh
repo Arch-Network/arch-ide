@@ -29,9 +29,20 @@ fi
 GIT_SHA=$(git rev-parse --short HEAD)
 TAGS=("latest" "$GIT_SHA")
 
-echo "[+] Building arch-ide rust-server image for linux/amd64..."
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  echo "ERROR: GITHUB_TOKEN must be set. It is used only as a BuildKit secret to prefetch arch-network and is not pushed in the image." >&2
+  exit 1
+fi
+
+ARCH_NETWORK_GIT_VAR=${ARCH_NETWORK_GIT:-https://github.com/Arch-Network/arch-network}
+ARCH_NETWORK_REV_VAR=${ARCH_NETWORK_REV:-854713edfae969a86f217c1c1cdc673628faf54d}
+
+echo "[+] Building arch-ide rust-server image for linux/amd64 (arch-network ${ARCH_NETWORK_REV_VAR})..."
 docker buildx build \
   --platform linux/amd64 \
+  --secret id=gh_token,env=GITHUB_TOKEN \
+  --build-arg "ARCH_NETWORK_GIT=${ARCH_NETWORK_GIT_VAR}" \
+  --build-arg "ARCH_NETWORK_REV=${ARCH_NETWORK_REV_VAR}" \
   -t "$IMAGE_URI:latest" \
   -t "$IMAGE_URI:$GIT_SHA" \
   ./rust-server \

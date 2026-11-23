@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1
+
 FROM ubuntu:22.04 AS development
 
 ARG DEBIAN_FRONTEND="noninteractive"
@@ -146,6 +148,27 @@ RUN cargo build --release
 # Fetch all dependencies
 RUN cargo fetch
 
+# Prefetch the private arch-network SDK and vendor every crate a user program
+# resolves. The GitHub token is a BuildKit secret on `fetch` only: it is not
+# an ARG, not an ENV, and not written to git config. `vendor` does not mount it.
+FROM base AS sdk-prefetch
+ARG ARCH_NETWORK_GIT=https://github.com/Arch-Network/arch-network
+ARG ARCH_NETWORK_REV=854713edfae969a86f217c1c1cdc673628faf54d
+COPY scripts/prefetch-arch-sdk.sh /usr/local/bin/prefetch-arch-sdk.sh
+COPY sdk-vendor /tmp/sdk-vendor
+RUN chmod +x /usr/local/bin/prefetch-arch-sdk.sh
+RUN --mount=type=secret,id=gh_token \
+    ARCH_NETWORK_GIT="${ARCH_NETWORK_GIT}" \
+    ARCH_NETWORK_REV="${ARCH_NETWORK_REV}" \
+    GH_TOKEN_FILE=/run/secrets/gh_token \
+    ARCH_SDK_ROOT=/opt/arch-sdk \
+    /usr/local/bin/prefetch-arch-sdk.sh fetch
+RUN ARCH_SDK_ROOT=/opt/arch-sdk \
+    CARGO_VENDOR_DIR=/opt/cargo-vendor \
+    ARCH_CARGO_HOME=/opt/cargo-home \
+    CARGO_NET_GIT_FETCH_WITH_CLI=false \
+    /usr/local/bin/prefetch-arch-sdk.sh vendor
+
 # Production stage - final lightweight image
 FROM base AS production
 WORKDIR /app
@@ -164,6 +187,16 @@ RUN chmod -R 777 /app/programs
 COPY --from=base /root/.cargo /root/.cargo
 COPY --from=base /root/.rustup /root/.rustup
 
+# Vendored arch-network SDK and crates.io closure. No git metadata, no token.
+COPY --from=sdk-prefetch /opt/arch-sdk /opt/arch-sdk
+COPY --from=sdk-prefetch /opt/cargo-vendor /opt/cargo-vendor
+COPY --from=sdk-prefetch /opt/cargo-home /opt/cargo-home
+
+COPY sandbox/block_link_local.c /tmp/block_link_local.c
+RUN gcc -shared -fPIC -o /usr/local/lib/libblock_link_local.so /tmp/block_link_local.c \
+    && rm -f /tmp/block_link_local.c \
+    && chmod 755 /usr/local/lib/libblock_link_local.so
+
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/programs/target/deploy && \
     # Fix permissions - make sure all directories are accessible
@@ -172,12 +205,21 @@ RUN mkdir -p /app/programs/target/deploy && \
     chmod -R 755 /usr/local/solana && \
     chmod +x /usr/local/bin/arch-server
 
-# Set environment variables
+# Set environment variables. User compiles inherit these. CARGO_HOME points at
+# the vendored config ([net] offline, git-fetch-with-cli = false), not a
+# directory a build can use to store a GitHub token.
 ENV PORT=8080
 ENV RUST_LOG=info
 ENV PATH="/root/.cargo/bin:/usr/local/solana:${PATH}"
 ENV RUSTUP_HOME="/root/.rustup"
-ENV CARGO_HOME="/root/.cargo"
+ENV CARGO_HOME="/opt/cargo-home"
+ENV ARCH_SDK_ROOT="/opt/arch-sdk"
+ENV ARCH_CARGO_HOME="/opt/cargo-home"
+ENV CARGO_VENDOR_DIR="/opt/cargo-vendor"
+ENV CARGO_NET_OFFLINE="true"
+ENV CARGO_NET_GIT_FETCH_WITH_CLI="false"
+ENV LD_PRELOAD="/usr/local/lib/libblock_link_local.so"
+ENV AWS_EC2_METADATA_DISABLED="true"
 
 # Verify installations in production image
 RUN echo "Verifying production image installations..." && \
@@ -185,7 +227,12 @@ RUN echo "Verifying production image installations..." && \
     rustc --version && \
     /usr/local/bin/solana --version && \
     /usr/local/bin/cargo-build-sbf --version && \
-    ls -la /root/.cargo/bin
+    ls -la /root/.cargo/bin && \
+    test -s /opt/arch-sdk/REVISION && \
+    test ! -e /opt/arch-sdk/.git && \
+    grep -q 'offline = true' /opt/cargo-home/config.toml && \
+    grep -q 'git-fetch-with-cli = false' /opt/cargo-home/config.toml && \
+    test ! -e /root/.gitconfig
 
 # Health check
 HEALTHCHECK --interval=5s --timeout=3s --start-period=5s --retries=3 \
@@ -202,22 +249,15 @@ RUN echo '#!/bin/bash\n\
 set -e\n\
 echo "Starting server with enhanced directory setup..."\n\
 \n\
-# -----------------------------------------------------------------------------\n\
-# Git auth for private dependencies (arch-network)\n\
-# -----------------------------------------------------------------------------\n\
-# Cargo uses libgit2 by default, which often cannot use your usual credential helpers.\n\
-# Force cargo to use the git CLI, which can authenticate via token/credential helpers.\n\
-mkdir -p /root/.cargo\n\
-cat > /root/.cargo/config.toml <<EOF\n\
-[net]\n\
-git-fetch-with-cli = true\n\
-EOF\n\
-\n\
-# If a GitHub token is provided, configure git to transparently authenticate\n\
-# github.com HTTPS clones. This is required if arch-network is private.\n\
-if [ -n "${GITHUB_TOKEN:-}" ]; then\n\
-  git config --global url."https://${GITHUB_TOKEN}:x-oauth-basic@github.com/".insteadOf "https://github.com/"\n\
-fi\n\
+# The SDK was vendored at image build. Do not configure git credentials here:\n\
+# an insteadOf URL is what cargo prints when a fetch fails.\n\
+rm -f /root/.gitconfig /root/.git-credentials\n\
+unset GITHUB_TOKEN GH_TOKEN GITHUB_PAT\n\
+unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN\n\
+unset AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI\n\
+export AWS_EC2_METADATA_DISABLED=true\n\
+export CARGO_NET_OFFLINE=true\n\
+export CARGO_NET_GIT_FETCH_WITH_CLI=false\n\
 \n\
 mkdir -p /app/programs\n\
 chmod -R 777 /app/programs\n\

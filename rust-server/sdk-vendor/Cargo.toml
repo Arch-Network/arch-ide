@@ -1,0 +1,47 @@
+# Dependency closure of a user program, resolved once at image build and
+# vendored to /opt/cargo-vendor. Paths point at the arch-network checkout
+# prefetched in the same image build (see scripts/prefetch-arch-sdk.sh).
+# Keep these requirements aligned with the Cargo.toml templates in
+# src/program.rs — user builds re-resolve offline against this vendor dir.
+[package]
+name = "arch-ide-sdk-vendor"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+idl-build = ["arch-satellite-lang/idl-build", "arch-satellite-apl/idl-build"]
+
+[dependencies]
+arch_program = { path = "/opt/arch-sdk/program" }
+apl-associated-token-account = { path = "/opt/arch-sdk/associated-token-account", features = ["no-entrypoint"] }
+apl-token = { path = "/opt/arch-sdk/token", features = ["no-entrypoint"] }
+apl-token-metadata = { path = "/opt/arch-sdk/token-metadata", features = ["no-entrypoint"] }
+
+arch-satellite-lang = { version = "0.32.0", features = ["init-if-needed"] }
+arch-satellite-apl = "0.32.0"
+
+borsh = "^1.5.3"
+base64 = { version = "=0.22.1", default-features = false, features = ["alloc"] }
+hex = { version = "=0.4.3", default-features = false }
+sha256 = { version = "=1.5.0", default-features = false }
+thiserror = "^1.0.57"
+serde = { version = "^1.0.216", features = ["derive"], default-features = false }
+bytemuck = { version = "^1.20.0", features = ["derive"] }
+uint = "0.9"
+arrayref = "0.3"
+
+# Same Cargo 1.84 caps as the program templates. Without them the resolver
+# selects edition-2024 releases that the SBF toolchain cannot parse, and
+# those versions would be the only ones in the vendor dir.
+toml_edit = ">=0.25.0, <0.25.6"
+toml_datetime = ">=1.0.0, <1.1.0"
+toml_parser = ">=1.0.0, <1.1.0"
+toml_writer = ">=1.0.0, <1.1.0"
+serde_spanned = ">=1.0.0, <1.1.0"
+unicode-segmentation = ">=1.0.0, <1.13.0"
+hashbrown = ">=0.14.0, <0.17.0"
+indexmap = ">=2.0.0, <2.14.0"

@@ -1,9 +1,11 @@
 mod build_tracker;
 mod config;
 mod error;
+mod link_local;
 mod log;
 mod middlewares;
 mod program;
+mod redact;
 mod routes;
 // mod test_bip322;  // Commented out - missing dependencies (arch_sdk, bitcoin, etc.)
 
@@ -26,6 +28,10 @@ async fn main() -> Result<()> {
     let config = Config::from_env();
     init_logging(config.verbose);
     info!("Config loaded: {config:#?}");
+
+    // Drop credential env before any compile. User source can embed the
+    // compiler's environment with `option_env!` / `include_str!`.
+    program::prepare_compile_environment();
 
     program::init().await.map_err(|e| {
         error!("Failed to initialize program directory: {}", e);

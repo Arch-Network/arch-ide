@@ -52,32 +52,8 @@ get_alb_dns() {
     return 0
 }
 
-ensure_execution_role_secret_access() {
-    local secret_arn="$1"
-    if [ -z "$secret_arn" ]; then
-        return 0
-    fi
-
-    local role_name="arch-ide-ecs-execution"
-    local policy_name="arch-ide-ecs-execution-secrets-access"
-
-    log_info "Ensuring ECS execution role can read Secrets Manager secret..."
-
-    # Inline policy so we don't depend on Terraform state/imports.
-    aws iam put-role-policy \
-        --role-name "$role_name" \
-        --policy-name "$policy_name" \
-        --policy-document "{
-          \"Version\": \"2012-10-17\",
-          \"Statement\": [{
-            \"Effect\": \"Allow\",
-            \"Action\": [\"secretsmanager:GetSecretValue\",\"secretsmanager:DescribeSecret\"],
-            \"Resource\": \"${secret_arn}\"
-          }]
-        }" >/dev/null
-
-    log_info "✓ Secrets access policy ensured on role: $role_name"
-}
+# GITHUB_TOKEN is consumed only as a BuildKit secret while the image is built.
+# It is not passed to Terraform and not injected into the ECS task.
 
 # Parse command line arguments
 SKIP_BACKEND=false
@@ -106,6 +82,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-frontend   Skip frontend deployment"
             echo "  --skip-wait       Don't wait for ECS service to stabilize"
             echo "  --help            Show this help message"
+            echo ""
+            echo "GITHUB_TOKEN must be set in the environment. It is used only to prefetch"
+            echo "Arch-Network/arch-network while building the image, and is not deployed."
             exit 0
             ;;
         *)
@@ -145,10 +124,24 @@ if [ "$SKIP_BACKEND" = false ]; then
     # Get git commit hash
     GIT_SHA=$(git rev-parse --short HEAD)
 
-    log_info "Building Docker image for linux/amd64..."
+    if [ -z "${GITHUB_TOKEN:-}" ]; then
+        log_error "GITHUB_TOKEN must be set to prefetch private arch-network crates during the image build."
+        log_error "It is passed as a BuildKit secret and is not stored in the image or the ECS task."
+        exit 1
+    fi
+
+    # Pin baked into the image. Keep this in lockstep with the task env below.
+    ARCH_NETWORK_GIT_VAR=${ARCH_NETWORK_GIT:-https://github.com/Arch-Network/arch-network}
+    ARCH_NETWORK_REV_VAR=${ARCH_NETWORK_REV:-854713edfae969a86f217c1c1cdc673628faf54d}
+    ARCH_NETWORK_BRANCH_VAR=${ARCH_NETWORK_BRANCH:-""}
+
+    log_info "Building Docker image for linux/amd64 (arch-network ${ARCH_NETWORK_REV_VAR})..."
     docker buildx create --use >/dev/null 2>&1 || true
     docker buildx build \
         --platform linux/amd64 \
+        --secret id=gh_token,env=GITHUB_TOKEN \
+        --build-arg "ARCH_NETWORK_GIT=${ARCH_NETWORK_GIT_VAR}" \
+        --build-arg "ARCH_NETWORK_REV=${ARCH_NETWORK_REV_VAR}" \
         -t "$IMAGE_URI:latest" \
         -t "$IMAGE_URI:$GIT_SHA" \
         ./rust-server \
@@ -162,15 +155,9 @@ if [ "$SKIP_BACKEND" = false ]; then
 
     # Update Terraform to ensure task definition uses latest image
     log_info "Applying Terraform configuration..."
-    # Allow overriding the arch-network pin used by the compilation server.
-    # Prefer ARCH_NETWORK_REV for stable deployments; BRANCH is fallback for pre-release workflows.
-    ARCH_NETWORK_GIT_VAR=${ARCH_NETWORK_GIT:-""}
-    ARCH_NETWORK_REV_VAR=${ARCH_NETWORK_REV:-""}
-    ARCH_NETWORK_BRANCH_VAR=${ARCH_NETWORK_BRANCH:-""}
-    GITHUB_TOKEN_SECRET_ARN_VAR=${GITHUB_TOKEN_SECRET_ARN:-""}
-
-    # If we’re injecting a secret, make sure the ECS execution role can read it.
-    ensure_execution_role_secret_access "$GITHUB_TOKEN_SECRET_ARN_VAR"
+    # The pin was applied as a Docker build-arg above. Repeat it as task env so
+    # the server can warn if the image and the task disagree. No GitHub token
+    # is injected.
 
     TF_ARGS=(
         -var "rust_server_image=$IMAGE_URI:latest"
@@ -183,9 +170,6 @@ if [ "$SKIP_BACKEND" = false ]; then
     fi
     if [ -n "$ARCH_NETWORK_BRANCH_VAR" ]; then
         TF_ARGS+=(-var "arch_network_branch=$ARCH_NETWORK_BRANCH_VAR")
-    fi
-    if [ -n "$GITHUB_TOKEN_SECRET_ARN_VAR" ]; then
-        TF_ARGS+=(-var "github_token_secret_arn=$GITHUB_TOKEN_SECRET_ARN_VAR")
     fi
 
     # Terraform can fail if state is missing/drifted and infra already exists (common in AWS accounts
@@ -208,7 +192,7 @@ if [ "$SKIP_BACKEND" = false ]; then
             export ARCH_NETWORK_GIT="$ARCH_NETWORK_GIT_VAR"
             export ARCH_NETWORK_REV="$ARCH_NETWORK_REV_VAR"
             export ARCH_NETWORK_BRANCH="$ARCH_NETWORK_BRANCH_VAR"
-            export GITHUB_TOKEN_SECRET_ARN="$GITHUB_TOKEN_SECRET_ARN_VAR"
+            unset GITHUB_TOKEN_SECRET_ARN
 
             NEW_TASK_DEF_ARN=$(python3 deploy/aws/update_ecs_task_definition.py)
             log_info "✓ Registered and deployed new task definition: $NEW_TASK_DEF_ARN"

@@ -125,7 +125,7 @@ pub async fn build(
             },
             Err(e) => {
                 println!("[BUILD] Build Err for UUID: {}, error: {}", uuid_clone, e);
-                let error_msg = format!("Build failed: {}", e);
+                let error_msg = crate::redact::redact_secrets(&format!("Build failed: {}", e));
                 tracker_clone
                     .complete_build(&uuid_clone, error_msg, program_name, false, None)
                     .await;
